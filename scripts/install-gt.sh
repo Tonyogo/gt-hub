@@ -77,7 +77,7 @@ TEMP_FILE=$(mktemp /tmp/gt.XXXXXX)
 # 1. Environment variable GT_DOWNLOAD_URL
 # 2. Origin proxy server (if installed via curl http://server/install.sh | bash)
 # 3. Official GitHub raw repository
-DEFAULT_URL="https://raw.githubusercontent.com/Tonyogo/gemini-proxy/main/scripts/gt.js"
+DEFAULT_URL="https://raw.githubusercontent.com/Tonyogo/gt-hub/main/scripts/gt.js"
 if [ -n "$GT_DOWNLOAD_URL" ]; then
   DOWNLOAD_URL="$GT_DOWNLOAD_URL"
 elif [ -n "$GT_SERVER_URL" ]; then

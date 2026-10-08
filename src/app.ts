@@ -44,9 +44,26 @@ app.get('/health', (req: Request, res: Response) => {
   res.status(200).json({ status: 'ok' });
 });
 
+function resolveFrontendDist(): string | null {
+  const candidates = [
+    path.join(__dirname, '../dist/frontend'),
+    path.join(__dirname, '../../dist/frontend'),
+    path.join(process.cwd(), 'dist/frontend'),
+    path.join(__dirname, '../frontend'),
+  ];
+  return candidates.find((p) => fs.existsSync(p)) || null;
+}
+
 if (config.enableUi) {
-  const frontendDist = path.join(__dirname, '../../dist/frontend');
-  app.use(express.static(frontendDist));
+  app.use((req: Request, res: Response, next) => {
+    const frontendDist = resolveFrontendDist();
+    if (frontendDist) {
+      express.static(frontendDist)(req, res, next);
+    } else {
+      next();
+    }
+  });
+
   app.get('*', (req: Request, res: Response, next) => {
     if (
       req.path.startsWith('/api') ||
@@ -58,11 +75,12 @@ if (config.enableUi) {
     ) {
       return next();
     }
-    res.sendFile(path.join(frontendDist, 'index.html'), (err) => {
-      if (err) {
-        res.status(404).send('UI not built yet. Run npm run build.');
-      }
-    });
+    const frontendDist = resolveFrontendDist();
+    if (frontendDist && fs.existsSync(path.join(frontendDist, 'index.html'))) {
+      res.sendFile(path.join(frontendDist, 'index.html'));
+    } else {
+      res.status(404).send('UI not built yet. Run npm run build.');
+    }
   });
 }
 

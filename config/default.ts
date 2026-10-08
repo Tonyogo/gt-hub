@@ -11,7 +11,7 @@ export interface HubConfig {
 }
 
 export const config: HubConfig = {
-  port: process.env.PORT || 8080,
+  port: process.env.PORT ? (Number(process.env.PORT) || 8080) : 8080,
   adminSecretKey: process.env.ADMIN_SECRET_KEY || '',
   logLevel: process.env.LOG_LEVEL || 'info',
   timeZone: process.env.TIME_ZONE || process.env.TZ || 'Asia/Shanghai',
