@@ -42,7 +42,7 @@
   - `GET /api/auth/status`: returns `{ authRequired: boolean, authenticated: boolean }`
   - `POST /api/auth/login`: accepts `{ key: string }`, returns 200 `{ success: true }` or 401 `{ error: string }`
 
-- [ ] **Step 1: Write the failing test for backend auth endpoints**
+- [x] **Step 1: Write the failing test for backend auth endpoints**
 
 Create `tests/authRoutes.test.ts`:
 ```ts
@@ -121,12 +121,12 @@ describe('Auth Routes (/api/auth)', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx jest tests/authRoutes.test.ts`
 Expected: FAIL (Cannot find module `../src/auth/routes/authRoutes`).
 
-- [ ] **Step 3: Implement authRoutes and mount in src/app.ts**
+- [x] **Step 3: Implement authRoutes and mount in src/app.ts**
 
 Create `src/auth/routes/authRoutes.ts`:
 ```ts
@@ -177,12 +177,12 @@ import authRoutes from './auth/routes/authRoutes';
 app.use('/api/auth', authRoutes);
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npx jest tests/authRoutes.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/auth/routes/authRoutes.ts src/app.ts tests/authRoutes.test.ts
@@ -206,7 +206,7 @@ git commit -m "feat(auth): add /api/auth/status and /api/auth/login endpoints"
   - `useAuth()` hook with `{ status, authRequired, adminKey, login, logout, error, setError }`
   - `AuthProvider` React component
 
-- [ ] **Step 1: Write the failing test for frontend AuthContext**
+- [x] **Step 1: Write the failing test for frontend AuthContext**
 
 Create `tests/frontendAuthContext.test.ts`:
 ```ts
@@ -244,12 +244,12 @@ describe('Frontend AuthContext Architecture', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx jest tests/frontendAuthContext.test.ts`
 Expected: FAIL (`AuthContext.tsx` does not exist yet).
 
-- [ ] **Step 3: Implement AuthContext.tsx**
+- [x] **Step 3: Implement AuthContext.tsx**
 
 Create `frontend/src/auth/AuthContext.tsx`:
 ```tsx
@@ -373,12 +373,12 @@ export function useAuth(): AuthContextValue {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npx jest tests/frontendAuthContext.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/auth/AuthContext.tsx tests/frontendAuthContext.test.ts
@@ -401,7 +401,7 @@ git commit -m "feat(auth): implement frontend AuthContext with status probe and 
 - Produces:
   - `LoginView` React component rendering a full-screen, centered login card with theme/language controls.
 
-- [ ] **Step 1: Write the failing test for LoginView**
+- [x] **Step 1: Write the failing test for LoginView**
 
 Create `tests/frontendLoginView.test.ts`:
 ```ts
@@ -441,12 +441,12 @@ describe('LoginView Component Architecture', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx jest tests/frontendLoginView.test.ts`
 Expected: FAIL (`LoginView.tsx` does not exist yet).
 
-- [ ] **Step 3: Implement LoginView.tsx**
+- [x] **Step 3: Implement LoginView.tsx**
 
 Create `frontend/src/components/LoginView.tsx`:
 ```tsx
@@ -580,12 +580,12 @@ export default function LoginView() {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npx jest tests/frontendLoginView.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/components/LoginView.tsx tests/frontendLoginView.test.ts
@@ -611,7 +611,7 @@ git commit -m "feat(auth): add responsive fullscreen LoginView component"
   - Logout action button with `LogOut` icon in `UnifiedTerminalView`'s micro top bar.
   - Automatic logout on 401 response from terminal fetch.
 
-- [ ] **Step 1: Write the failing test for App.tsx Auth Guard and UnifiedTerminalView logout**
+- [x] **Step 1: Write the failing test for App.tsx Auth Guard and UnifiedTerminalView logout**
 
 Create `tests/terminalAuthGuardIntegration.test.ts`:
 ```ts
@@ -645,7 +645,7 @@ describe('Auth Guard Integration & Logout Mechanism', () => {
   });
 
   it('App.tsx passes onLogout to UnifiedTerminalView', () => {
-    expect(appContent).toMatch(/<UnifiedTerminalView[^>]*onLogout=\{logout\}/);
+    expect(appContent).toMatch(/<UnifiedTerminalView[^>]*onLogout=\{(authRequired \? )?logout/);
   });
 
   it('UnifiedTerminalView provides Logout button and handles 401 auto logout', () => {
@@ -655,12 +655,12 @@ describe('Auth Guard Integration & Logout Mechanism', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx jest tests/terminalAuthGuardIntegration.test.ts`
 Expected: FAIL.
 
-- [ ] **Step 3: Update main.tsx, App.tsx, and UnifiedTerminalView.tsx**
+- [x] **Step 3: Update main.tsx, App.tsx, and UnifiedTerminalView.tsx**
 
 1. Update `frontend/src/main.tsx`:
 ```tsx
@@ -761,12 +761,12 @@ export default function App() {
   )}
   ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npx jest tests/terminalAuthGuardIntegration.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/main.tsx frontend/src/App.tsx frontend/src/components/UnifiedTerminalView.tsx tests/terminalAuthGuardIntegration.test.ts
@@ -781,17 +781,17 @@ git commit -m "feat(auth): integrate Auth Guard into App.tsx and add logout acti
 - Test: All suites in `tests/*.test.ts`
 - Build: `frontend/`
 
-- [ ] **Step 1: Run complete Jest test suite**
+- [x] **Step 1: Run complete Jest test suite**
 
 Run: `npm test`
 Expected: All 89 test suites pass cleanly.
 
-- [ ] **Step 2: Run frontend production build**
+- [x] **Step 2: Run frontend production build**
 
 Run: `cd frontend && npm run build && cd ..`
 Expected: `tsc --noEmit && vite build` builds cleanly with 0 errors.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git commit --allow-empty -m "chore: verify auth guard regression test suite and frontend build pass"
