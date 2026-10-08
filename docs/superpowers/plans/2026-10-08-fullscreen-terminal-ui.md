@@ -43,7 +43,7 @@
 - Produces:
   - Micro top bar with Host Selector, SubTab Pills, Connection Badge, Action Buttons, and integrated Key/Language/Theme utilities.
 
-- [ ] **Step 1: Write the failing test for micro top bar controls**
+- [x] **Step 1: Write the failing test for micro top bar controls**
 
 Create `tests/terminalUnifiedTopBarControls.test.ts`:
 ```ts
@@ -81,12 +81,12 @@ describe('UnifiedTerminalView Micro Top Bar Integrated Controls', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx jest tests/terminalUnifiedTopBarControls.test.ts`
 Expected: FAIL (missing `Key`, `Languages`, `Sun`, `Moon`, and `useTheme` in `UnifiedTerminalView.tsx`).
 
-- [ ] **Step 3: Update UnifiedTerminalView with integrated top bar controls**
+- [x] **Step 3: Update UnifiedTerminalView with integrated top bar controls**
 
 Edit `frontend/src/components/UnifiedTerminalView.tsx`:
 1. Import `Sun, Moon, Languages, Key` from `lucide-react`.
@@ -175,12 +175,12 @@ Edit `frontend/src/components/UnifiedTerminalView.tsx`:
    </button>
    ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npx jest tests/terminalUnifiedTopBarControls.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tests/terminalUnifiedTopBarControls.test.ts frontend/src/components/UnifiedTerminalView.tsx
@@ -201,7 +201,7 @@ git commit -m "feat: integrate key, language, and theme controls into UnifiedTer
 - Produces:
   - Minimalistic, 100dvh full-screen root component rendering only `UnifiedTerminalView`.
 
-- [ ] **Step 1: Write the failing test for App.tsx fullscreen minimalism**
+- [x] **Step 1: Write the failing test for App.tsx fullscreen minimalism**
 
 Create `tests/terminalFullscreenAppLayout.test.ts`:
 ```ts
@@ -234,12 +234,12 @@ describe('App.tsx Pure Fullscreen Terminal Architecture', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx jest tests/terminalFullscreenAppLayout.test.ts`
 Expected: FAIL (App.tsx still contains `<header>`, `TerminalLogsView`, etc.).
 
-- [ ] **Step 3: Refactor App.tsx**
+- [x] **Step 3: Refactor App.tsx**
 
 Replace `frontend/src/App.tsx` with:
 ```tsx
@@ -255,12 +255,12 @@ export default function App() {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npx jest tests/terminalFullscreenAppLayout.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tests/terminalFullscreenAppLayout.test.ts frontend/src/App.tsx
@@ -275,17 +275,17 @@ git commit -m "refactor: eliminate outer header and logs view in App.tsx for ful
 - Test: All suites in `tests/*.test.ts`
 - Build: `frontend/`
 
-- [ ] **Step 1: Run complete Jest test suite**
+- [x] **Step 1: Run complete Jest test suite**
 
 Run: `npm test`
 Expected: All 85 test suites pass (including existing 83 suites plus 2 new test suites).
 
-- [ ] **Step 2: Run frontend production build**
+- [x] **Step 2: Run frontend production build**
 
 Run: `cd frontend && npm run build && cd ..`
 Expected: `tsc --noEmit && vite build` succeeds with zero errors.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git commit --allow-empty -m "chore: verify complete regression test suite and frontend build pass"
