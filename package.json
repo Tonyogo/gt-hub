@@ -1,0 +1,39 @@
+{
+  "name": "gt-hub",
+  "version": "1.0.0",
+  "description": "Centralized WebSocket Hub and WebTerminal Service",
+  "main": "dist/src/index.js",
+  "bin": {
+    "gt": "./scripts/gt.js"
+  },
+  "scripts": {
+    "gt": "node scripts/gt.js",
+    "build:frontend": "cd frontend && npm run build",
+    "build:backend": "tsc",
+    "build": "npm run build:frontend && npm run build:backend",
+    "prestart": "npm run build",
+    "start": "node dist/src/index.js",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "test": "jest --detectOpenHandles --forceExit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "node-pty": "^1.1.0",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^26.1.1",
+    "@types/supertest": "^7.2.0",
+    "@types/ws": "^8.18.1",
+    "jest": "^29.7.0",
+    "supertest": "^7.0.0",
+    "ts-jest": "^29.4.11",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.4.5"
+  }
+}

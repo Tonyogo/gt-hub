@@ -1,0 +1,210 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg-canvas: #F8FAFC;
+    --bg-surface: #FFFFFF;
+    --bg-surface-sub: #F1F5F9;
+    --bg-surface-hover: rgba(0, 0, 0, 0.04);
+    --border-subtle: rgba(0, 0, 0, 0.08);
+    --border-hover: rgba(0, 0, 0, 0.16);
+    --text-primary: #0F172A;
+    --text-secondary: #475569;
+    --text-muted: #94A3B8;
+    --code-bg: #F1F5F9;
+    --code-text: #0F172A;
+    --scrollbar-thumb: rgba(0, 0, 0, 0.15);
+    --scrollbar-thumb-hover: rgba(0, 0, 0, 0.28);
+    color-scheme: light;
+  }
+
+  :root.dark,
+  :root[data-theme="dark"] {
+    --bg-canvas: #090A0F;
+    --bg-surface: #0C0E14;
+    --bg-surface-sub: #10121A;
+    --bg-surface-hover: rgba(255, 255, 255, 0.04);
+    --border-subtle: rgba(255, 255, 255, 0.08);
+    --border-hover: rgba(255, 255, 255, 0.16);
+    --text-primary: #F8FAFC;
+    --text-secondary: #94A3B8;
+    --text-muted: #64748B;
+    --code-bg: #020617;
+    --code-text: #E2E8F0;
+    --scrollbar-thumb: rgba(255, 255, 255, 0.12);
+    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.24);
+    color-scheme: dark;
+  }
+
+  html, body, #root {
+    height: 100%;
+    max-height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  body {
+    background-color: var(--bg-canvas);
+    color: var(--text-primary);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  /* Custom Webkit Scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+  }
+
+  /* Firefox scrollbar */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+  }
+}
+
+:root:not(.dark) {
+  .text-slate-100, .text-slate-200 {
+    color: var(--text-primary);
+  }
+  .text-slate-300 {
+    color: #334155;
+  }
+  .text-slate-400 {
+    color: var(--text-secondary);
+  }
+  .text-slate-500 {
+    color: #94A3B8;
+  }
+  .border-white\/\[0\.08\], .border-white\/\[0\.06\], .border-white\/\[0\.1\] {
+    border-color: var(--border-subtle);
+  }
+}
+
+@keyframes pulse-slow {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.98);
+  }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@layer utilities {
+  .border-subtle {
+    border-color: var(--border-subtle);
+  }
+
+  .glow-subtle {
+    box-shadow: 0 0 20px -5px rgba(99, 102, 241, 0.15);
+  }
+
+  .glow-emerald {
+    box-shadow: 0 0 20px -5px rgba(16, 185, 129, 0.15);
+  }
+
+  .glow-amber {
+    box-shadow: 0 0 20px -5px rgba(245, 158, 11, 0.15);
+  }
+
+  .glow-rose {
+    box-shadow: 0 0 20px -5px rgba(244, 63, 94, 0.15);
+  }
+
+  .font-mono-refined {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-feature-settings: "liga" 0, "calt" 0;
+    letter-spacing: -0.01em;
+  }
+}
+
+@layer components {
+  /* 主卡片面板 */
+  .ui-card {
+    @apply bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-primary)] rounded-2xl shadow-sm dark:shadow-2xl backdrop-blur-md;
+  }
+
+  /* 内嵌子卡片 / 表格行 */
+  .ui-card-sub {
+    @apply bg-[var(--bg-surface-sub)] border border-[var(--border-subtle)] text-[var(--text-primary)] rounded-xl shadow-sm;
+  }
+
+  /* 胶囊 Tab 切换容器与按键 */
+  .ui-tab-container {
+    @apply flex items-center p-1 bg-[var(--bg-surface-sub)] rounded-xl border border-[var(--border-subtle)] shadow-sm;
+  }
+  .ui-tab-pill {
+    @apply px-3 py-1.5 rounded-lg text-xs font-medium transition-all text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)];
+  }
+  .ui-tab-pill-active,
+  .ui-tab-pill-active:hover,
+  .ui-tab-pill-active:focus,
+  .ui-tab-pill-active:active {
+    @apply !bg-indigo-600 !text-white shadow-[0_0_12px_rgba(99,102,241,0.35)];
+  }
+
+  /* 统一按钮系统 */
+  .ui-btn-primary {
+    @apply bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-xl font-medium text-xs shadow-[0_0_15px_rgba(99,102,241,0.25)] transition-all active:scale-[0.98];
+  }
+  .ui-btn-secondary {
+    @apply bg-black/[0.03] dark:bg-white/[0.04] hover:bg-black/[0.06] dark:hover:bg-white/[0.08] border border-[var(--border-subtle)] hover:border-[var(--border-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded-xl text-xs font-medium transition-all active:scale-[0.98];
+  }
+
+  /* 统一输入框与下拉框 */
+  .ui-input {
+    @apply bg-[var(--bg-surface-sub)] border border-[var(--border-subtle)] hover:border-[var(--border-hover)] focus:border-indigo-500/80 rounded-xl px-3 py-2 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-indigo-500/40 font-mono transition-all;
+  }
+}
+
+/* Terminal Selection Mode: Disable all browser native text drag & magnifier callouts */
+.terminal-select-mode,
+.terminal-select-mode .xterm,
+.terminal-select-mode .xterm-screen,
+.terminal-select-mode .xterm-rows,
+.terminal-select-mode .xterm-rows * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -webkit-touch-callout: none !important;
+  touch-action: none !important;
+}
+
+/* Terminal Viewport: Transparent & Invisible Scrollbar to prevent text obstruction */
+.xterm .xterm-viewport {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+.xterm .xterm-viewport::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
+}
+.xterm .xterm-viewport::-webkit-scrollbar-thumb {
+  background: transparent !important;
+}
+.xterm .xterm-viewport::-webkit-scrollbar-track {
+  background: transparent !important;
+}
+
