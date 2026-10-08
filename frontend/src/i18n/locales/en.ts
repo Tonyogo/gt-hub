@@ -515,6 +515,9 @@ export const en = {
     detailsHeader: "Details"
   },
   webTerminal: {
+    loginSubtitle: "Please enter the admin secret key to access the terminal console",
+    secretKeyLabel: "Admin Secret Key",
+    verifying: "Verifying...",
     title: "Interactive Web Terminal",
     connected: "Connected",
     disconnected: "Disconnected",

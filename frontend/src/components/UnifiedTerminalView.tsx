@@ -17,6 +17,7 @@ import {
   Languages,
   Sun,
   Moon,
+  LogOut,
 } from 'lucide-react';
 import { useTranslation } from '../i18n/LanguageContext';
 import { useTheme } from '../theme/ThemeContext';
@@ -27,6 +28,7 @@ export interface UnifiedTerminalViewProps {
   isStandalone?: boolean;
   onEnterStandalone?: () => void;
   onExitStandalone?: () => void;
+  onLogout?: () => void;
 }
 
 export type TerminalSubTab = 'interactive' | 'files';
@@ -36,6 +38,7 @@ export default function UnifiedTerminalView({
   isStandalone = true,
   onEnterStandalone,
   onExitStandalone,
+  onLogout,
 }: UnifiedTerminalViewProps) {
   const { t, language, setLanguage } = useTranslation();
   const { setTheme, resolvedTheme } = useTheme();
@@ -56,6 +59,25 @@ export default function UnifiedTerminalView({
       localStorage.setItem('admin_secret_key', newKey);
     }
   };
+
+  // Auto-logout on 401 unauthorized responses from terminal API
+  useEffect(() => {
+    if (!onLogout) return;
+    const originalFetch = window.fetch;
+    window.fetch = async (...args) => {
+      const response = await originalFetch(...args);
+      if (response.status === 401) {
+        const url = typeof args[0] === 'string' ? args[0] : (args[0] instanceof Request ? args[0].url : '');
+        if (!url.includes('/api/auth/login') && !url.includes('/api/auth/status')) {
+          onLogout();
+        }
+      }
+      return response;
+    };
+    return () => {
+      window.fetch = originalFetch;
+    };
+  }, [onLogout]);
 
   const [subTab, setSubTab] = useState<TerminalSubTab>('interactive');
   const [activeHostId, setActiveHostId] = useState<string>(() => {
@@ -485,6 +507,18 @@ export default function UnifiedTerminalView({
           >
             {resolvedTheme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
           </button>
+
+          {/* Logout Action */}
+          {onLogout && (
+            <button
+              type="button"
+              onClick={onLogout}
+              className="p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 border border-white/[0.06] hover:border-rose-500/30 transition-all"
+              title={t('nav.logout', '退出登录')}
+            >
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
 

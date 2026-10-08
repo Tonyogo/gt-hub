@@ -517,6 +517,9 @@ export const zh: Translations = {
     detailsHeader: "详情"
   },
   webTerminal: {
+    loginSubtitle: "请输入管理员密钥以访问控制台与终端",
+    secretKeyLabel: "管理员密钥",
+    verifying: "正在验证...",
     title: "交互式网页终端",
     connected: "已连接",
     disconnected: "已断开",
