@@ -13,12 +13,17 @@ import {
   Trash2,
   TextSelect,
   ArrowLeft,
+  Key,
+  Languages,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { useTranslation } from '../i18n/LanguageContext';
+import { useTheme } from '../theme/ThemeContext';
 import { calculateKeyboardTranslateY } from '../utils/mobileViewportHelper';
 
 export interface UnifiedTerminalViewProps {
-  adminKey: string;
+  adminKey?: string;
   isStandalone?: boolean;
   onEnterStandalone?: () => void;
   onExitStandalone?: () => void;
@@ -27,12 +32,31 @@ export interface UnifiedTerminalViewProps {
 export type TerminalSubTab = 'interactive' | 'files';
 
 export default function UnifiedTerminalView({
-  adminKey,
-  isStandalone = false,
+  adminKey: propAdminKey,
+  isStandalone = true,
   onEnterStandalone,
   onExitStandalone,
 }: UnifiedTerminalViewProps) {
-  const { t } = useTranslation();
+  const { t, language, setLanguage } = useTranslation();
+  const { setTheme, resolvedTheme } = useTheme();
+  const [adminKey, setAdminKey] = useState<string>(() => {
+    return propAdminKey || (typeof window !== 'undefined' ? localStorage.getItem('admin_secret_key') || '' : '');
+  });
+  const [showKeyInput, setShowKeyInput] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (propAdminKey !== undefined) {
+      setAdminKey(propAdminKey);
+    }
+  }, [propAdminKey]);
+
+  const handleKeySave = (newKey: string) => {
+    setAdminKey(newKey);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('admin_secret_key', newKey);
+    }
+  };
+
   const [subTab, setSubTab] = useState<TerminalSubTab>('interactive');
   const [activeHostId, setActiveHostId] = useState<string>(() => {
     return localStorage.getItem('terminal_active_host') || '';
@@ -410,6 +434,57 @@ export default function UnifiedTerminalView({
               {isStandalone ? <Minimize2 className="w-3.5 h-3.5 text-indigo-400" /> : <Maximize2 className="w-3.5 h-3.5" />}
             </button>
           )}
+
+          {/* Global Settings Separator */}
+          <div className="h-3.5 w-px bg-[var(--border-subtle)] mx-0.5 sm:mx-1 hidden sm:block" />
+
+          {/* Admin Secret Key Toggle / Input */}
+          {showKeyInput ? (
+            <div className="flex items-center">
+              <input
+                type="password"
+                value={adminKey}
+                onChange={(e) => handleKeySave(e.target.value)}
+                placeholder="Admin Key"
+                className="px-2 py-0.5 text-[11px] font-mono w-24 sm:w-36 rounded bg-[var(--bg-canvas)] border border-[var(--border-subtle)] text-[var(--text-primary)] focus:outline-none focus:border-emerald-500/50"
+                autoFocus
+                onBlur={() => setShowKeyInput(false)}
+              />
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowKeyInput(true)}
+              title="Admin Secret Key"
+              className={`p-1 sm:p-1.5 rounded-lg border transition-all ${
+                adminKey
+                  ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30'
+                  : 'bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border border-white/[0.06]'
+              }`}
+            >
+              <Key className="w-3.5 h-3.5" />
+            </button>
+          )}
+
+          {/* Language Switcher */}
+          <button
+            type="button"
+            onClick={() => setLanguage(language === 'zh' ? 'en' : 'zh')}
+            className="p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border border-white/[0.06] transition-all"
+            title="Toggle Language"
+          >
+            <Languages className="w-3.5 h-3.5" />
+          </button>
+
+          {/* Theme Switcher */}
+          <button
+            type="button"
+            onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+            className="p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border border-white/[0.06] transition-all"
+            title="Toggle Theme"
+          >
+            {resolvedTheme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+          </button>
         </div>
       </div>
 
