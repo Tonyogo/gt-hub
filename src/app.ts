@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
 import terminalRoutes from './terminal/routes/terminalRoutes';
+import authRoutes from './auth/routes/authRoutes';
 import config from '../config/default';
 
 const app = express();
@@ -39,6 +40,7 @@ app.get(['/gt', '/api/terminal/gt'], (req: Request, res: Response) => {
 app.use('/api/terminal', terminalRoutes);
 // Compatibility alias
 app.use('/api/admin/terminal', terminalRoutes);
+app.use('/api/auth', authRoutes);
 
 app.get('/health', (req: Request, res: Response) => {
   res.status(200).json({ status: 'ok' });
