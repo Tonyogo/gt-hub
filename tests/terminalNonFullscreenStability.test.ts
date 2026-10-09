@@ -4,7 +4,9 @@ import * as path from 'path';
 describe('Non-Fullscreen Terminal Stability & Continuous Canvas', () => {
   const unifiedPath = path.resolve(__dirname, '../frontend/src/components/UnifiedTerminalView.tsx');
   const webTerminalPath = path.resolve(__dirname, '../frontend/src/components/WebTerminalView.tsx');
-  const gtPath = path.resolve(__dirname, '../scripts/gt.js');
+  const agentPath = path.resolve(__dirname, '../src/agent/daemon.ts');
+  const legacyGtPath = path.resolve(__dirname, '../scripts/gt.js');
+  const gtPath = fs.existsSync(agentPath) ? agentPath : legacyGtPath;
 
   let unifiedContent: string;
   let webTerminalContent: string;
