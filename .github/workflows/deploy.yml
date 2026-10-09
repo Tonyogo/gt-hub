@@ -26,10 +26,10 @@ jobs:
 
       - name: Validate configuration & Deploy via gt
         env:
-          TERMINAL_SERVER: ${{ secrets.TERMINAL_SERVER || 'https://www.yatao.cc.cd' }}
+          TERMINAL_SERVER: ${{ secrets.TERMINAL_SERVER || 'https://gt.yatao.cc.cd' }}
           ADMIN_SECRET_KEY: ${{ secrets.ADMIN_SECRET_KEY }}
-          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '~/gt-hub' }}
-          TARGET_HOST: ${{ secrets.GT_HOST || 'gt-hub' }}
+          DEPLOY_PATH: '~/gt-hub'
+          TARGET_HOST: 'gt-hub'
         run: |
           # 1. Validate required GitHub Secrets
           MISSING=""
