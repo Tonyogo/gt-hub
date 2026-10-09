@@ -87,6 +87,7 @@ export function TerminalHostSelector({
       return next;
     });
   };
+  const [copiedInstall, setCopiedInstall] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isClearingOffline, setIsClearingOffline] = useState<boolean>(false);
@@ -296,18 +297,59 @@ export function TerminalHostSelector({
   const onlineCount = useMemo(() => hosts.filter((h) => h.status === 'online').length, [hosts]);
   const hasOfflineHosts = useMemo(() => hosts.some((h) => h.status === 'offline'), [hosts]);
 
+  const installCommand = useMemo(() => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+    return `curl -fsSL "${origin}/install.sh" | bash`;
+  }, []);
+
   const agentCommand = useMemo(() => {
     const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
     const effectiveKey = adminKey || (typeof localStorage !== 'undefined' ? localStorage.getItem('adminKey') || '' : '');
     return `gt login "${origin}" "${effectiveKey}" && gt run -d --name="my-server"`;
   }, [adminKey]);
 
+  const copyToClipboard = (text: string, onSuccess: () => void) => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard
+        .writeText(text)
+        .then(onSuccess)
+        .catch(() => {
+          fallbackCopy(text, onSuccess);
+        });
+    } else {
+      fallbackCopy(text, onSuccess);
+    }
+  };
+
+  const fallbackCopy = (text: string, onSuccess: () => void) => {
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      onSuccess();
+    } catch {
+      // Ignore
+    }
+  };
+
+  const handleCopyInstall = () => {
+    copyToClipboard(installCommand, () => {
+      setCopiedInstall(true);
+      setTimeout(() => setCopiedInstall(false), 2000);
+    });
+  };
+
   const handleCopyCommand = () => {
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(agentCommand);
+    copyToClipboard(agentCommand, () => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    }
+    });
   };
 
   const popoverContent = isOpen && typeof document !== 'undefined' ? (
@@ -591,10 +633,42 @@ export function TerminalHostSelector({
                 {t('webTerminal.hostSelector.addNodeDesc')}
               </p>
 
+              {/* Step 1: Install gt CLI */}
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between text-[11px] text-[var(--text-muted)]">
-                  <span>{t('webTerminal.hostSelector.runOnTarget', '在目标节点运行终端 Agent:')}</span>
-                  <span className="font-mono text-emerald-400">{t('webTerminal.emptyState.requirements', 'Node.js 18+ required')}</span>
+                <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] text-[var(--text-muted)]">
+                  <span className="font-semibold text-slate-200">
+                    {t('webTerminal.hostSelector.step1InstallTitle', '步骤 1：安装 gt 命令行工具')}
+                  </span>
+                  <span className="font-mono text-emerald-400">
+                    {t('webTerminal.hostSelector.installRequirements', '需目标节点具备 Node.js 18+ 环境，支持 Linux & macOS')}
+                  </span>
+                </div>
+
+                <div className="relative group">
+                  <pre className="p-3 pr-10 rounded-xl bg-black/40 border border-white/[0.08] font-mono text-[11px] text-slate-200 overflow-x-auto whitespace-pre-wrap break-all select-all">
+                    {installCommand}
+                  </pre>
+                  <button
+                    type="button"
+                    onClick={handleCopyInstall}
+                    className="absolute top-2 right-2 p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white flex items-center justify-center shadow-md transition-all cursor-pointer"
+                    title={copiedInstall ? t('webTerminal.hostSelector.commandCopied', '命令已复制！') : t('webTerminal.hostSelector.copyInstallCommand', '复制安装命令')}
+                    aria-label={copiedInstall ? t('webTerminal.hostSelector.commandCopied', '命令已复制！') : t('webTerminal.hostSelector.copyInstallCommand', '复制安装命令')}
+                  >
+                    {copiedInstall ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Step 2: Connect & Start Agent */}
+              <div className="space-y-1.5">
+                <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] text-[var(--text-muted)]">
+                  <span className="font-semibold text-slate-200">
+                    {t('webTerminal.hostSelector.step2RunTitle', '步骤 2：连接并启动后台 Agent')}
+                  </span>
+                  <span className="font-mono text-emerald-400">
+                    {t('webTerminal.hostSelector.autoConnectTip', '自动建立出站安全长连接，同名节点重启将自动重新上线')}
+                  </span>
                 </div>
 
                 <div className="relative group">
@@ -605,8 +679,8 @@ export function TerminalHostSelector({
                     type="button"
                     onClick={handleCopyCommand}
                     className="absolute top-2 right-2 p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white flex items-center justify-center shadow-md transition-all cursor-pointer"
-                    title={copied ? t('webTerminal.hostSelector.commandCopied', '命令已复制！') : t('webTerminal.hostSelector.copyCommand', '复制运行命令')}
-                    aria-label={copied ? t('webTerminal.hostSelector.commandCopied', '命令已复制！') : t('webTerminal.hostSelector.copyCommand', '复制运行命令')}
+                    title={copied ? t('webTerminal.hostSelector.commandCopied', '命令已复制！') : t('webTerminal.hostSelector.copyRunCommand', '复制启动命令')}
+                    aria-label={copied ? t('webTerminal.hostSelector.commandCopied', '命令已复制！') : t('webTerminal.hostSelector.copyRunCommand', '复制启动命令')}
                   >
                     {copied ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
                   </button>

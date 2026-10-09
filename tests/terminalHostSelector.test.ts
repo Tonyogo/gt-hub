@@ -68,4 +68,34 @@ describe('TerminalHostSelector Pure Agent Tests', () => {
     expect((zh as any).webTerminal.hostSelector.showAllHosts).toBeDefined();
     expect((en as any).webTerminal.hostSelector.showAllHosts).toBeDefined();
   });
+
+  test('modal splits guide into Step 1 (install CLI) and Step 2 (connect & run agent) with distinct copy buttons', () => {
+    expect(content).toContain('installCommand');
+    expect(content).toContain('agentCommand');
+    expect(content).toContain('handleCopyInstall');
+    expect(content).toContain('handleCopyCommand');
+    expect(content).toContain('copyToClipboard');
+    expect(content).toContain('fallbackCopy');
+    expect(content).toContain('/install.sh');
+    expect(content).toContain('gt login');
+    expect(content).toContain('step1InstallTitle');
+    expect(content).toContain('step2RunTitle');
+    expect(content).toContain('installRequirements');
+    expect(content).toContain('autoConnectTip');
+  });
+
+  test('i18n locales contain step1, step2, copyInstallCommand and copyRunCommand translations', () => {
+    expect((zh as any).webTerminal.hostSelector.step1InstallTitle).toBeDefined();
+    expect((en as any).webTerminal.hostSelector.step1InstallTitle).toBeDefined();
+    expect((zh as any).webTerminal.hostSelector.step2RunTitle).toBeDefined();
+    expect((en as any).webTerminal.hostSelector.step2RunTitle).toBeDefined();
+    expect((zh as any).webTerminal.hostSelector.copyInstallCommand).toBeDefined();
+    expect((en as any).webTerminal.hostSelector.copyInstallCommand).toBeDefined();
+    expect((zh as any).webTerminal.hostSelector.copyRunCommand).toBeDefined();
+    expect((en as any).webTerminal.hostSelector.copyRunCommand).toBeDefined();
+    expect((zh as any).webTerminal.hostSelector.installRequirements).toBeDefined();
+    expect((en as any).webTerminal.hostSelector.installRequirements).toBeDefined();
+    expect((zh as any).webTerminal.hostSelector.autoConnectTip).toBeDefined();
+    expect((en as any).webTerminal.hostSelector.autoConnectTip).toBeDefined();
+  });
 });
