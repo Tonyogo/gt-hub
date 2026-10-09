@@ -85,8 +85,8 @@ Exec Options:
   --poll-interval <ms>    Polling interval for log stream in ms (Default: 500)
 
 Global Options:
-  -s, --server <url>              Hub server URL (Default: env TERMINAL_SERVER or http://localhost:8000)
-  -k, --key <secret>              Admin secret key (Default: env ADMIN_SECRET_KEY)
+  -s, --server <url>              Hub server URL (Default: env GT_SERVER or http://localhost:8000)
+  -k, --key <secret>              Admin secret key (Default: env GT_KEY)
   --json                          Output in JSON format
   --format <template>             Format output using Go/Docker template (e.g. 'table {{.ID}}\\t{{.Name}}')
   -v, --version                   Print version information

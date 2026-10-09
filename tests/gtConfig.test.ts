@@ -134,8 +134,7 @@ describe('gt ConfigStore and login/logout/config commands', () => {
       execFile('node', ['-e', checkScript], {
         env: {
           ...process.env,
-          TERMINAL_SERVER: '',
-          GEMINI_PROXY_URL: '',
+          GT_SERVER: '',
           GT_CONFIG_DIR: path.join(os.tmpdir(), 'empty-gt-config-' + Date.now()),
         },
       }, (error, stdout) => {
@@ -161,7 +160,7 @@ describe('gt ConfigStore and login/logout/config commands', () => {
       execFile('node', ['-e', checkScript], {
         env: {
           ...process.env,
-          TERMINAL_SERVER: 'http://env-override:9001',
+          GT_SERVER: 'http://env-override:9001',
           GT_CONFIG_DIR: path.join(os.tmpdir(), 'empty-gt-config-' + Date.now()),
         },
       }, (error, stdout) => {
@@ -191,6 +190,16 @@ describe('gt ConfigStore and login/logout/config commands', () => {
     });
     expect(res.code).toBe(42);
     expect(res.stderr).toContain('Error: custom error message');
+  });
+
+  it('resolves server and key from GT_SERVER and GT_KEY environment variables', () => {
+    const { ConfigStore } = require('../src/client/config/configStore');
+    const result = ConfigStore.getEffectiveConfig({}, {
+      GT_SERVER: 'http://custom-hub:9999',
+      GT_KEY: 'test-gt-key',
+    });
+    expect(result.server).toBe('http://custom-hub:9999');
+    expect(result.key).toBe('test-gt-key');
   });
 });
 

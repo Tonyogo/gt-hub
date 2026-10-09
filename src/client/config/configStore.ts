@@ -72,15 +72,14 @@ export class ConfigStore {
     this.save(data);
   }
 
-  static getEffectiveConfig(cliOpts: { server?: string; key?: string } = {}): { server: string; key: string } {
+  static getEffectiveConfig(cliOpts: { server?: string; key?: string } = {}, env: Record<string, string | undefined> = process.env): { server: string; key: string } {
     const stored = this.load();
     const server = (cliOpts && cliOpts.server) ||
-      process.env.TERMINAL_SERVER ||
-      process.env.GEMINI_PROXY_URL ||
+      env.GT_SERVER ||
       stored.server ||
       DEFAULT_SERVER_URL;
     const key = (cliOpts && cliOpts.key) ||
-      process.env.ADMIN_SECRET_KEY ||
+      env.GT_KEY ||
       stored.key ||
       '';
     return { server, key };
