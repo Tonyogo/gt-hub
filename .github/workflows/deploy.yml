@@ -1,0 +1,104 @@
+name: Deploy to Server
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy via Gemini Terminal (gt)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Validate configuration & Deploy via gt
+        env:
+          TERMINAL_SERVER: ${{ secrets.TERMINAL_SERVER || 'https://www.yatao.cc.cd' }}
+          ADMIN_SECRET_KEY: ${{ secrets.ADMIN_SECRET_KEY }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '~/gt-hub' }}
+          TARGET_HOST: ${{ secrets.GT_HOST || 'gt-hub' }}
+        run: |
+          # 1. Validate required GitHub Secrets
+          MISSING=""
+          [ -z "$TERMINAL_SERVER" ] && MISSING="$MISSING TERMINAL_SERVER"
+          [ -z "$ADMIN_SECRET_KEY" ] && MISSING="$MISSING ADMIN_SECRET_KEY"
+          [ -z "$DEPLOY_PATH" ] && MISSING="$MISSING DEPLOY_PATH"
+
+          if [ -n "$MISSING" ]; then
+            echo "::error::Missing required GitHub Secrets:${MISSING}"
+            echo "Please configure the required secrets in Repository Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+
+          echo "=========================================="
+          echo "Gemini Terminal (gt) Remote Deployment"
+          echo "Target Hub  : $TERMINAL_SERVER"
+          echo "Target Host : $TARGET_HOST"
+          echo "Deploy Path : $DEPLOY_PATH"
+          echo "=========================================="
+
+          # 2. Dynamically download gt CLI from TERMINAL_SERVER
+          echo "Downloading gt CLI from $TERMINAL_SERVER/gt..."
+          curl -fsSL "$TERMINAL_SERVER/gt" -o ./gt.js
+
+          # 3. Trigger deployment command via gt exec with repository auto-discovery fallback
+          node ./gt.js exec \
+            --verbose \
+            -e DEPLOY_PATH="$DEPLOY_PATH" \
+            "$TARGET_HOST" \
+            bash -c '
+              set -e
+
+              # Load shell profiles to ensure node, npm, and PM2 are in PATH
+              [ -s "$HOME/.nvm/nvm.sh" ] && . "$HOME/.nvm/nvm.sh"
+              [ -s "$HOME/.bashrc" ] && source "$HOME/.bashrc" 2>/dev/null || true
+              [ -s "$HOME/.profile" ] && source "$HOME/.profile" 2>/dev/null || true
+
+              DEPLOY_DIR="${DEPLOY_PATH:-}"
+
+              # Expand leading tilde
+              if [ "$DEPLOY_DIR" = "~" ]; then
+                DEPLOY_DIR="$HOME"
+              elif [[ "$DEPLOY_DIR" == "~/"* ]]; then
+                DEPLOY_DIR="$HOME/${DEPLOY_DIR#\~/}"
+              fi
+
+              # Validate directory; if not found, probe common candidate directories
+              if [ -z "$DEPLOY_DIR" ] || [ ! -d "$DEPLOY_DIR" ] || [ ! -f "$DEPLOY_DIR/scripts/deploy.sh" ]; then
+                echo "Notice: Specified DEPLOY_PATH not found, probing repository location..."
+                for CANDIDATE in "$HOME/gt-hub" "/root/gt-hub" "/home/ubuntu/gt-hub" "/home/yogo/gt-hub" "$(pwd)/gt-hub" "$(pwd)"; do
+                  if [ -d "$CANDIDATE" ] && [ -f "$CANDIDATE/scripts/deploy.sh" ]; then
+                    DEPLOY_DIR="$CANDIDATE"
+                    echo "-> Auto-discovered repository at: $DEPLOY_DIR"
+                    break
+                  fi
+                done
+              fi
+
+              if [ ! -d "$DEPLOY_DIR" ] || [ ! -f "$DEPLOY_DIR/scripts/deploy.sh" ]; then
+                echo "::error::Could not locate gt-hub repository directory on remote host."
+                exit 1
+              fi
+
+              if ! command -v npm >/dev/null 2>&1; then
+                echo "::error::npm command not found in PATH on remote host."
+                exit 1
+              fi
+
+              echo "===> Deploying repository at: $DEPLOY_DIR"
+              cd "$DEPLOY_DIR"
+              npm run deploy
+            '
