@@ -14,6 +14,7 @@ export interface ConfigData {
   currentContext: string;
   contexts: Record<string, ContextConfig>;
   machineId: string;
+  agentName?: string;
   [key: string]: any;
 }
 
@@ -120,6 +121,41 @@ export class ConfigStore {
 
   static getMachineId(): string {
     return this.load().machineId;
+  }
+
+  static getAgentName(): string | undefined {
+    const data = this.load();
+    return data.agentName && typeof data.agentName === 'string' ? data.agentName : undefined;
+  }
+
+  static setAgentName(name: string): void {
+    const sanitized = name.toLowerCase().replace(/[^a-z0-9-_]/g, '-').replace(/^-+|-+$/g, '');
+    if (!sanitized) {
+      throw new Error('Invalid agent name. Must contain alphanumeric characters, dashes, or underscores.');
+    }
+    const data = this.load();
+    data.agentName = sanitized;
+    this.save(data);
+  }
+
+  static resolveAgentName(env: Record<string, string | undefined> = process.env): {
+    name: string;
+    source: 'environment' | 'configured' | 'default';
+  } {
+    if (env.GT_AGENT_NAME && env.GT_AGENT_NAME.trim().length > 0) {
+      const sanitizedEnv = env.GT_AGENT_NAME.trim().toLowerCase().replace(/[^a-z0-9-_]/g, '-').replace(/^-+|-+$/g, '');
+      if (sanitizedEnv) {
+        return { name: sanitizedEnv, source: 'environment' };
+      }
+    }
+
+    const configured = this.getAgentName();
+    if (configured) {
+      return { name: configured, source: 'configured' };
+    }
+
+    const host = os.hostname().toLowerCase().replace(/[^a-z0-9-_]/g, '-').replace(/^-+|-+$/g, '') || 'host';
+    return { name: host, source: 'default' };
   }
 
   static getContexts(): Record<string, ContextConfig> {
