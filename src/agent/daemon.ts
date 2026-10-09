@@ -376,7 +376,19 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
 
   for (let i = 0; i < agentArgs.length; i++) {
     const arg = agentArgs[i];
-    if (arg.startsWith('--')) {
+    if (arg === '-s' || arg === '--server') {
+      options.server = agentArgs[++i];
+    } else if (arg.startsWith('--server=')) {
+      options.server = arg.slice(9);
+    } else if (arg.startsWith('-s=')) {
+      options.server = arg.slice(3);
+    } else if (arg === '-k' || arg === '--key') {
+      options.key = agentArgs[++i];
+    } else if (arg.startsWith('--key=')) {
+      options.key = arg.slice(6);
+    } else if (arg.startsWith('-k=')) {
+      options.key = arg.slice(3);
+    } else if (arg.startsWith('--')) {
       const eqIdx = arg.indexOf('=');
       if (eqIdx !== -1) {
         const k = arg.slice(2, eqIdx).trim();
@@ -571,28 +583,18 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     await AgentDaemonManager.stop(hostName);
   }
 
-  // 1. Check for removed flags
-  if ((globalOpts.cliServer !== null && globalOpts.cliServer !== undefined) || options.server || agentArgs.some(a => a === '-s' || a.startsWith('--server') || a.startsWith('-s='))) {
-    console.error("Error: '--server' is removed. Please use 'gt auth login <server> <key>' to authenticate.");
-    process.exit(1);
-  }
-  if ((globalOpts.cliKey !== null && globalOpts.cliKey !== undefined) || options.key || agentArgs.some(a => a === '-k' || a.startsWith('--key') || a.startsWith('-k='))) {
-    console.error("Error: '--key' is removed. Please use 'gt auth login <server> <key>' to authenticate.");
-    process.exit(1);
-  }
+  // Resolve effective credentials
+  const effectiveConfig = ConfigStore.getEffectiveConfig({
+    server: options.server || globalOpts.cliServer || globalOpts.server,
+    key: options.key || globalOpts.cliKey || globalOpts.key,
+  });
+  const serverArg = effectiveConfig.server;
+  const adminKey = effectiveConfig.key;
 
-  // 2. Enforce authentication from ConfigStore
-  const stored = ConfigStore.load();
-  const effectiveServer = process.env.TERMINAL_SERVER || process.env.GEMINI_PROXY_URL || stored.server;
-  const effectiveKey = process.env.ADMIN_SECRET_KEY || stored.key;
-
-  if (!effectiveServer || !effectiveKey) {
+  if (!serverArg || !adminKey) {
     console.error("Error: No authenticated server found. Please run 'gt auth login <server> <key>' first.");
     process.exit(1);
   }
-
-  const serverArg = effectiveServer;
-  const adminKey = effectiveKey;
 
   const isInternalDaemon = agentArgs.includes('--internal-daemon');
   const isDaemon = subCmd === 'start' || subCmd === 'restart' || agentArgs.includes('-d') || agentArgs.includes('--detach');
@@ -612,11 +614,19 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       if (knownSubCmds.includes(a.toLowerCase()) || a === '-d' || a === '--detach' || a === '--internal-daemon') {
         continue;
       }
-      if (a === '--name' || a === '--id' || a === '--hostId') {
+      if (a === '--name' || a === '--id' || a === '--hostId' || a === '-s' || a === '--server' || a === '-k' || a === '--key') {
         i++;
         continue;
       }
-      if (a.startsWith('--name=') || a.startsWith('--id=') || a.startsWith('--hostId=')) {
+      if (
+        a.startsWith('--name=') ||
+        a.startsWith('--id=') ||
+        a.startsWith('--hostId=') ||
+        a.startsWith('--server=') ||
+        a.startsWith('-s=') ||
+        a.startsWith('--key=') ||
+        a.startsWith('-k=')
+      ) {
         continue;
       }
       if (a === positionalName) {
@@ -626,6 +636,8 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     }
     cleanArgs.push(`--name=${hostName}`);
     cleanArgs.push(`--id=${hostId}`);
+    cleanArgs.push(`--server=${serverArg}`);
+    cleanArgs.push(`--key=${adminKey}`);
 
     const logFile = AgentDaemonManager.getLogFile(hostName);
     const logFd = fs.openSync(logFile, 'a', 0o600);
@@ -645,7 +657,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       pid: child.pid,
       name: hostName,
       id: hostId,
-      server: effectiveServer,
+      server: serverArg,
       startTime: new Date().toISOString(),
       logFile: logFile,
     });
@@ -665,7 +677,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       pid: process.pid,
       name: hostName,
       id: hostId,
-      server: effectiveServer,
+      server: serverArg,
       startTime: new Date().toISOString(),
     });
     const cleanupFg = () => {

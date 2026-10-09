@@ -19,24 +19,15 @@ describe('gt agent unified authentication and parameter guards', () => {
     } catch {}
   });
 
-  it('rejects --server and --key flags with informative error message', () => {
-    const res = spawnSync('node', [gtPath, 'agent', '--server=http://localhost:3000'], {
+  it('accepts --server and --key flags without throwing removed errors', () => {
+    const res = spawnSync('node', [gtPath, 'agent', '--server=http://localhost:8000', '--key=my-secret'], {
       env: { ...process.env, GT_CONFIG_DIR: testConfigDir },
       encoding: 'utf-8',
-      timeout: 5000,
+      timeout: 3000,
     });
 
-    expect(res.status).toBe(1);
-    expect(res.stderr).toContain("Error: '--server' is removed. Please use 'gt auth login <server> <key>' to authenticate.");
-
-    const resKey = spawnSync('node', [gtPath, 'agent', '--key=secret'], {
-      env: { ...process.env, GT_CONFIG_DIR: testConfigDir },
-      encoding: 'utf-8',
-      timeout: 5000,
-    });
-
-    expect(resKey.status).toBe(1);
-    expect(resKey.stderr).toContain("Error: '--key' is removed. Please use 'gt auth login <server> <key>' to authenticate.");
+    expect(res.stderr).not.toContain("Error: '--server' is removed");
+    expect(res.stderr).not.toContain("Error: '--key' is removed");
   });
 
   it('rejects agent execution if not authenticated via gt auth login', () => {
@@ -45,6 +36,8 @@ describe('gt agent unified authentication and parameter guards', () => {
     delete cleanEnv.TERMINAL_SERVER;
     delete cleanEnv.ADMIN_SECRET_KEY;
     delete cleanEnv.GEMINI_PROXY_URL;
+    delete cleanEnv.GT_SERVER;
+    delete cleanEnv.GT_KEY;
 
     const res = spawnSync('node', [gtPath, 'agent'], {
       env: cleanEnv,
