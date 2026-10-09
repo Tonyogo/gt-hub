@@ -214,7 +214,7 @@ export async function handleLogsDispatcher({
   const targetName = positional[0];
   const resolved = AgentDaemonManager.resolveTarget(targetName, 'logs');
   if (resolved.agent) {
-    await AgentDaemonManager.getLogs(resolved.agent.name, lines, follow);
+    await AgentDaemonManager.getLogs(lines, follow);
     process.exit(0);
   }
 

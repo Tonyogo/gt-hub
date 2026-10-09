@@ -94,20 +94,12 @@ gt task kill my-server <task-id>
 ```
 
 #### Local Machine Agent Management (`gt agent`)
-Manage the reverse agent daemon on the local host:
+Manage the singleton reverse agent daemon on the local host:
 ```bash
-# Run agent in foreground or detached background daemon
-gt agent run
-gt agent run -d worker-1
-gt agent start worker-1
-
-# View agent status and logs
-gt agent status           # Alias: gt agent ps
-gt agent logs -f worker-1
-
-# Stop, restart, or clean up agents
-gt agent stop worker-1
-gt agent restart worker-1
-gt agent rm worker-1
-gt agent prune
+gt agent start           # Start the background reverse agent daemon
+gt agent stop            # Stop the running agent daemon
+gt agent restart         # Restart the agent daemon
+gt agent status          # View daemon status (running/stopped, PID, uptime)
+gt agent logs -f         # Follow daemon logs
+gt agent name [new-name] # View or configure the persistent agent node name
 ```

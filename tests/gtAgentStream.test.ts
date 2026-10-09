@@ -12,12 +12,27 @@ describe('Agent StreamSessionManager', () => {
   let agentWs: WebSocket | null = null;
   let agentProcess: any = null;
 
+  let checkInterval: NodeJS.Timeout | null = null;
+
   beforeAll((done) => {
     server = http.createServer();
     wss = new WebSocketServer({ server });
 
+    let doneCalled = false;
+    const finish = () => {
+      if (!doneCalled) {
+        doneCalled = true;
+        if (checkInterval) {
+          clearInterval(checkInterval);
+          checkInterval = null;
+        }
+        done();
+      }
+    };
+
     wss.on('connection', (ws) => {
       agentWs = ws;
+      finish();
     });
 
     server.listen(0, () => {
@@ -36,20 +51,35 @@ describe('Agent StreamSessionManager', () => {
       });
 
       // Wait for agent registration
-      const checkInterval = setInterval(() => {
+      checkInterval = setInterval(() => {
         if (agentWs) {
-          clearInterval(checkInterval);
-          done();
+          finish();
         }
       }, 50);
     });
-  });
+  }, 15000);
 
   afterAll((done) => {
+    if (checkInterval) {
+      clearInterval(checkInterval);
+      checkInterval = null;
+    }
     if (agentProcess) {
       agentProcess.kill('SIGKILL');
     }
-    server.close(done);
+    if (agentWs) {
+      try {
+        agentWs.terminate();
+      } catch {}
+    }
+    for (const client of wss.clients) {
+      try {
+        client.terminate();
+      } catch {}
+    }
+    wss.close(() => {
+      server.close(done);
+    });
   });
 
   it('handles start_stream and emits cmd_stream_data and cmd_stream_exit', (done) => {
