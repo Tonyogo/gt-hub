@@ -12,6 +12,7 @@
     "build:frontend": "cd frontend && ( [ -d node_modules ] || npm install ) && npm run build",
     "build:backend": "tsc",
     "build": "npm run build:frontend && npm run build:backend",
+    "deploy": "bash scripts/deploy.sh",
     "prestart": "([ -d dist/frontend ] || npm run build:frontend) && npm run build:backend",
     "start": "node dist/src/index.js",
     "dev:frontend": "cd frontend && npm run dev",
