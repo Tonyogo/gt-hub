@@ -152,6 +152,13 @@ try {
 // Version metadata
 const VERSION = '1.0.0';
 
+const DEFAULT_SERVER_URL = 'http://localhost:8000';
+
+function exitWithError(message, code = 1) {
+  console.error(message.startsWith('Error:') || message.startsWith('[Error]') ? message : `Error: ${message}`);
+  process.exit(code);
+}
+
 // Auto-load .env from working directory
 const envPath = path.join(process.cwd(), '.env');
 if (fs.existsSync(envPath)) {
@@ -218,7 +225,7 @@ Exec Options:
   --poll-interval <ms>    Polling interval for log stream in ms (Default: 500)
 
 Global Options:
-  -s, --server <url>              Hub server URL (Default: env TERMINAL_SERVER or http://localhost:3000)
+  -s, --server <url>              Hub server URL (Default: env TERMINAL_SERVER or http://localhost:8000)
   -k, --key <secret>              Admin secret key (Default: env ADMIN_SECRET_KEY)
   --json                          Output in JSON format
   --format <template>             Format output using Go/Docker template (e.g. 'table {{.ID}}\\t{{.Name}}')
@@ -236,7 +243,7 @@ Aliases & Compatibility:
   kill <node> <taskId>            Shortcut for 'gt task kill'
 
 Examples:
-  gt login http://localhost:3000 secret
+  gt login http://localhost:8000 secret
   gt logout
   gt run -d worker-1
   gt ps [-a|--all]
@@ -971,7 +978,7 @@ class ConfigStore {
       process.env.TERMINAL_SERVER ||
       process.env.GEMINI_PROXY_URL ||
       stored.server ||
-      'http://localhost:3000';
+      DEFAULT_SERVER_URL;
     const key = (cliOpts && cliOpts.key) ||
       process.env.ADMIN_SECRET_KEY ||
       stored.key ||
@@ -4534,6 +4541,8 @@ if (require.main === module) {
 }
 
 module.exports = {
+  DEFAULT_SERVER_URL,
+  exitWithError,
   formatRelativeTime,
   formatTemplate,
   resolveTaskId,
