@@ -2,9 +2,9 @@
 #
 # Gemini Terminal (gt) CLI One-Line Installer
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/Tonyogo/gemini-proxy/main/scripts/install-gt.sh | bash
-#   or from your proxy server:
-#   curl -fsSL http://<proxy-ip>:3000/api/terminal/install | bash
+#   curl -fsSL https://raw.githubusercontent.com/Tonyogo/gt-hub/main/scripts/install-gt.sh | bash
+#   or from your gt-hub server:
+#   curl -fsSL http://<hub-ip>:8000/api/terminal/install | bash
 #
 
 set -e

@@ -8,8 +8,6 @@ import {
   Trash2,
   Radio,
   ArrowDownCircle,
-  Clock,
-  Sparkles,
   Maximize2,
   Minimize2,
   TerminalSquare,

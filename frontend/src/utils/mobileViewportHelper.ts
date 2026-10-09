@@ -4,20 +4,6 @@ export interface KeyboardOffsetResult {
 }
 
 /**
- * Detects whether the current client is a mobile device or viewport (< 768px).
- * Safe for server-side evaluation.
- */
-export function isMobileScreenOrDevice(): boolean {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-  return (
-    window.innerWidth < 768 ||
-    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
-  );
-}
-
-/**
  * Calculates whether the virtual keyboard is open and how much translateY
  * needs to be applied to push content upwards like a messaging app.
  * Requires `isInputFocused` to prevent false positives from mobile browser chrome.

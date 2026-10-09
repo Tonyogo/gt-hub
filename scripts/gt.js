@@ -2158,132 +2158,6 @@ class StreamSessionManager {
   }
 }
 
-class AgentProxyDispatcher {
-  constructor(sendWsFn) {
-    this.sendWs = sendWsFn;
-    this.activeRequests = new Map();
-  }
-
-  handleRequest(data) {
-    const { requestId, method = 'GET', url: targetUrl, headers = {}, body, timeoutMs = 180000 } = data;
-    if (!requestId || !targetUrl) return;
-
-    try {
-      const parsedUrl = new url.URL(targetUrl);
-      const isHttps = parsedUrl.protocol === 'https:';
-      const client = isHttps ? https : http;
-
-      const reqHeaders = { ...headers };
-      let bodyBuf = null;
-      if (body) {
-        bodyBuf = Buffer.from(body, 'base64');
-        reqHeaders['content-length'] = bodyBuf.length;
-      }
-
-      const reqOptions = {
-        protocol: parsedUrl.protocol,
-        hostname: parsedUrl.hostname,
-        port: parsedUrl.port || (isHttps ? 443 : 80),
-        path: parsedUrl.pathname + parsedUrl.search,
-        method: method.toUpperCase(),
-        headers: reqHeaders,
-      };
-
-      const clientReq = client.request(reqOptions, (res) => {
-        this.sendWs({
-          type: 'http_res_start',
-          requestId,
-          status: res.statusCode,
-          statusText: res.statusMessage,
-          headers: res.headers,
-        });
-
-        res.on('data', (chunk) => {
-          this.sendWs({
-            type: 'http_res_chunk',
-            requestId,
-            chunk: chunk.toString('base64'),
-          });
-        });
-
-        res.on('end', () => {
-          this.cleanupRequest(requestId);
-          this.sendWs({
-            type: 'http_res_end',
-            requestId,
-          });
-        });
-      });
-
-      let timer = null;
-      if (timeoutMs > 0) {
-        timer = setTimeout(() => {
-          this.cleanupRequest(requestId);
-          clientReq.destroy(new Error(`Agent request timeout after ${timeoutMs}ms`));
-          this.sendWs({
-            type: 'http_res_error',
-            requestId,
-            error: { code: 'ETIMEDOUT', message: `Agent request timeout after ${timeoutMs}ms` },
-          });
-        }, timeoutMs);
-        if (timer.unref) timer.unref();
-      }
-
-      clientReq.on('error', (err) => {
-        this.cleanupRequest(requestId);
-        this.sendWs({
-          type: 'http_res_error',
-          requestId,
-          error: { code: err.code || 'UNKNOWN', message: err.message },
-        });
-      });
-
-      this.activeRequests.set(requestId, { clientReq, timer });
-
-      if (bodyBuf) {
-        clientReq.write(bodyBuf);
-      }
-      clientReq.end();
-    } catch (err) {
-      this.cleanupRequest(requestId);
-      this.sendWs({
-        type: 'http_res_error',
-        requestId,
-        error: { code: 'BAD_REQUEST', message: err.message },
-      });
-    }
-  }
-
-  handleAbort(data) {
-    const { requestId } = data;
-    const entry = this.activeRequests.get(requestId);
-    if (entry) {
-      if (entry.clientReq) {
-        try { entry.clientReq.destroy(); } catch {}
-      }
-      this.cleanupRequest(requestId);
-    }
-  }
-
-  cleanupRequest(requestId) {
-    const entry = this.activeRequests.get(requestId);
-    if (entry) {
-      if (entry.timer) clearTimeout(entry.timer);
-      this.activeRequests.delete(requestId);
-    }
-  }
-
-  cleanup() {
-    for (const [id, entry] of this.activeRequests.entries()) {
-      if (entry.clientReq) {
-        try { entry.clientReq.destroy(); } catch {}
-      }
-      if (entry.timer) clearTimeout(entry.timer);
-    }
-    this.activeRequests.clear();
-  }
-}
-
 const taskManager = new TaskManager();
 
 function handleFileRpc(control, targetWs) {
@@ -2827,7 +2701,6 @@ async function runAgent(agentArgs = [], globalOpts = {}) {
   let ptyProcess = null;
   let ws = null;
   let streamSessionManager = null;
-  let agentProxyDispatcher = null;
   let reconnectAttempts = 0;
   let reconnectTimer = null;
   let isExiting = false;
@@ -3074,10 +2947,6 @@ async function runAgent(agentArgs = [], globalOpts = {}) {
       } catch {}
       ws = null;
     }
-    if (agentProxyDispatcher) {
-      try { agentProxyDispatcher.cleanup(); } catch {}
-      agentProxyDispatcher = null;
-    }
 
     const targetWsUrl = resolveWebSocketUrl(serverArg, {
       hostId,
@@ -3129,12 +2998,6 @@ async function runAgent(agentArgs = [], globalOpts = {}) {
           }
         });
 
-        agentProxyDispatcher = new AgentProxyDispatcher((data) => {
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send('JSON:' + JSON.stringify(data));
-          }
-        });
-
         if (isFirstSpawn) {
           ws.send(`JSON:${JSON.stringify({ type: 'reset' })}`);
         }
@@ -3151,18 +3014,6 @@ async function runAgent(agentArgs = [], globalOpts = {}) {
         const msgStr = data.toString();
         const control = parseControlMessage(msgStr);
         if (control) {
-          if (control.type === 'http_req') {
-            if (agentProxyDispatcher) {
-              agentProxyDispatcher.handleRequest(control);
-            }
-            return;
-          }
-          if (control.type === 'http_abort') {
-            if (agentProxyDispatcher) {
-              agentProxyDispatcher.handleAbort(control);
-            }
-            return;
-          }
           if (control.type === 'file_rpc') {
             handleFileRpc(control, ws);
             return;
@@ -4720,5 +4571,4 @@ module.exports = {
   tryRequirePty,
   getDefaultShell,
   resolveWorkingDir,
-  AgentProxyDispatcher,
 };
