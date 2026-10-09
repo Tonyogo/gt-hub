@@ -6,13 +6,21 @@ const gtPath = path.resolve(__dirname, '../scripts/gt.js');
 
 describe('gt Commander CLI Structure', () => {
   it('exits with code 2 on unknown command', () => {
-    const res = spawnSync('node', [gtPath, 'unknown-xyz'], { encoding: 'utf-8' });
+    const res = spawnSync('node', [gtPath, 'unknown-xyz'], {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+      timeout: 5000,
+    });
     expect(res.status).toBe(2);
     expect(res.stderr).toContain('error: unknown command');
   });
 
   it('outputs help menu containing nodes, agent, auth, and config command groups', () => {
-    const res = spawnSync('node', [gtPath, '--help'], { encoding: 'utf-8' });
+    const res = spawnSync('node', [gtPath, '--help'], {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+      timeout: 5000,
+    });
     expect(res.status).toBe(0);
     expect(res.stdout).toContain('nodes');
     expect(res.stdout).toContain('agent');
@@ -24,7 +32,11 @@ describe('gt Commander CLI Structure', () => {
   });
 
   it('supports agent subcommands: run, start, stop, restart, status, logs, prune', () => {
-    const res = spawnSync('node', [gtPath, 'agent', '--help'], { encoding: 'utf-8' });
+    const res = spawnSync('node', [gtPath, 'agent', '--help'], {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+      timeout: 5000,
+    });
     expect(res.status).toBe(0);
     expect(res.stdout).toContain('run');
     expect(res.stdout).toContain('start');
