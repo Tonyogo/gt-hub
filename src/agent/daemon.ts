@@ -39,37 +39,12 @@ function getWebSocketCtor(): any {
 }
 
 export class AgentDaemonManager {
-  static getAgentsDir(): string {
-    const dir = path.join(ConfigStore.getConfigDir(), 'agents');
-    if (!fs.existsSync(dir)) {
-      try { fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); } catch {}
-    }
-    return dir;
+  static getStatusFile(): string {
+    return path.join(ConfigStore.getConfigDir(), 'agent.json');
   }
 
-  static sanitizeName(name?: string | null): string {
-    if (!name || typeof name !== 'string') return '';
-    return name.toLowerCase().replace(/[^a-z0-9-_]/g, '-').replace(/^-+|-+$/g, '');
-  }
-
-  static getStatusFile(name?: string | null): string {
-    let sName = this.sanitizeName(name);
-    if (!sName) {
-      const all = this.getAllAgents();
-      if (all.length > 0) sName = all[0].name;
-      else sName = 'agent';
-    }
-    return path.join(this.getAgentsDir(), `${sName}.json`);
-  }
-
-  static getLogFile(name?: string | null): string {
-    let sName = this.sanitizeName(name);
-    if (!sName) {
-      const all = this.getAllAgents();
-      if (all.length > 0) sName = all[0].name;
-      else sName = 'agent';
-    }
-    return path.join(this.getAgentsDir(), `${sName}.log`);
+  static getLogFile(): string {
+    return path.join(ConfigStore.getConfigDir(), 'agent.log');
   }
 
   static isProcessAlive(pid?: number | null): boolean {
@@ -82,235 +57,77 @@ export class AgentDaemonManager {
     }
   }
 
-  static getAgent(name: string): any {
-    const sName = this.sanitizeName(name);
-    if (!sName) return null;
-    const p = path.join(this.getAgentsDir(), `${sName}.json`);
-    if (!fs.existsSync(p)) return null;
+  static getStatus(): any {
+    const p = this.getStatusFile();
+    if (!fs.existsSync(p)) return { running: false };
     try {
       const state = JSON.parse(fs.readFileSync(p, 'utf-8'));
       const alive = this.isProcessAlive(state.pid);
       return {
-        name: sName,
         running: alive,
         stale: !alive,
         ...state,
       };
     } catch {
-      return null;
+      return { running: false };
     }
-  }
-
-  static getStatus(name?: string): any {
-    const res = this.resolveTarget(name, 'status');
-    if (res.agent) {
-      return res.agent;
-    }
-    return { running: false };
-  }
-
-  static getAllAgents(): any[] {
-    const dir = this.getAgentsDir();
-    if (!fs.existsSync(dir)) return [];
-    try {
-      const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'));
-      const list: any[] = [];
-      for (const file of files) {
-        const name = file.slice(0, -5);
-        const agent = this.getAgent(name);
-        if (agent) list.push(agent);
-      }
-      return list.sort((a, b) => a.name.localeCompare(b.name));
-    } catch {
-      return [];
-    }
-  }
-
-  static printAgentsTable(showAll: boolean = false): void {
-    const all = this.getAllAgents();
-    if (all.length === 0) {
-      console.log('No agent daemons found.');
-      process.exit(0);
-    }
-    const displayed = showAll ? all : all.filter(a => a.running);
-    const stoppedCount = all.filter(a => !a.running).length;
-
-    if (displayed.length === 0) {
-      if (stoppedCount > 0) {
-        console.log(`No running agent daemons found. (${stoppedCount} stopped, use -a to show or 'gt agent prune' to clean up)`);
-      } else {
-        console.log('No agent daemons found.');
-      }
-      process.exit(0);
-    }
-
-    console.log(
-      'NAME'.padEnd(20) +
-      'STATUS'.padEnd(12) +
-      'PID'.padEnd(10) +
-      'TARGET HUB'.padEnd(30) +
-      'STARTED'
-    );
-    console.log('-'.repeat(95));
-    for (const a of displayed) {
-      const statusStr = a.running ? 'Running' : 'Stopped';
-      console.log(
-        (a.name || '').padEnd(20) +
-        statusStr.padEnd(12) +
-        String(a.pid || '').padEnd(10) +
-        (a.server || '').padEnd(30) +
-        (a.startTime || '')
-      );
-    }
-
-    if (!showAll && stoppedCount > 0) {
-      console.log(`\n(${stoppedCount} stopped agent(s) hidden. Use 'gt agent ps -a' to view all or 'gt agent prune' to clean up)`);
-    }
-
-    process.exit(0);
-  }
-
-  static prune(): { removed: string[] } {
-    return this.removeAll();
   }
 
   static saveStatus(nameOrState: any, maybeState?: any): void {
-    let name: string, state: any;
+    let state: any;
     if (typeof nameOrState === 'string') {
-      name = nameOrState;
-      state = maybeState || {};
+      state = { name: nameOrState, ...(maybeState || {}) };
     } else {
       state = nameOrState || {};
-      name = state.name;
     }
-    const sName = this.sanitizeName(name) || 'agent';
-    const dir = this.getAgentsDir();
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    const file = path.join(dir, `${sName}.json`);
-    const data = { name: sName, ...state };
-    fs.writeFileSync(file, JSON.stringify(data, null, 2), { encoding: 'utf-8', mode: 0o600 });
+    const file = this.getStatusFile();
+    const dir = path.dirname(file);
+    if (!fs.existsSync(dir)) {
+      try { fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); } catch {}
+    }
+    fs.writeFileSync(file, JSON.stringify(state, null, 2), { encoding: 'utf-8', mode: 0o600 });
     if (os.platform() !== 'win32') {
       try { fs.chmodSync(file, 0o600); } catch {}
       try { fs.chmodSync(dir, 0o700); } catch {}
     }
   }
 
-  static clearStatus(name: string): void {
-    if (!name) return;
-    const sName = this.sanitizeName(name);
-    if (!sName) return;
+  static clearStatus(): void {
     try {
-      const p = path.join(this.getAgentsDir(), `${sName}.json`);
-      if (fs.existsSync(p)) fs.unlinkSync(p);
+      const file = this.getStatusFile();
+      if (fs.existsSync(file)) fs.unlinkSync(file);
     } catch {}
   }
 
-  static resolveTarget(name?: string, actionName: string = 'operate'): { agent?: any; error?: string } {
-    if (name) {
-      const sName = this.sanitizeName(name);
-      const agent = this.getAgent(sName);
-      if (!agent) {
-        return { error: `Error: Agent "${sName}" not found.` };
-      }
-      return { agent };
+  static async stop(): Promise<{ success: boolean; message: string; pid?: number; name?: string }> {
+    const current = this.getStatus();
+    if (!current || !current.running) {
+      this.clearStatus();
+      return { success: true, message: 'Agent daemon is not running.' };
     }
 
-    const all = this.getAllAgents();
-    const running = all.filter(a => a.running);
-    if (running.length === 1) {
-      return { agent: running[0] };
-    }
-    if (running.length === 0) {
-      if (all.length === 1) return { agent: all[0] };
-      return { error: `No active agent found to ${actionName}.` };
-    }
-
-    const names = running.map(a => `"${a.name}"`).join(', ');
-    return {
-      error: `Error: Multiple running agents (${names}). Please specify agent NAME (e.g. gt ${actionName} <NAME>).`,
-    };
-  }
-
-  static async stop(name?: string): Promise<{ success: boolean; pid?: number; name?: string; message: string }> {
-    const sName = this.sanitizeName(name);
-    let agent = sName ? this.getAgent(sName) : null;
-    if (!agent && !sName) {
-      const resolved = this.resolveTarget(undefined, 'stop');
-      if (resolved.agent) agent = resolved.agent;
-    }
-    if (!agent || !agent.running) {
-      const display = sName || (agent ? agent.name : 'daemon');
-      return { success: true, message: `Agent "${display}" is not running.` };
-    }
-
-    const realName = agent.name;
-    const pid = agent.pid;
-    try {
-      process.kill(pid, 'SIGTERM');
-    } catch {}
+    const pid = current.pid;
+    const agentName = current.name || 'agent';
+    try { process.kill(pid, 'SIGTERM'); } catch {}
 
     const start = Date.now();
     while (Date.now() - start < 3000) {
       if (!this.isProcessAlive(pid)) {
-        return { success: true, pid, name: realName, message: `Agent "${realName}" (PID: ${pid}) stopped successfully.` };
+        this.clearStatus();
+        return { success: true, pid, name: agentName, message: `Agent daemon (PID: ${pid}) stopped successfully.` };
       }
       await new Promise(r => setTimeout(r, 100));
     }
 
     killProcessTreeSync(pid, 'SIGKILL');
-    return { success: true, pid, name: realName, message: `Agent "${realName}" (PID: ${pid}) forcibly terminated.` };
+    this.clearStatus();
+    return { success: true, pid, name: agentName, message: `Agent daemon (PID: ${pid}) forcibly terminated.` };
   }
 
-  static async stopAll(): Promise<any[]> {
-    const all = this.getAllAgents();
-    const running = all.filter(a => a.running);
-    const results: any[] = [];
-    for (const a of running) {
-      results.push(await this.stop(a.name));
-    }
-    return results;
-  }
-
-  static remove(name?: string | null, { removeLogs = false }: { removeLogs?: boolean } = {}): { success: boolean; message: string } {
-    const sName = this.sanitizeName(name);
-    if (!sName) {
-      return { success: false, message: 'Error: Agent name is required.' };
-    }
-    const agent = this.getAgent(sName);
-    if (agent && agent.running) {
-      return { success: false, message: `Error: Cannot remove running agent "${sName}". Stop it first.` };
-    }
-    this.clearStatus(sName);
-    if (removeLogs) {
-      try {
-        const lf = path.join(this.getAgentsDir(), `${sName}.log`);
-        if (fs.existsSync(lf)) fs.unlinkSync(lf);
-      } catch {}
-    }
-    return { success: true, message: `Agent "${sName}" removed.` };
-  }
-
-  static removeAll(): { removed: string[] } {
-    const all = this.getAllAgents();
-    const removed: string[] = [];
-    for (const a of all) {
-      if (!a.running) {
-        this.remove(a.name, { removeLogs: true });
-        removed.push(a.name);
-      }
-    }
-    return { removed };
-  }
-
-  static async getLogs(name?: string, lines: number = 50, follow: boolean = false): Promise<void> {
-    let sName = this.sanitizeName(name);
-    if (!sName) {
-      const resolved = this.resolveTarget(undefined, 'logs');
-      if (resolved.agent) sName = resolved.agent.name;
-    }
-    const logFile = path.join(this.getAgentsDir(), `${sName || 'agent'}.log`);
+  static async getLogs(lines: number = 50, follow: boolean = false): Promise<void> {
+    const logFile = this.getLogFile();
     if (!fs.existsSync(logFile)) {
-      console.log(`No logs found for agent "${sName || 'daemon'}".`);
+      console.log('No agent daemon log file found.');
       return;
     }
 
@@ -364,6 +181,96 @@ export class AgentDaemonManager {
       });
     });
   }
+
+  static sanitizeName(name?: string | null): string {
+    if (!name || typeof name !== 'string') return '';
+    return name.toLowerCase().replace(/[^a-z0-9-_]/g, '-').replace(/^-+|-+$/g, '');
+  }
+
+  static getAgent(name?: string): any {
+    const status = this.getStatus();
+    if (!status || (!status.running && !status.pid && !status.name)) return null;
+    return status;
+  }
+
+  static getAllAgents(): any[] {
+    const status = this.getStatus();
+    return (status && status.running) ? [status] : [];
+  }
+
+  static printAgentsTable(showAll: boolean = false): void {
+    const status = this.getStatus();
+    if (!status.running && !showAll) {
+      if (status.stale || status.pid) {
+        console.log('No running agent daemons found. (1 stopped, use -a to show)');
+      } else {
+        console.log('No agent daemons found.');
+      }
+      process.exit(0);
+    }
+    if (!status.running && !status.pid && !status.name) {
+      console.log('No agent daemons found.');
+      process.exit(0);
+    }
+
+    console.log(
+      'NAME'.padEnd(20) +
+      'STATUS'.padEnd(12) +
+      'PID'.padEnd(10) +
+      'TARGET HUB'.padEnd(30) +
+      'STARTED'
+    );
+    console.log('-'.repeat(95));
+    const statusStr = status.running ? 'Running' : 'Stopped';
+    console.log(
+      (status.name || '').padEnd(20) +
+      statusStr.padEnd(12) +
+      String(status.pid || '').padEnd(10) +
+      (status.server || '').padEnd(30) +
+      (status.startTime || '')
+    );
+    process.exit(0);
+  }
+
+  static prune(): { removed: string[] } {
+    const status = this.getStatus();
+    if (!status.running && (status.pid || status.name)) {
+      this.clearStatus();
+      return { removed: [status.name || 'agent'] };
+    }
+    return { removed: [] };
+  }
+
+  static stopAll(): Promise<any[]> {
+    return this.stop().then(res => [res]);
+  }
+
+  static remove(name?: string | null, opts: { removeLogs?: boolean } = {}): { success: boolean; message: string } {
+    const status = this.getStatus();
+    if (status && status.running) {
+      return { success: false, message: 'Error: Cannot remove running agent daemon. Stop it first.' };
+    }
+    this.clearStatus();
+    if (opts.removeLogs) {
+      try {
+        const lf = this.getLogFile();
+        if (fs.existsSync(lf)) fs.unlinkSync(lf);
+      } catch {}
+    }
+    return { success: true, message: 'Agent removed.' };
+  }
+
+  static removeAll(): { removed: string[] } {
+    return this.prune();
+  }
+
+  static resolveTarget(name?: string, actionName: string = 'operate'): { agent?: any; error?: string } {
+    const status = this.getStatus();
+    if (status && status.running) {
+      return { agent: status };
+    }
+    return { error: `No active agent found to ${actionName}.` };
+  }
 }
 
 export async function runAgent(agentArgs: string[] = [], globalOpts: Record<string, any> = {}): Promise<void> {
@@ -371,8 +278,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
   const subCmd = (firstArg && !firstArg.startsWith('-')) ? firstArg.toLowerCase() : null;
 
   const options: Record<string, any> = {};
-  let positionalName: string | null = null;
-  const knownSubCmds = ['start', 'restart', 'run', 'status', 'ps', 'stop', 'logs', 'rm', 'prune'];
+  const supportedSubCmds = ['start', 'stop', 'restart', 'status', 'logs'];
 
   for (let i = 0; i < agentArgs.length; i++) {
     const arg = agentArgs[i];
@@ -388,6 +294,10 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       options.key = arg.slice(6);
     } else if (arg.startsWith('-k=')) {
       options.key = arg.slice(3);
+    } else if (arg === '-c' || arg === '--context') {
+      options.context = agentArgs[++i];
+    } else if (arg.startsWith('--context=')) {
+      options.context = arg.slice(10);
     } else if (arg.startsWith('--')) {
       const eqIdx = arg.indexOf('=');
       if (eqIdx !== -1) {
@@ -407,85 +317,38 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       if (i + 1 < agentArgs.length && !agentArgs[i + 1].startsWith('-')) {
         options[k] = agentArgs[++i];
       }
-    } else if (!arg.startsWith('-')) {
-      if (!knownSubCmds.includes(arg.toLowerCase()) && !positionalName) {
-        positionalName = arg;
-      }
     }
   }
 
-  // Lifecycle subcommands that don't start the agent
-  if (subCmd === 'ps') {
-    const showAll = agentArgs.includes('-a') || agentArgs.includes('--all');
-    AgentDaemonManager.printAgentsTable(showAll);
-  }
-
-  if (subCmd === 'prune') {
-    const { removed } = AgentDaemonManager.prune();
-    if (removed.length === 0) {
-      console.log('No stopped agents to prune.');
-    } else {
-      console.log(`Pruned stopped agents: ${removed.join(', ')}`);
-    }
-    process.exit(0);
-  }
-
+  // Handle status subcommand
   if (subCmd === 'status') {
-    const all = AgentDaemonManager.getAllAgents();
-    const running = all.filter(a => a.running);
-    if (running.length === 0) {
+    const current = AgentDaemonManager.getStatus();
+    if (!current || !current.running) {
       console.log('No background agent running.');
       process.exit(0);
     }
-    console.log(
-      'STATUS'.padEnd(12) +
-      'PID'.padEnd(10) +
-      'HOST NAME'.padEnd(25) +
-      'TARGET HUB'.padEnd(30) +
-      'STARTED'
-    );
-    console.log('-'.repeat(95));
-    for (const status of running) {
-      console.log(
-        'Running'.padEnd(12) +
-        String(status.pid).padEnd(10) +
-        (status.name || '').padEnd(25) +
-        (status.server || '').padEnd(30) +
-        (status.startTime || '')
-      );
+    console.log('Status     : Running');
+    console.log(`PID        : ${current.pid}`);
+    console.log(`Agent Name : ${current.name}`);
+    console.log(`Target Hub : ${current.server}`);
+    if (current.startTime) {
+      console.log(`Started    : ${current.startTime}`);
     }
+    console.log(`Log File   : ${current.logFile || AgentDaemonManager.getLogFile()}`);
     process.exit(0);
   }
 
+  // Handle stop subcommand
   if (subCmd === 'stop') {
-    const hasAll = agentArgs.includes('--all') || agentArgs.includes('-a');
-    if (hasAll) {
-      const results = await AgentDaemonManager.stopAll();
-      if (results.length === 0) {
-        console.log('No running agents to stop.');
-      } else {
-        for (const r of results) {
-          console.log(r.message);
-        }
-      }
-      process.exit(0);
-    }
-
-    const resolved = AgentDaemonManager.resolveTarget(positionalName || undefined, 'stop');
-    if (resolved.error) {
-      console.error(resolved.error);
-      process.exit(1);
-    }
-
-    const res = await AgentDaemonManager.stop(resolved.agent.name);
+    const res = await AgentDaemonManager.stop();
     console.log(res.message);
     process.exit(0);
   }
 
+  // Handle logs subcommand
   if (subCmd === 'logs') {
     let lines = 50;
     let follow = false;
-    let targetName = positionalName;
     const logArgs = agentArgs.slice(1);
     for (let i = 0; i < logArgs.length; i++) {
       const a = logArgs[i];
@@ -497,96 +360,54 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
         lines = parseInt(a.slice(3), 10) || 50;
       } else if (a.startsWith('--lines=')) {
         lines = parseInt(a.slice(8), 10) || 50;
-      } else if (!a.startsWith('-') && !targetName) {
-        targetName = a;
       }
     }
-    const resolved = AgentDaemonManager.resolveTarget(targetName || undefined, 'logs');
-    if (resolved.error) {
-      console.error(resolved.error);
-      process.exit(1);
-    }
-    await AgentDaemonManager.getLogs(resolved.agent.name, lines, follow);
+    await AgentDaemonManager.getLogs(lines, follow);
     process.exit(0);
   }
 
-  if (subCmd === 'rm') {
-    const hasAll = agentArgs.includes('--all') || agentArgs.includes('-a');
-    if (hasAll) {
-      const { removed } = AgentDaemonManager.removeAll();
-      if (removed.length === 0) {
-        console.log('No stopped agents to remove.');
-      } else {
-        console.log(`Removed agents: ${removed.join(', ')}`);
-      }
-      process.exit(0);
-    }
+  const isInternalDaemon = agentArgs.includes('--internal-daemon');
 
-    let targetName = positionalName;
-    if (!targetName) {
-      const resolved = AgentDaemonManager.resolveTarget(undefined, 'remove');
-      if (resolved.agent) {
-        targetName = resolved.agent.name;
-      } else {
-        console.error('Error: Please specify agent NAME to remove (e.g. gt agent rm <NAME>).');
-        process.exit(1);
-      }
-    }
-
-    const res = AgentDaemonManager.remove(targetName, { removeLogs: true });
-    if (!res.success) {
-      console.error(res.message);
-      process.exit(1);
-    }
-    console.log(res.message);
-    process.exit(0);
-  }
-
-  if (subCmd && !['start', 'restart', 'run'].includes(subCmd)) {
+  if (subCmd && !supportedSubCmds.includes(subCmd) && !isInternalDaemon) {
     console.error(`Error: Unknown agent subcommand: '${subCmd}'.`);
-    console.error("Usage: gt agent [start|-d|status|ps|stop|restart|logs|rm] [OPTIONS]");
+    console.error("Usage: gt agent [start|stop|restart|status|logs|name] [OPTIONS]");
     process.exit(1);
   }
 
-  const hostname = os.hostname();
-  const sanitizedHostname = hostname.toLowerCase().replace(/[^a-z0-9-_]/g, '-').replace(/^-+|-+$/g, '') || 'host';
-  const defaultName = sanitizedHostname;
-
-  let sanitizedName = options.name
-    ? AgentDaemonManager.sanitizeName(options.name)
-    : (positionalName ? AgentDaemonManager.sanitizeName(positionalName) : '');
-
-  // If subcommand is restart and no name was explicitly given, resolve target dynamically
-  if (subCmd === 'restart' && !sanitizedName) {
-    const resolved = AgentDaemonManager.resolveTarget(undefined, 'restart');
-    if (resolved.agent) {
-      sanitizedName = resolved.agent.name;
-    } else if (resolved.error) {
-      console.error(resolved.error);
+  // Singleton Mutex on Start:
+  if (!isInternalDaemon) {
+    const current = AgentDaemonManager.getStatus();
+    if (subCmd === 'restart') {
+      if (current && current.running) {
+        await AgentDaemonManager.stop();
+      }
+    } else if (current && current.running) {
+      console.error(`Error: Agent daemon is already running (PID: ${current.pid}). Use 'gt agent stop' or 'gt agent restart'.`);
       process.exit(1);
     }
   }
 
-  const hostName = sanitizedName || defaultName;
+  const resolvedName = ConfigStore.resolveAgentName();
+  const hostName = resolvedName.name;
+
+  const hostname = os.hostname();
+  const defaultHostname = hostname.toLowerCase().replace(/[^a-z0-9-_]/g, '-').replace(/^-+|-+$/g, '') || 'host';
 
   const machineId = ConfigStore.getMachineId();
   let hostId = options.id || options.hostId;
   if (!hostId) {
-    if (hostName === sanitizedHostname) {
+    if (hostName === defaultHostname) {
       hostId = machineId;
     } else {
       hostId = `${machineId}-${hostName}`;
     }
   }
 
-  if (subCmd === 'restart') {
-    await AgentDaemonManager.stop(hostName);
-  }
-
   // Resolve effective credentials
   const effectiveConfig = ConfigStore.getEffectiveConfig({
     server: options.server || globalOpts.cliServer || globalOpts.server,
     key: options.key || globalOpts.cliKey || globalOpts.key,
+    context: options.context || globalOpts.cliContext || globalOpts.context,
   });
   const serverArg = effectiveConfig.server;
   const adminKey = effectiveConfig.key;
@@ -596,56 +417,41 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     process.exit(1);
   }
 
-  const isInternalDaemon = agentArgs.includes('--internal-daemon');
-  const isDaemon = subCmd === 'start' || subCmd === 'restart' || agentArgs.includes('-d') || agentArgs.includes('--detach');
-
-  if (!isInternalDaemon) {
-    const current = AgentDaemonManager.getAgent(hostName);
-    if (current && current.running) {
-      console.error(`Error: Agent "${hostName}" is already running (PID: ${current.pid}). Use 'gt stop ${hostName}' or 'gt restart ${hostName}'.`);
-      process.exit(1);
-    }
-  }
+  const isDaemon = subCmd === 'start' || subCmd === 'restart' || agentArgs.includes('-d') || agentArgs.includes('--detach') || subCmd === null;
 
   if (isDaemon && !isInternalDaemon) {
     const cleanArgs: string[] = [];
     for (let i = 0; i < agentArgs.length; i++) {
       const a = agentArgs[i];
-      if (knownSubCmds.includes(a.toLowerCase()) || a === '-d' || a === '--detach' || a === '--internal-daemon') {
+      if (supportedSubCmds.includes(a.toLowerCase()) || a === '-d' || a === '--detach' || a === '--internal-daemon') {
         continue;
       }
-      if (a === '--name' || a === '--id' || a === '--hostId' || a === '-s' || a === '--server' || a === '-k' || a === '--key') {
+      if (a === '-s' || a === '--server' || a === '-k' || a === '--key' || a === '-c' || a === '--context') {
         i++;
         continue;
       }
       if (
-        a.startsWith('--name=') ||
-        a.startsWith('--id=') ||
-        a.startsWith('--hostId=') ||
         a.startsWith('--server=') ||
         a.startsWith('-s=') ||
         a.startsWith('--key=') ||
-        a.startsWith('-k=')
+        a.startsWith('-k=') ||
+        a.startsWith('--context=') ||
+        a.startsWith('-c=')
       ) {
-        continue;
-      }
-      if (a === positionalName) {
         continue;
       }
       cleanArgs.push(a);
     }
-    cleanArgs.push(`--name=${hostName}`);
-    cleanArgs.push(`--id=${hostId}`);
     cleanArgs.push(`--server=${serverArg}`);
     cleanArgs.push(`--key=${adminKey}`);
 
-    const logFile = AgentDaemonManager.getLogFile(hostName);
+    const logFile = AgentDaemonManager.getLogFile();
     const logFd = fs.openSync(logFile, 'a', 0o600);
 
     const scriptPath = process.argv[1] || path.resolve(__filename);
     const child = spawn(
       process.execPath,
-      [scriptPath, 'agent', '--internal-daemon', ...cleanArgs],
+      [scriptPath, 'agent', 'start', '--internal-daemon', ...cleanArgs],
       {
         detached: true,
         stdio: ['ignore', logFd, logFd],
@@ -653,7 +459,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       }
     );
 
-    AgentDaemonManager.saveStatus(hostName, {
+    AgentDaemonManager.saveStatus({
       pid: child.pid,
       name: hostName,
       id: hostId,
@@ -667,25 +473,39 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
 
     console.log(`Agent started in background (PID: ${child.pid}, Host: ${hostName})`);
     console.log(`Logs: ${logFile}`);
-    console.log(`Run 'gt agent logs -f ${hostName}' to follow logs.`);
-    console.log(`Run 'gt agent stop ${hostName}' to stop agent.`);
+    console.log(`Run 'gt agent logs -f' to follow logs.`);
+    console.log(`Run 'gt agent stop' to stop agent.`);
     process.exit(0);
   }
 
   if (!isDaemon && !isInternalDaemon) {
-    AgentDaemonManager.saveStatus(hostName, {
+    AgentDaemonManager.saveStatus({
       pid: process.pid,
       name: hostName,
       id: hostId,
       server: serverArg,
       startTime: new Date().toISOString(),
+      logFile: AgentDaemonManager.getLogFile(),
     });
     const cleanupFg = () => {
-      AgentDaemonManager.clearStatus(hostName);
+      const s = AgentDaemonManager.getStatus();
+      if (s && s.pid === process.pid) {
+        AgentDaemonManager.clearStatus();
+      }
     };
     process.on('exit', cleanupFg);
     process.on('SIGINT', cleanupFg);
     process.on('SIGTERM', cleanupFg);
+  } else if (isInternalDaemon) {
+    const cleanupDaemon = () => {
+      const s = AgentDaemonManager.getStatus();
+      if (s && s.pid === process.pid) {
+        AgentDaemonManager.clearStatus();
+      }
+    };
+    process.on('exit', cleanupDaemon);
+    process.on('SIGINT', cleanupDaemon);
+    process.on('SIGTERM', cleanupDaemon);
   }
 
   const platform = os.platform();

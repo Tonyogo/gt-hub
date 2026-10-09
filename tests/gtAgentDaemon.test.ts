@@ -49,6 +49,24 @@ describe('gt agent unified authentication and parameter guards', () => {
     expect(res.stderr).toContain("Error: No authenticated server found. Please run 'gt auth login <server> <key>' first.");
   });
 
+  it('operates on singleton agent.json and agent.log', () => {
+    process.env.GT_CONFIG_DIR = testConfigDir;
+    const { AgentDaemonManager } = require('../scripts/gt.js');
+
+    expect(AgentDaemonManager.getStatusFile()).toBe(path.join(testConfigDir, 'agent.json'));
+    expect(AgentDaemonManager.getLogFile()).toBe(path.join(testConfigDir, 'agent.log'));
+
+    AgentDaemonManager.saveStatus({ pid: process.pid, name: 'single-node', server: 'http://localhost:8000' });
+    const status = AgentDaemonManager.getStatus();
+    expect(status.running).toBe(true);
+    expect(status.pid).toBe(process.pid);
+    expect(status.name).toBe('single-node');
+
+    AgentDaemonManager.clearStatus();
+    const cleared = AgentDaemonManager.getStatus();
+    expect(cleared.running).toBe(false);
+  });
+
   it('detects process alive correctly and manages agent state file', () => {
     process.env.GT_CONFIG_DIR = testConfigDir;
     const { AgentDaemonManager } = require('../scripts/gt.js');
