@@ -10,6 +10,8 @@ export interface ManagedHost {
   status: 'online' | 'offline';
   lastSeen: number;
   type: 'agent';
+  machineId?: string;
+  agentWs?: any;
 }
 
 export interface ITerminalSession {
@@ -401,12 +403,42 @@ export class TerminalHostManager {
     hostname?: string;
     ip?: string;
     platform?: string;
+    machineId?: string;
     agentWs: any;
   }): { success: boolean; host?: ManagedHost; error?: string } {
     const id = metadata.hostId.trim();
     const targetName = (metadata.name || metadata.hostname || id).trim();
+    const machineId = (metadata.machineId || id).trim();
 
-    // 1. Check for name conflict against ACTIVE (online) nodes
+    // 1. Check for Machine ID conflict against active (online) nodes
+    for (const [existingId, existingHost] of this.hosts.entries()) {
+      if (existingHost.machineId === machineId) {
+        const existingWs = existingHost.agentWs || this.sessions.get(existingId)?.getAgentWs();
+        if (existingHost.status === 'online' && existingWs !== metadata.agentWs) {
+          if (existingId !== id) {
+            logger.warn(`[TerminalHostManager] Rejecting duplicate machine agent: machineId "${machineId}" is already held by active node "${existingHost.name}" (${existingId})`);
+            return {
+              success: false,
+              error: `Conflict: Machine (${machineId}) already has an active agent '${existingHost.name}' (ID: ${existingId}) connected to this Hub. Each machine can only have ONE agent per Hub.`
+            };
+          }
+        } else if (existingHost.status === 'offline') {
+          if (existingId !== id) {
+            // Auto-prune offline host to allow clean takeover
+            const session = this.sessions.get(existingId);
+            if (session) {
+              session.destroy();
+              this.sessions.delete(existingId);
+            }
+            this.clearPendingRpcForHost(existingId);
+            this.hosts.delete(existingId);
+            logger.info(`[TerminalHostManager] Pruned offline host with matching machineId "${machineId}": ${existingId}`);
+          }
+        }
+      }
+    }
+
+    // 2. Check for name conflict against ACTIVE (online) nodes
     for (const [existingId, existingHost] of this.hosts.entries()) {
       if (existingId !== id && existingHost.name === targetName) {
         if (existingHost.status === 'online') {
@@ -429,7 +461,7 @@ export class TerminalHostManager {
       }
     }
 
-    // 2. Register or update host strictly under `id`
+    // 3. Register or update host strictly under `id`
     let host = this.hosts.get(id);
     if (!host) {
       host = {
@@ -441,12 +473,16 @@ export class TerminalHostManager {
         status: 'online',
         lastSeen: Date.now(),
         type: 'agent',
+        machineId,
+        agentWs: metadata.agentWs,
       };
       this.hosts.set(id, host);
     } else {
       host.status = 'online';
       host.lastSeen = Date.now();
       host.name = targetName;
+      host.machineId = machineId;
+      host.agentWs = metadata.agentWs;
       if (metadata.hostname) host.hostname = metadata.hostname;
       if (metadata.ip) host.ip = metadata.ip;
       if (metadata.platform) host.platform = metadata.platform;
@@ -502,6 +538,7 @@ export class TerminalHostManager {
     if (host && host.type === 'agent') {
       host.status = 'offline';
       host.lastSeen = Date.now();
+      host.agentWs = null;
       logger.info(`[TerminalHostManager] Agent unregistered/offline: ${canonicalId}`);
     }
     if (session && (!closingWs || session.getAgentWs() === closingWs)) {

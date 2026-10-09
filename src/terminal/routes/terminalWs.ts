@@ -6,7 +6,8 @@ import logger from '../../utils/logger';
 import { terminalHostManager } from '../services/terminalHostManager';
 import { terminalExecBridge } from '../services/terminalExecBridge';
 
-export function setupTerminalWebSocket(server: http.Server): WebSocketServer {
+export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?: any): WebSocketServer {
+  const hostMgr = hostManagerInstance || terminalHostManager;
   const wss = new WebSocketServer({ noServer: true });
   const agentWss = new WebSocketServer({ noServer: true });
   const execWss = new WebSocketServer({ noServer: true });
@@ -59,7 +60,7 @@ export function setupTerminalWebSocket(server: http.Server): WebSocketServer {
       agentWss.close();
       execWss.close();
     } catch {}
-    server.removeListener('upgrade', onUpgrade);
+      server.removeListener('upgrade', onUpgrade);
   });
 
   // Agent Reverse Tunnel Handler
@@ -74,16 +75,18 @@ export function setupTerminalWebSocket(server: http.Server): WebSocketServer {
       parsedUrl.searchParams.get('ip') ||
       undefined;
     const platform = parsedUrl.searchParams.get('platform') || undefined;
+    const machineId = parsedUrl.searchParams.get('machineId') || hostId;
 
-    const agentMeta = { hostId, name, hostname, ip, platform };
+    const agentMeta = { hostId, name, hostname, ip, platform, machineId };
     (ws as any)._agentMeta = agentMeta;
 
-    const regResult = terminalHostManager.registerAgent({
+    const regResult = hostMgr.registerAgent({
       hostId,
       name,
       hostname,
       ip,
       platform,
+      machineId,
       agentWs: ws,
     });
 
@@ -102,10 +105,10 @@ export function setupTerminalWebSocket(server: http.Server): WebSocketServer {
 
     ws.on('message', (message: RawData, isBinary: boolean) => {
       try {
-        terminalHostManager.touchAgent(hostId, ws, agentMeta);
+        hostMgr.touchAgent(hostId, ws, agentMeta);
 
         if (isBinary) {
-          terminalHostManager.handleAgentData(hostId, message);
+          hostMgr.handleAgentData(hostId, message);
           return;
         }
 
@@ -117,12 +120,13 @@ export function setupTerminalWebSocket(server: http.Server): WebSocketServer {
             return;
           }
           if (control.type === 'meta') {
-            const metaRes = terminalHostManager.registerAgent({
+            const metaRes = hostMgr.registerAgent({
               hostId,
               name: control.name,
               hostname: control.hostname,
               ip: control.ip,
               platform: control.platform,
+              machineId,
               agentWs: ws,
             });
             if (!metaRes.success) {
@@ -135,11 +139,11 @@ export function setupTerminalWebSocket(server: http.Server): WebSocketServer {
             return;
           }
           if (control.type === 'file_rpc_res') {
-            terminalHostManager.handleAgentRpcResponse(control);
+            hostMgr.handleAgentRpcResponse(control);
             return;
           }
           if (control.type === 'cmd_exec_res') {
-            terminalHostManager.handleAgentCmdRpcResponse(control);
+            hostMgr.handleAgentCmdRpcResponse(control);
             return;
           }
           if (control.type === 'cmd_stream_data' || control.type === 'cmd_stream_exit') {
@@ -147,7 +151,7 @@ export function setupTerminalWebSocket(server: http.Server): WebSocketServer {
             return;
           }
           if (control.type === 'reset') {
-            const session = terminalHostManager.getSession(hostId);
+            const session = hostMgr.getSession(hostId);
             if (session) {
               session.reset(true, false);
             }
@@ -156,26 +160,26 @@ export function setupTerminalWebSocket(server: http.Server): WebSocketServer {
           // Any other control frame is consumed here
           return;
         }
-        terminalHostManager.handleAgentData(hostId, msgStr);
+        hostMgr.handleAgentData(hostId, msgStr);
       } catch (err: any) {
-        terminalHostManager.handleAgentData(hostId, message);
+        hostMgr.handleAgentData(hostId, message);
       }
     });
 
     ws.on('close', () => {
       logger.info(`[TerminalWS:Agent] Agent disconnected: ${hostId}`);
-      if (terminalHostManager.isCurrentAgentWs(hostId, ws)) {
+      if (hostMgr.isCurrentAgentWs(hostId, ws)) {
         terminalExecBridge.handleAgentDisconnected(hostId);
       }
-      terminalHostManager.unregisterAgent(hostId, ws);
+      hostMgr.unregisterAgent(hostId, ws);
     });
 
     ws.on('error', (err) => {
       logger.error(`[TerminalWS:Agent] Agent socket error (${hostId}): ${err.message}`);
-      if (terminalHostManager.isCurrentAgentWs(hostId, ws)) {
+      if (hostMgr.isCurrentAgentWs(hostId, ws)) {
         terminalExecBridge.handleAgentDisconnected(hostId);
       }
-      terminalHostManager.unregisterAgent(hostId, ws);
+      hostMgr.unregisterAgent(hostId, ws);
     });
   });
 
@@ -192,7 +196,7 @@ export function setupTerminalWebSocket(server: http.Server): WebSocketServer {
     }
 
     logger.info(`[TerminalWS] Interactive terminal client attached to host: ${hostId}`);
-    const session = terminalHostManager.getSession(hostId);
+    const session = hostMgr.getSession(hostId);
 
     if (!session) {
       logger.warn(`[TerminalWS] No active session found for host: ${hostId}`);
