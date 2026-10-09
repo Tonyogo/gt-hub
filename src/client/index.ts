@@ -1,3 +1,4 @@
+import { Command } from 'commander';
 import { ConfigStore, DEFAULT_SERVER_URL } from './config/configStore';
 import {
   exitWithError,
@@ -15,8 +16,21 @@ import { formatRelativeTime } from '../shared/utils/timeHelpers';
 import { parseCpArgs, uploadLocalFile, downloadRemoteFile, runCp } from './commands/cp';
 import { parseExecArgs, runExecCommand } from './commands/exec';
 import { runInteractiveExec } from './interactive/interactiveExec';
-import { handleLogin, handleLogout } from './commands/auth';
+import { handleAuthLogin, handleAuthLogout, handleAuthStatus, handleLogin, handleLogout } from './commands/auth';
 import { handleRemotePs, handleRemotePrune } from './commands/hosts';
+import { handleNodesCommand, handleNodesPruneCommand } from './commands/nodes';
+import { handleTaskLs, handleTaskLogs, handleTaskKill } from './commands/task';
+import {
+  handleConfigGetContexts,
+  handleConfigCurrentContext,
+  handleConfigUseContext,
+  handleConfigSetContext,
+  handleConfigDeleteContext,
+  handleConfigView,
+  handleConfigGet,
+  handleConfigSet,
+  handleConfigList,
+} from './commands/config';
 import { handleLogsDispatcher, handleRemoteLogs } from './commands/logs';
 import { handleRemoteKill, handleConfig } from './commands/manage';
 import { AgentDaemonManager, runAgent } from '../agent/daemon';
@@ -45,172 +59,159 @@ export {
   runInteractiveExec,
 };
 
-export function printHelp(): void {
-  console.log(`
-gt (Gemini Terminal) - Unified Docker-Style Terminal CLI
+export function createProgram(rawArgs: string[] = []): Command {
+  const program = new Command();
 
-Usage:
-  gt [GLOBAL_OPTIONS] COMMAND [ARGS...]
+  program
+    .name('gt')
+    .usage('[GLOBAL_OPTIONS] COMMAND [ARGS...]')
+    .description('gt (Gemini Terminal) - Unified Docker-Style Terminal CLI')
+    .version(`gt version ${VERSION}`, '-v, --version', 'Output the version number')
+    .helpOption('-h, --help', 'Display help for command')
+    .option('-c, --context <name>', 'Target Hub context to use (overrides current-context)')
+    .option('-s, --server <url>', 'Hub server URL (Default: env GT_SERVER or http://localhost:8000)')
+    .option('-k, --key <secret>', 'Admin secret key (Default: env GT_KEY)')
+    .option('--json', 'Output in JSON format')
+    .option('--format <template>', 'Format output using Go/Docker template (e.g. \'table {{.ID}}\\t{{.Name}}\')')
+    .enablePositionalOptions(true);
 
-Agent Lifecycle Commands:
-  run [-d] [NAME]                 Run reverse terminal agent (foreground or daemon)
-  ps [-a] [-l|--local]            List connected hosts (default: remote; -l for local)
-  logs [-f] [-n 50] [NAME]        View local agent daemon logs
-  stop [NAME] [--all]             Stop running agent daemon(s)
-  restart [NAME]                  Restart local agent daemon
-  rm [NAME] [--all]               Remove stopped agent daemon record(s)
-  prune [-l|--local] [-a|--all]   Remove offline remote nodes (or -l for local agents)
-
-Remote Execution Commands:
-  exec [OPTIONS] <node> <cmd...>  Execute a command on a remote host
-  cp <src> <dest>                 Copy files between local and remote host
-  task ls <node> [OPTIONS]        List recent tasks on a host
-  task logs [-f] <node> [taskId]  View or follow task execution logs
-  task kill <node> <taskId>       Terminate a running task on a remote host
-
-Authentication & Config:
-  login [SERVER] [KEY]            Verify and save admin credentials
-  logout                          Remove stored credentials
-  config <list|get|set>           Manage local client configuration settings
-
-Exec Options:
-  -i, --interactive       Keep STDIN open for live or piped input
-  -t, --tty               Allocate a pseudo-TTY with raw terminal input
-  -it                     Interactive pseudo-terminal session (like 'docker exec -it')
-  -d, --detach            Run command in background and print task ID
-  -w, --workdir <dir>     Working directory on remote host
-  --timeout <ms>          Execution timeout in ms (Default: 300000 / 5 min)
-  -e, --env <KEY=VAL>     Set remote environment variable (can be repeated)
-  --verbose               Show execution header and duration footer banners
-  --poll-interval <ms>    Polling interval for log stream in ms (Default: 500)
-
-Global Options:
-  -s, --server <url>              Hub server URL (Default: env GT_SERVER or http://localhost:8000)
-  -k, --key <secret>              Admin secret key (Default: env GT_KEY)
-  --json                          Output in JSON format
-  --format <template>             Format output using Go/Docker template (e.g. 'table {{.ID}}\\t{{.Name}}')
-  -v, --version                   Print version information
-  -h, --help                      Show this help menu
-
-Aliases & Compatibility:
-  agent run [-d] [NAME]           Alias for 'gt run'
-  agent ps [-a|--all]             Alias for 'gt ps -l'
-  agent logs [-f] [-n 50] [NAME]  Alias for 'gt logs'
-  agent stop [NAME] [--all]       Alias for 'gt stop'
-  agent restart [NAME]            Alias for 'gt restart'
-  agent rm [NAME] [--all]         Alias for 'gt rm'
-  agent prune                     Alias for 'gt prune -l'
-  kill <node> <taskId>            Shortcut for 'gt task kill'
-
-Examples:
-  gt login http://localhost:8000 secret
-  gt logout
-  gt run -d worker-1
-  gt ps [-a|--all]
-  gt ps -l
-  gt logs -f worker-1
-  gt stop worker-1
-  gt prune -l
-  gt exec my-server uptime
-  gt exec -it my-server bash
-  gt task logs -f my-server task-123
-  gt kill my-server task-123
-  gt cp local.txt my-server:/tmp/remote.txt
-  gt agent run -d worker-1
-`);
-}
-
-export async function runClient(rawArgs: string[] = process.argv.slice(2)): Promise<void> {
-  let cliServer: string | null = null;
-  let cliKey: string | null = null;
-  let jsonOutput = false;
-  let formatTemplateStr: string | null = null;
-
-  const filteredArgs: string[] = [];
-  let foundDoubleDash = false;
-  for (let i = 0; i < rawArgs.length; i++) {
-    const a = rawArgs[i];
-    if (foundDoubleDash) {
-      filteredArgs.push(a);
-      continue;
-    }
-    if (a === '--') {
-      foundDoubleDash = true;
-      filteredArgs.push(a);
-      continue;
-    }
-    if (a === '-v' || a === '--version') {
-      console.log(`gt version ${VERSION}`);
-      process.exit(0);
-    } else if (a === '-h' || a === '--help') {
-      printHelp();
-      process.exit(0);
-    } else if (a === '--json') {
-      jsonOutput = true;
-    } else if (a === '--format') {
-      formatTemplateStr = rawArgs[++i];
-    } else if (a.startsWith('--format=')) {
-      formatTemplateStr = a.slice(9);
-    } else if (a === '-s' || a === '--server') {
-      cliServer = rawArgs[++i];
-    } else if (a.startsWith('--server=')) {
-      cliServer = a.slice(9);
-    } else if (a === '-k' || a === '--key') {
-      cliKey = rawArgs[++i];
-    } else if (a.startsWith('--key=')) {
-      cliKey = a.slice(6);
-    } else {
-      filteredArgs.push(a);
-    }
+  function resolveEffective(opts: Record<string, any> = {}, extra?: { server?: string; key?: string; context?: string }) {
+    const globalOpts = program.opts();
+    const server = extra?.server || opts.server || globalOpts.server;
+    const key = extra?.key !== undefined ? extra.key : (opts.key !== undefined ? opts.key : globalOpts.key);
+    const context = extra?.context || opts.context || globalOpts.context;
+    return ConfigStore.getEffectiveConfig({ server, key, context });
   }
 
-  const effectiveConfig = ConfigStore.getEffectiveConfig({ server: cliServer || undefined, key: cliKey || undefined });
-  const server = effectiveConfig.server;
-  const key = effectiveConfig.key;
-
-  if (filteredArgs.length === 0) {
-    printHelp();
-    process.exit(0);
+  function resolveJson(opts: Record<string, any> = {}): boolean {
+    const globalOpts = program.opts();
+    return !!(opts.json || globalOpts.json);
   }
 
-  const command = filteredArgs[0].toLowerCase();
-  const cmdArgs = filteredArgs.slice(1);
-
-  const commandMigrationMap: Record<string, string> = {
-    hosts: 'gt ps',
-    nodes: 'gt ps',
-  };
-
-  if (commandMigrationMap[command]) {
-    const target = commandMigrationMap[command];
-    if (command === 'hosts' || command === 'nodes') {
-      console.error(`Error: 'gt ${command}' has been deprecated. Use '${target}' instead.`);
-      console.error(`Run 'gt --help' for modern Docker-style command usage.`);
-    } else {
-      console.error(`Error: 'gt ${command}' has been moved to '${target}'.`);
-      console.error(`Run '${target}' instead.`);
-      console.error(`Run 'gt --help' for modern Docker-style command usage.`);
-    }
-    process.exit(125);
+  function resolveFormat(opts: Record<string, any> = {}): string | undefined {
+    const globalOpts = program.opts();
+    return opts.format || globalOpts.format;
   }
 
-  switch (command) {
-    case 'ps': {
-      const isLocal = cmdArgs.includes('-l') || cmdArgs.includes('--local');
-      if (isLocal) {
-        const hasAll = cmdArgs.includes('-a') || cmdArgs.includes('--all');
-        AgentDaemonManager.printAgentsTable(hasAll);
-        break;
+  // --- Remote Cluster Management: gt nodes (alias: hosts) ---
+  const nodesCmd = program
+    .command('nodes')
+    .alias('hosts')
+    .description('List registered agent hosts connected to the target Hub')
+    .option('-a, --all', 'Include offline hosts')
+    .option('-s, --server <url>', 'Hub server URL')
+    .option('-k, --key <secret>', 'Admin secret key')
+    .option('-c, --context <name>', 'Target context')
+    .option('--json', 'Output in JSON format')
+    .option('--format <template>', 'Format output with Docker/Go template')
+    .action(async (opts: Record<string, any>) => {
+      const eff = resolveEffective(opts);
+      await handleNodesCommand({
+        server: eff.server,
+        key: eff.key,
+        all: opts.all,
+        json: resolveJson(opts),
+        format: resolveFormat(opts),
+      });
+    });
+
+  nodesCmd
+    .command('prune')
+    .description('Prune offline nodes from the target Hub')
+    .option('-s, --server <url>', 'Hub server URL')
+    .option('-k, --key <secret>', 'Admin secret key')
+    .option('-c, --context <name>', 'Target context')
+    .option('--json', 'Output in JSON format')
+    .action(async (opts: Record<string, any>) => {
+      const eff = resolveEffective(opts);
+      await handleNodesPruneCommand({
+        server: eff.server,
+        key: eff.key,
+        json: resolveJson(opts),
+      });
+    });
+
+  // Backward compatibility alias: gt host
+  const hostCmd = program
+    .command('host')
+    .description('Manage hosts (alias for nodes)');
+
+  hostCmd
+    .command('ls')
+    .alias('list')
+    .description('List hosts')
+    .option('-a, --all', 'Include offline hosts')
+    .option('-s, --server <url>', 'Hub server URL')
+    .option('-k, --key <secret>', 'Admin secret key')
+    .option('-c, --context <name>', 'Target context')
+    .option('--json', 'Output in JSON format')
+    .option('--format <template>', 'Format output template')
+    .action(async (opts: Record<string, any>) => {
+      const eff = resolveEffective(opts);
+      await handleRemotePs({
+        server: eff.server,
+        key: eff.key,
+        args: opts.all ? ['-a'] : [],
+        jsonOutput: resolveJson(opts),
+        formatTemplateStr: resolveFormat(opts),
+      });
+    });
+
+  hostCmd
+    .command('prune')
+    .description('Prune offline hosts')
+    .option('-s, --server <url>', 'Hub server URL')
+    .option('-k, --key <secret>', 'Admin secret key')
+    .option('-c, --context <name>', 'Target context')
+    .option('--json', 'Output in JSON format')
+    .action(async (opts: Record<string, any>) => {
+      const eff = resolveEffective(opts);
+      await handleRemotePrune({
+        server: eff.server,
+        key: eff.key,
+        args: [],
+        jsonOutput: resolveJson(opts),
+      });
+    });
+
+  // Backward compatibility alias: gt ps
+  program
+    .command('ps')
+    .description('List connected hosts (default: remote; -l for local)')
+    .option('-a, --all', 'Include offline hosts or stopped local agents')
+    .option('-l, --local', 'List local agent daemons')
+    .option('-s, --server <url>', 'Hub server URL')
+    .option('-k, --key <secret>', 'Admin secret key')
+    .option('-c, --context <name>', 'Target context')
+    .option('--json', 'Output in JSON format')
+    .option('--format <template>', 'Format output template')
+    .action(async (opts: Record<string, any>) => {
+      if (opts.local) {
+        AgentDaemonManager.printAgentsTable(!!opts.all);
+        return;
       }
-      await handleRemotePs({ server, key, args: cmdArgs, jsonOutput, formatTemplateStr });
-      break;
-    }
+      const eff = resolveEffective(opts);
+      await handleRemotePs({
+        server: eff.server,
+        key: eff.key,
+        args: opts.all ? ['-a'] : [],
+        jsonOutput: resolveJson(opts),
+        formatTemplateStr: resolveFormat(opts),
+      });
+    });
 
-    case 'prune': {
-      const isLocal = cmdArgs.includes('-l') || cmdArgs.includes('--local');
-      const isAll = cmdArgs.includes('-a') || cmdArgs.includes('--all');
-
-      if (isLocal) {
+  // Backward compatibility alias: gt prune
+  program
+    .command('prune')
+    .description('Remove offline remote nodes (or -l for local agents)')
+    .option('-a, --all', 'Prune all')
+    .option('-l, --local', 'Prune local stopped agents')
+    .option('-s, --server <url>', 'Hub server URL')
+    .option('-k, --key <secret>', 'Admin secret key')
+    .option('-c, --context <name>', 'Target context')
+    .option('--json', 'Output in JSON format')
+    .action(async (opts: Record<string, any>) => {
+      if (opts.local) {
         const { removed } = AgentDaemonManager.prune();
         if (removed.length === 0) {
           console.log('No stopped agents to prune.');
@@ -219,217 +220,245 @@ export async function runClient(rawArgs: string[] = process.argv.slice(2)): Prom
         }
         process.exit(0);
       }
-
-      if (isAll) {
+      if (opts.all) {
         const { removed } = AgentDaemonManager.prune();
         if (removed.length > 0) {
           console.log(`Pruned ${removed.length} local stopped agent(s): ${removed.join(', ')}`);
         }
-        await handleRemotePrune({ server, key, args: cmdArgs, jsonOutput });
-        break;
       }
+      const eff = resolveEffective(opts);
+      await handleRemotePrune({
+        server: eff.server,
+        key: eff.key,
+        args: [],
+        jsonOutput: resolveJson(opts),
+      });
+    });
 
-      await handleRemotePrune({ server, key, args: cmdArgs, jsonOutput });
-      break;
-    }
+  // --- Remote Execution: gt exec ---
+  program
+    .command('exec [args...]')
+    .description('Execute a command on a remote host')
+    .allowUnknownOption(true)
+    .passThroughOptions(true)
+    .option('-i, --interactive', 'Keep STDIN open for live or piped input')
+    .option('-t, --tty', 'Allocate a pseudo-TTY with raw terminal input')
+    .option('-d, --detach', 'Run command in background and print task ID')
+    .option('-w, --workdir <dir>', 'Working directory on remote host')
+    .option('--timeout <ms>', 'Execution timeout in ms (Default: 300000 / 5 min)')
+    .option('-e, --env <KEY=VAL>', 'Set remote environment variable (can be repeated)')
+    .option('--verbose', 'Show execution header and duration footer banners')
+    .option('-q, --quiet', 'Quiet mode (suppress banners)')
+    .option('--poll-interval <ms>', 'Polling interval for log stream in ms (Default: 500)')
+    .action(async (passedArgs: string[]) => {
+      // Find exec index in rawArgs
+      const execIdx = rawArgs.indexOf('exec');
+      const rawCmdArgs = execIdx !== -1 ? rawArgs.slice(execIdx + 1) : (passedArgs || []);
 
-    case 'login': {
-      await handleLogin({ server, key, subArgs: cmdArgs });
-      break;
-    }
+      let cliServer: string | undefined;
+      let cliKey: string | undefined;
+      let cliContext: string | undefined;
+      let jsonOutput = false;
 
-    case 'logout': {
-      handleLogout();
-      break;
-    }
+      const cleanCmdArgs: string[] = [];
+      let hostFound = false;
 
-    case 'logs': {
-      await handleLogsDispatcher({ server, key, args: cmdArgs, jsonOutput });
-      break;
-    }
-
-    case 'kill': {
-      await handleRemoteKill({ server, key, args: cmdArgs, jsonOutput });
-      break;
-    }
-
-    case 'host':
-    case 'node': {
-      const subCommand = (cmdArgs[0] || '').toLowerCase();
-      const subArgs = cmdArgs.slice(1);
-
-      if (!subCommand) {
-        console.error('Error: Missing host subcommand. Usage: gt host <ls|prune> [OPTIONS]');
-        process.exit(125);
-      }
-
-      if (subCommand === 'ls' || subCommand === 'list') {
-        await handleRemotePs({ server, key, args: subArgs, jsonOutput, formatTemplateStr });
-      } else if (subCommand === 'prune') {
-        await handleRemotePrune({ server, key, args: subArgs, jsonOutput });
-      } else {
-        console.error(`Error: Unknown host subcommand: '${subCommand}'.`);
-        console.error("Usage: gt host <ls|prune> [OPTIONS]");
-        process.exit(125);
-      }
-      break;
-    }
-
-    case 'task': {
-      const subCommand = (cmdArgs[0] || '').toLowerCase();
-      const subArgs = cmdArgs.slice(1);
-
-      if (!subCommand) {
-        console.error('Error: Missing task subcommand. Usage: gt task <ls|logs|kill> [ARGS...]');
-        process.exit(125);
-      }
-
-      if (subCommand === 'ls' || subCommand === 'list') {
-        let targetHost: string | null = null;
-        for (let i = 0; i < subArgs.length; i++) {
-          if (subArgs[i] === '--json') jsonOutput = true;
-          else if (subArgs[i] === '--format') formatTemplateStr = subArgs[++i];
-          else if (subArgs[i].startsWith('--format=')) formatTemplateStr = subArgs[i].slice(9);
-          else if (!targetHost) targetHost = subArgs[i];
+      for (let i = 0; i < rawCmdArgs.length; i++) {
+        const a = rawCmdArgs[i];
+        if (hostFound) {
+          cleanCmdArgs.push(a);
+          continue;
         }
-
-        if (!targetHost) {
-          console.error('Error: Missing target host. Usage: gt task ls <host> [OPTIONS]');
-          process.exit(125);
+        if (a === '--') {
+          cleanCmdArgs.push(a);
+          hostFound = true;
+          continue;
         }
-
-        let resolvedHost: { id: string; name: string };
-        try {
-          resolvedHost = await resolveHost(server, key, targetHost);
-        } catch (err: any) {
-          if (err.message && (err.message.includes('Ambiguous') || err.message.includes('No such host'))) {
-            console.error(`Error: ${err.message}`);
-            process.exit(1);
+        if (a === '-s' || a === '--server') {
+          cliServer = rawCmdArgs[++i];
+        } else if (a.startsWith('--server=')) {
+          cliServer = a.slice(9);
+        } else if (a === '-k' || a === '--key') {
+          cliKey = rawCmdArgs[++i];
+        } else if (a.startsWith('--key=')) {
+          cliKey = a.slice(6);
+        } else if (a === '-c' || a === '--context') {
+          cliContext = rawCmdArgs[++i];
+        } else if (a.startsWith('--context=')) {
+          cliContext = a.slice(10);
+        } else if (a === '--json') {
+          jsonOutput = true;
+        } else {
+          if (!a.startsWith('-')) {
+            hostFound = true;
           }
-          resolvedHost = { id: targetHost, name: targetHost };
+          cleanCmdArgs.push(a);
         }
-
-        try {
-          const res = await makeRequest({
-            serverUrl: server,
-            endpoint: `/api/terminal/exec/${encodeURIComponent(resolvedHost.id)}`,
-            method: 'GET',
-            apiKey: key,
-          });
-
-          if (jsonOutput) {
-            console.log(JSON.stringify(res.data, null, 2));
-            process.exit(0);
-          }
-
-          if (res.data && res.data.success && Array.isArray(res.data.tasks)) {
-            const tasks: any[] = res.data.tasks;
-            if (formatTemplateStr) {
-              const formatted = formatTemplate(formatTemplateStr, tasks);
-              if (formatted) console.log(formatted);
-              process.exit(0);
-            }
-
-            if (tasks.length === 0) {
-              console.log(`No recent tasks recorded on [${resolvedHost.id}].`);
-              process.exit(0);
-            }
-
-            console.log(
-              'TASK ID'.padEnd(26) +
-              'STATUS'.padEnd(12) +
-              'EXIT'.padEnd(8) +
-              'START TIME'.padEnd(14) +
-              'COMMAND'
-            );
-            console.log('-'.repeat(80));
-
-            for (const t of tasks) {
-              const timeStr = new Date(t.startTime).toLocaleTimeString();
-              const exitStr = t.exitCode !== null && t.exitCode !== undefined ? String(t.exitCode) : '-';
-              console.log(
-                t.taskId.padEnd(26) +
-                t.status.padEnd(12) +
-                exitStr.padEnd(8) +
-                timeStr.padEnd(14) +
-                t.command
-              );
-            }
-            process.exit(0);
-          } else {
-            console.error(`Error: ${res.data?.error || `HTTP ${res.status}`}`);
-            process.exit(1);
-          }
-        } catch (err: any) {
-          console.error(`Failed to list tasks on [${resolvedHost.id}]: ${err.message}`);
-          process.exit(1);
-        }
-      } else if (subCommand === 'logs') {
-        await handleRemoteLogs({ server, key, args: subArgs, jsonOutput });
-      } else if (subCommand === 'kill') {
-        await handleRemoteKill({ server, key, args: subArgs, jsonOutput });
-      } else {
-        console.error(`Error: Unknown task subcommand: '${subCommand}'.`);
-        console.error("Usage: gt task <ls|logs|kill> [ARGS...]");
-        process.exit(125);
-      }
-      break;
-    }
-
-    case 'auth': {
-      const subCommand = (cmdArgs[0] || '').toLowerCase();
-      const subArgs = cmdArgs.slice(1);
-
-      if (!subCommand) {
-        console.error('Error: Missing auth subcommand. Usage: gt auth <login|logout> [ARGS...]');
-        process.exit(125);
       }
 
-      if (subCommand === 'login') {
-        await handleLogin({ server, key, subArgs });
-      } else if (subCommand === 'logout') {
-        handleLogout();
-      } else {
-        console.error(`Error: Unknown auth subcommand: '${subCommand}'.`);
-        console.error("Usage: gt auth <login|logout> [ARGS...]");
-        process.exit(125);
-      }
-      break;
-    }
+      const eff = resolveEffective({}, { server: cliServer, key: cliKey, context: cliContext });
+      await runExecCommand({
+        server: eff.server,
+        key: eff.key,
+        cmdArgs: cleanCmdArgs,
+        jsonOutput: jsonOutput || resolveJson(),
+      });
+    });
 
-    case 'cp': {
-      if (cmdArgs.length < 2) {
+  // --- Copy: gt cp ---
+  program
+    .command('cp [args...]')
+    .description('Copy files between local filesystem and remote host')
+    .action(async (args: string[]) => {
+      if (!args || args.length < 2) {
         console.error('Error: Missing arguments. Usage: gt cp <src> <dest>');
         process.exit(125);
       }
+      const eff = resolveEffective();
       try {
-        const code = await runCp(server, key, cmdArgs);
+        const code = await runCp(eff.server, eff.key, args);
         process.exit(code);
       } catch (err: any) {
         console.error(`Error: ${err.message}`);
         process.exit(1);
       }
-      break;
-    }
+    });
 
-    case 'exec': {
-      await runExecCommand({ server, key, cmdArgs, jsonOutput });
-      break;
-    }
+  // --- Task Management: gt task ---
+  const taskCmd = program
+    .command('task')
+    .description('Manage remote execution tasks');
 
-    case 'config': {
-      handleConfig({ cmdArgs, server, key });
-      break;
-    }
+  taskCmd
+    .command('ls <node>')
+    .alias('list')
+    .description('List recent tasks on a host')
+    .option('-s, --server <url>', 'Hub server URL')
+    .option('-k, --key <secret>', 'Admin secret key')
+    .option('-c, --context <name>', 'Target context')
+    .option('--json', 'Output in JSON format')
+    .option('--format <template>', 'Format output template')
+    .action(async (node: string, opts: Record<string, any>) => {
+      const eff = resolveEffective(opts);
+      await handleTaskLs({
+        server: eff.server,
+        key: eff.key,
+        node,
+        json: resolveJson(opts),
+        format: resolveFormat(opts),
+      });
+    });
 
-    case 'run': {
-      await runAgent(['run', ...cmdArgs], { server, key, cliServer, cliKey });
-      break;
-    }
+  taskCmd
+    .command('logs <node> [taskId]')
+    .description('View or follow task execution logs')
+    .option('-f, --follow', 'Follow logs')
+    .option('--poll-interval <ms>', 'Polling interval in ms')
+    .option('-s, --server <url>', 'Hub server URL')
+    .option('-k, --key <secret>', 'Admin secret key')
+    .option('-c, --context <name>', 'Target context')
+    .option('--json', 'Output in JSON format')
+    .action(async (node: string, taskId: string | undefined, opts: Record<string, any>) => {
+      const eff = resolveEffective(opts);
+      await handleTaskLogs({
+        server: eff.server,
+        key: eff.key,
+        node,
+        taskId,
+        follow: !!opts.follow,
+        json: resolveJson(opts),
+      });
+    });
 
-    case 'stop': {
-      const hasAll = cmdArgs.includes('--all') || cmdArgs.includes('-a');
-      if (hasAll) {
+  taskCmd
+    .command('kill <node> <taskId>')
+    .description('Terminate a running task on a remote node')
+    .option('--signal <sig>', 'Signal to send')
+    .option('-s, --server <url>', 'Hub server URL')
+    .option('-k, --key <secret>', 'Admin secret key')
+    .option('-c, --context <name>', 'Target context')
+    .option('--json', 'Output in JSON format')
+    .action(async (node: string, taskId: string, opts: Record<string, any>) => {
+      const eff = resolveEffective(opts);
+      await handleTaskKill({
+        server: eff.server,
+        key: eff.key,
+        node,
+        taskId,
+        signal: opts.signal,
+        json: resolveJson(opts),
+      });
+    });
+
+  // Top-level shortcut: gt kill
+  program
+    .command('kill [args...]')
+    .description('Shortcut for gt task kill')
+    .allowUnknownOption(true)
+    .action(async (args: string[]) => {
+      const eff = resolveEffective();
+      await handleRemoteKill({
+        server: eff.server,
+        key: eff.key,
+        args: args || [],
+        jsonOutput: resolveJson(),
+      });
+    });
+
+  // Top-level shortcut: gt logs
+  program
+    .command('logs [args...]')
+    .description('View agent or task logs')
+    .allowUnknownOption(true)
+    .action(async (args: string[]) => {
+      const eff = resolveEffective();
+      await handleLogsDispatcher({
+        server: eff.server,
+        key: eff.key,
+        args: args || [],
+        jsonOutput: resolveJson(),
+      });
+    });
+
+  // --- Local Agent Management: gt agent ---
+  const agentCmd = program
+    .command('agent')
+    .description('Manage local machine reverse agent lifecycle')
+    .allowUnknownOption(true);
+
+  agentCmd
+    .command('run [name]')
+    .description('Run reverse terminal agent (foreground or daemon)')
+    .option('-d, --detach', 'Run as a background daemon')
+    .option('-s, --server <url>', 'Hub server URL')
+    .option('-k, --key <secret>', 'Admin secret key')
+    .allowUnknownOption(true)
+    .action(async (_name: string | undefined, opts: Record<string, any>) => {
+      const agentIdx = rawArgs.indexOf('agent');
+      const args = agentIdx !== -1 ? rawArgs.slice(agentIdx + 1) : ['run'];
+      const eff = resolveEffective(opts);
+      await runAgent(args, { server: eff.server, key: eff.key, cliServer: opts.server, cliKey: opts.key });
+    });
+
+  agentCmd
+    .command('start [name]')
+    .description('Start reverse agent as detached background daemon')
+    .option('-s, --server <url>', 'Hub server URL')
+    .option('-k, --key <secret>', 'Admin secret key')
+    .allowUnknownOption(true)
+    .action(async (_name: string | undefined, opts: Record<string, any>) => {
+      const agentIdx = rawArgs.indexOf('agent');
+      const args = agentIdx !== -1 ? rawArgs.slice(agentIdx + 1) : ['start'];
+      const eff = resolveEffective(opts);
+      await runAgent(args, { server: eff.server, key: eff.key, cliServer: opts.server, cliKey: opts.key });
+    });
+
+  agentCmd
+    .command('stop [name]')
+    .description('Stop running local agent daemon(s)')
+    .option('-a, --all', 'Stop all running agents')
+    .action(async (name: string | undefined, opts: Record<string, any>) => {
+      if (opts.all) {
         const results = await AgentDaemonManager.stopAll();
         if (results.length === 0) {
           console.log('No running agents to stop.');
@@ -440,50 +469,90 @@ export async function runClient(rawArgs: string[] = process.argv.slice(2)): Prom
         }
         process.exit(0);
       }
-
-      let targetName: string | null = null;
-      for (const a of cmdArgs) {
-        if (!a.startsWith('-')) {
-          targetName = a;
-          break;
-        }
-      }
-
-      const resolved = AgentDaemonManager.resolveTarget(targetName || undefined, 'stop');
+      const resolved = AgentDaemonManager.resolveTarget(name || undefined, 'stop');
       if (resolved.error) {
         console.error(resolved.error);
         process.exit(1);
       }
-
       const res = await AgentDaemonManager.stop(resolved.agent.name);
       console.log(res.message);
       process.exit(0);
-    }
+    });
 
-    case 'restart': {
-      let targetName: string | null = null;
-      for (const a of cmdArgs) {
-        if (!a.startsWith('-')) {
-          targetName = a;
-          break;
-        }
-      }
-
-      const resolved = AgentDaemonManager.resolveTarget(targetName || undefined, 'restart');
+  agentCmd
+    .command('restart [name]')
+    .description('Restart local agent daemon')
+    .option('-s, --server <url>', 'Hub server URL')
+    .option('-k, --key <secret>', 'Admin secret key')
+    .action(async (name: string | undefined, opts: Record<string, any>) => {
+      const resolved = AgentDaemonManager.resolveTarget(name || undefined, 'restart');
       if (resolved.error) {
         console.error(resolved.error);
         process.exit(1);
       }
-
       const sName = resolved.agent.name;
       await AgentDaemonManager.stop(sName);
-      await runAgent(['start', `--name=${sName}`], { server, key, cliServer, cliKey });
-      break;
-    }
+      const eff = resolveEffective(opts);
+      await runAgent(['start', `--name=${sName}`], { server: eff.server, key: eff.key, cliServer: opts.server, cliKey: opts.key });
+    });
 
-    case 'rm': {
-      const hasAll = cmdArgs.includes('--all') || cmdArgs.includes('-a');
-      if (hasAll) {
+  agentCmd
+    .command('status [name]')
+    .alias('ps')
+    .description('Display status of local agent daemon(s)')
+    .option('-a, --all', 'Show stopped agent records')
+    .action(async (_name: string | undefined, opts: Record<string, any>) => {
+      if (opts.all) {
+        AgentDaemonManager.printAgentsTable(true);
+        return;
+      }
+      const all = AgentDaemonManager.getAllAgents();
+      const running = all.filter(a => a.running);
+      if (running.length === 0) {
+        console.log('No background agent running.');
+        process.exit(0);
+      }
+      console.log(
+        'STATUS'.padEnd(12) +
+        'PID'.padEnd(10) +
+        'HOST NAME'.padEnd(25) +
+        'TARGET HUB'.padEnd(30) +
+        'STARTED'
+      );
+      console.log('-'.repeat(95));
+      for (const status of running) {
+        console.log(
+          'Running'.padEnd(12) +
+          String(status.pid).padEnd(10) +
+          (status.name || '').padEnd(25) +
+          (status.server || '').padEnd(30) +
+          (status.startTime || '')
+        );
+      }
+      process.exit(0);
+    });
+
+  agentCmd
+    .command('logs [name]')
+    .description('View local agent daemon logs')
+    .option('-f, --follow', 'Follow log stream')
+    .option('-n, --lines <number>', 'Number of lines to show', '50')
+    .action(async (name: string | undefined, opts: Record<string, any>) => {
+      const resolved = AgentDaemonManager.resolveTarget(name || undefined, 'logs');
+      if (resolved.error) {
+        console.error(resolved.error);
+        process.exit(1);
+      }
+      await AgentDaemonManager.getLogs(resolved.agent.name, parseInt(opts.lines, 10) || 50, !!opts.follow);
+      process.exit(0);
+    });
+
+  agentCmd
+    .command('rm [name]')
+    .description('Remove stopped local agent daemon record(s)')
+    .option('-a, --all', 'Remove all stopped agents')
+    .action(async (name: string | undefined, opts: Record<string, any>) => {
+      if (opts.all) {
         const { removed } = AgentDaemonManager.removeAll();
         if (removed.length === 0) {
           console.log('No stopped agents to remove.');
@@ -492,15 +561,7 @@ export async function runClient(rawArgs: string[] = process.argv.slice(2)): Prom
         }
         process.exit(0);
       }
-
-      let targetName: string | null = null;
-      for (const a of cmdArgs) {
-        if (!a.startsWith('-')) {
-          targetName = a;
-          break;
-        }
-      }
-
+      let targetName = name;
       if (!targetName) {
         const resolved = AgentDaemonManager.resolveTarget(undefined, 'remove');
         if (resolved.agent) {
@@ -510,7 +571,6 @@ export async function runClient(rawArgs: string[] = process.argv.slice(2)): Prom
           process.exit(1);
         }
       }
-
       const res = AgentDaemonManager.remove(targetName, { removeLogs: true });
       if (!res.success) {
         console.error(res.message);
@@ -518,16 +578,283 @@ export async function runClient(rawArgs: string[] = process.argv.slice(2)): Prom
       }
       console.log(res.message);
       process.exit(0);
-    }
+    });
 
-    case 'agent': {
-      await runAgent(cmdArgs, { server, key, cliServer, cliKey });
-      break;
-    }
+  agentCmd
+    .command('prune')
+    .description('Prune all stopped local agent daemon records and logs')
+    .action(() => {
+      const { removed } = AgentDaemonManager.prune();
+      if (removed.length === 0) {
+        console.log('No stopped agents to prune.');
+      } else {
+        console.log(`Pruned stopped agents: ${removed.join(', ')}`);
+      }
+      process.exit(0);
+    });
 
-    default:
-      console.error(`Error: Unknown command: ${command}`);
-      console.error("Run 'gt --help' for usage.");
-      process.exit(1);
+  // Top-level aliases for agent lifecycle
+  program
+    .command('run [args...]')
+    .description('Alias for gt agent run')
+    .allowUnknownOption(true)
+    .action(async (args: string[]) => {
+      const eff = resolveEffective();
+      await runAgent(['run', ...(args || [])], { server: eff.server, key: eff.key });
+    });
+
+  program
+    .command('stop [name]')
+    .description('Alias for gt agent stop')
+    .option('-a, --all', 'Stop all running agents')
+    .action(async (name: string | undefined, opts: Record<string, any>) => {
+      if (opts.all) {
+        const results = await AgentDaemonManager.stopAll();
+        if (results.length === 0) {
+          console.log('No running agents to stop.');
+        } else {
+          for (const r of results) console.log(r.message);
+        }
+        process.exit(0);
+      }
+      const resolved = AgentDaemonManager.resolveTarget(name || undefined, 'stop');
+      if (resolved.error) {
+        console.error(resolved.error);
+        process.exit(1);
+      }
+      const res = await AgentDaemonManager.stop(resolved.agent.name);
+      console.log(res.message);
+      process.exit(0);
+    });
+
+  program
+    .command('restart [name]')
+    .description('Alias for gt agent restart')
+    .action(async (name: string | undefined) => {
+      const resolved = AgentDaemonManager.resolveTarget(name || undefined, 'restart');
+      if (resolved.error) {
+        console.error(resolved.error);
+        process.exit(1);
+      }
+      const sName = resolved.agent.name;
+      await AgentDaemonManager.stop(sName);
+      const eff = resolveEffective();
+      await runAgent(['start', `--name=${sName}`], { server: eff.server, key: eff.key });
+    });
+
+  program
+    .command('rm [name]')
+    .description('Alias for gt agent rm')
+    .option('-a, --all', 'Remove all stopped agents')
+    .action(async (name: string | undefined, opts: Record<string, any>) => {
+      if (opts.all) {
+        const { removed } = AgentDaemonManager.removeAll();
+        if (removed.length === 0) {
+          console.log('No stopped agents to remove.');
+        } else {
+          console.log(`Removed agents: ${removed.join(', ')}`);
+        }
+        process.exit(0);
+      }
+      let targetName = name;
+      if (!targetName) {
+        const resolved = AgentDaemonManager.resolveTarget(undefined, 'remove');
+        if (resolved.agent) {
+          targetName = resolved.agent.name;
+        } else {
+          console.error('Error: Please specify agent NAME to remove (e.g. gt rm <NAME>).');
+          process.exit(1);
+        }
+      }
+      const res = AgentDaemonManager.remove(targetName, { removeLogs: true });
+      if (!res.success) {
+        console.error(res.message);
+        process.exit(1);
+      }
+      console.log(res.message);
+      process.exit(0);
+    });
+
+  // --- Authentication: gt auth ---
+  const authCmd = program
+    .command('auth')
+    .description('Authentication lifecycle commands');
+
+  authCmd
+    .command('login [server] [key]')
+    .description('Probe and authenticate against the target Hub')
+    .option('-c, --context <name>', 'Associate credentials with a named context')
+    .option('-s, --server <url>', 'Target Hub server URL')
+    .option('-k, --key <secret>', 'Admin secret key')
+    .action(async (serverArg: string | undefined, keyArg: string | undefined, opts: Record<string, any>) => {
+      const subArgs: string[] = [];
+      if (serverArg) subArgs.push(serverArg);
+      if (keyArg) subArgs.push(keyArg);
+      const eff = resolveEffective(opts);
+      await handleAuthLogin({
+        server: eff.server,
+        key: eff.key,
+        context: opts.context || eff.context,
+        subArgs,
+      });
+    });
+
+  authCmd
+    .command('status')
+    .description('Display authentication status')
+    .option('-c, --context <name>', 'Target context')
+    .option('-s, --server <url>', 'Target Hub server URL')
+    .option('-k, --key <secret>', 'Admin secret key')
+    .action(async (opts: Record<string, any>) => {
+      const eff = resolveEffective(opts);
+      await handleAuthStatus({
+        server: eff.server,
+        key: eff.key,
+        context: eff.context,
+      });
+    });
+
+  authCmd
+    .command('logout')
+    .description('Remove stored credentials')
+    .option('--all', 'Log out of all contexts')
+    .action((opts: Record<string, any>) => {
+      handleAuthLogout(!!opts.all);
+    });
+
+  // Top-level aliases for auth
+  program
+    .command('login [server] [key]')
+    .description('Verify and save admin credentials')
+    .option('-c, --context <name>', 'Associate credentials with a named context')
+    .option('-s, --server <url>', 'Target Hub server URL')
+    .option('-k, --key <secret>', 'Admin secret key')
+    .action(async (serverArg: string | undefined, keyArg: string | undefined, opts: Record<string, any>) => {
+      const subArgs: string[] = [];
+      if (serverArg) subArgs.push(serverArg);
+      if (keyArg) subArgs.push(keyArg);
+      const eff = resolveEffective(opts);
+      await handleAuthLogin({
+        server: eff.server,
+        key: eff.key,
+        context: eff.context,
+        subArgs,
+      });
+    });
+
+  program
+    .command('logout')
+    .description('Remove stored credentials')
+    .action(() => {
+      handleAuthLogout();
+    });
+
+  // --- Configuration: gt config ---
+  const configCmd = program
+    .command('config')
+    .description('Manage client contexts and configuration');
+
+  configCmd
+    .command('get-contexts')
+    .description('List all stored contexts')
+    .action(() => {
+      handleConfigGetContexts();
+    });
+
+  configCmd
+    .command('current-context')
+    .description('Print active context name')
+    .action(() => {
+      handleConfigCurrentContext();
+    });
+
+  configCmd
+    .command('use-context <name>')
+    .description('Switch active context')
+    .action((name: string) => {
+      handleConfigUseContext(name);
+    });
+
+  configCmd
+    .command('set-context <name>')
+    .description('Create or update a named context')
+    .option('-s, --server <url>', 'Target Hub server URL')
+    .option('-k, --key <secret>', 'Target Hub secret key')
+    .action((name: string, opts: Record<string, any>) => {
+      handleConfigSetContext(name, {
+        server: opts.server,
+        key: opts.key,
+      });
+    });
+
+  configCmd
+    .command('delete-context <name>')
+    .description('Delete a named context')
+    .action((name: string) => {
+      handleConfigDeleteContext(name);
+    });
+
+  configCmd
+    .command('view')
+    .description('Display entire configuration in JSON format')
+    .option('--raw', 'Show unmasked secret keys')
+    .action((opts: Record<string, any>) => {
+      handleConfigView(!!opts.raw);
+    });
+
+  configCmd
+    .command('get <key>')
+    .description('Read a top-level configuration property')
+    .action((key: string) => {
+      handleConfigGet(key);
+    });
+
+  configCmd
+    .command('set <key> <val>')
+    .description('Set a top-level configuration property')
+    .action((key: string, val: any) => {
+      handleConfigSet(key, val);
+    });
+
+  configCmd
+    .command('list')
+    .description('List configuration settings (legacy format)')
+    .option('-s, --server <url>', 'Hub server URL')
+    .action((opts: Record<string, any>) => {
+      const eff = resolveEffective(opts);
+      handleConfigList(eff.server);
+    });
+
+  return program;
+}
+
+export function printHelp(): void {
+  const prog = createProgram();
+  console.log(prog.helpInformation());
+}
+
+export async function runClient(rawArgs: string[] = process.argv.slice(2)): Promise<void> {
+  if (rawArgs.length === 0) {
+    printHelp();
+    process.exit(0);
+  }
+
+  const program = createProgram(rawArgs);
+  program.exitOverride();
+
+  try {
+    await program.parseAsync([process.argv[0] || 'node', 'gt', ...rawArgs]);
+  } catch (err: any) {
+    if (err.code === 'commander.helpDisplayed' || err.code === 'commander.version') {
+      process.exit(0);
+    }
+    if (err.code && typeof err.code === 'string' && err.code.startsWith('commander.')) {
+      process.exit(2);
+    }
+    if (typeof err.exitCode === 'number') {
+      process.exit(err.exitCode);
+    }
+    console.error(err.message || err);
+    process.exit(1);
   }
 }
