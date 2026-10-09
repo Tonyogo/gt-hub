@@ -31,20 +31,64 @@ describe('gt Commander CLI Structure', () => {
     expect(res.stdout).toContain('task');
   });
 
-  it('supports agent subcommands: run, start, stop, restart, status, logs, prune', () => {
+  it('supports agent subcommands: start, stop, restart, status, logs, name', () => {
     const res = spawnSync('node', [gtPath, 'agent', '--help'], {
       encoding: 'utf-8',
       stdio: 'pipe',
       timeout: 5000,
     });
     expect(res.status).toBe(0);
-    expect(res.stdout).toContain('run');
     expect(res.stdout).toContain('start');
     expect(res.stdout).toContain('stop');
     expect(res.stdout).toContain('restart');
     expect(res.stdout).toContain('status');
     expect(res.stdout).toContain('logs');
-    expect(res.stdout).toContain('prune');
+    expect(res.stdout).toContain('name');
+    expect(res.stdout).not.toMatch(/^\s*run\s/m);
+    expect(res.stdout).not.toMatch(/^\s*prune\s/m);
+  });
+
+  it('supports gt agent name querying and setting', () => {
+    const queryRes = spawnSync('node', [gtPath, 'agent', 'name'], {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+      timeout: 5000,
+    });
+    expect(queryRes.status).toBe(0);
+    expect(queryRes.stdout).toMatch(/\w+/);
+
+    const setRes = spawnSync('node', [gtPath, 'agent', 'name', 'test-node-x'], {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+      timeout: 5000,
+    });
+    expect(setRes.status).toBe(0);
+    expect(setRes.stdout).toContain('Agent name set to "test-node-x"');
+  });
+
+  it('rejects removed agent subcommands with exit code 2', () => {
+    const runRes = spawnSync('node', [gtPath, 'agent', 'run'], {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+      timeout: 5000,
+    });
+    expect(runRes.status).toBe(2);
+
+    const rmRes = spawnSync('node', [gtPath, 'agent', 'rm'], {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+      timeout: 5000,
+    });
+    expect(rmRes.status).toBe(2);
+  });
+
+  it('rejects removed config get/set commands with exit code 2', () => {
+    const getRes = spawnSync('node', [gtPath, 'config', 'get', 'server'], {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+      timeout: 5000,
+    });
+    expect(getRes.status).toBe(2);
   });
 
   it('forwards -c flag in exec verbatim to remote command without Commander consuming it as --context', () => {

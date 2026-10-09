@@ -75,28 +75,6 @@ export function handleConfigView(raw: boolean = false): void {
   console.log(JSON.stringify(data, null, 2));
 }
 
-export function handleConfigGet(key: string): void {
-  if (!key) {
-    console.error('Error: Missing key. Usage: gt config get <key>');
-    process.exit(1);
-  }
-  const val = ConfigStore.get(key);
-  if (val !== undefined && val !== null) {
-    console.log(val);
-  } else {
-    console.log('');
-  }
-}
-
-export function handleConfigSet(key: string, val: any): void {
-  if (!key || val === undefined) {
-    console.error('Error: Missing arguments. Usage: gt config set <key> <value>');
-    process.exit(1);
-  }
-  ConfigStore.set(key, val);
-  console.log(`Set ${key} = "${val}"`);
-}
-
 export function handleConfigList(server?: string): void {
   const stored = ConfigStore.load();
   const mask = (str?: string) => {

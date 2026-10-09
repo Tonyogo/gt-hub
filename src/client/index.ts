@@ -27,8 +27,6 @@ import {
   handleConfigSetContext,
   handleConfigDeleteContext,
   handleConfigView,
-  handleConfigGet,
-  handleConfigSet,
   handleConfigList,
 } from './commands/config';
 import { handleLogsDispatcher, handleRemoteLogs } from './commands/logs';
@@ -76,14 +74,13 @@ export function createProgram(rawArgs: string[] = []): Command {
     .enablePositionalOptions(true);
 
   program.addHelpText('after', `
-Agent Lifecycle Commands:
-  agent run [-d] [NAME]           Run reverse terminal agent (foreground or daemon)
-  agent ps [-a|--all]             List connected hosts (or local agent daemons)
-  agent logs [-f] [-n 50] [NAME]  View local agent daemon logs
-  agent stop [NAME] [--all]       Stop running agent daemon(s)
-  agent restart [NAME]            Restart local agent daemon
-  agent rm [NAME] [--all]         Remove stopped agent daemon record(s)
-  agent prune                     Remove stopped local agent daemon records
+Agent Daemon Commands:
+  agent start                     Start the local agent daemon in background
+  agent stop                      Stop the running local agent daemon
+  agent restart                   Restart the local agent daemon
+  agent status                    Display local agent daemon running status
+  agent logs [-f] [-n 50]         View local agent daemon logs
+  agent name [newName]            View or set the agent node name for this machine
 
 Remote Execution Commands:
   task ls <node> [OPTIONS]        List recent tasks on a host
@@ -96,7 +93,6 @@ Command Shortcuts:
   gt prune
   gt login [server] [key]
   gt logout
-  gt agent run
 `);
 
   function resolveEffective(opts: Record<string, any> = {}, extra?: { server?: string; key?: string; context?: string }) {
@@ -445,72 +441,69 @@ Command Shortcuts:
 
   // --- Local Agent Management: gt agent ---
   const agentCmd = program
-    .command('agent [args...]')
-    .description('Manage local machine reverse agent lifecycle')
-    .allowUnknownOption(true)
-    .action(async () => {
-      const agentIdx = rawArgs.indexOf('agent');
-      const args = agentIdx !== -1 ? rawArgs.slice(agentIdx + 1) : [];
-      const eff = resolveEffective();
-      await runAgent(args, { server: eff.server, key: eff.key });
+    .command('agent')
+    .description('Manage local machine reverse agent daemon lifecycle');
+
+  agentCmd
+    .command('start')
+    .description('Start the local agent daemon in background')
+    .option('-s, --server <url>', 'Override target Hub URL')
+    .option('-k, --key <secret>', 'Override Hub admin secret key')
+    .option('-c, --context <name>', 'Target context')
+    .action(async (opts: Record<string, any>) => {
+      const eff = resolveEffective(opts);
+      await runAgent(['start'], { server: eff.server, key: eff.key, context: eff.context });
     });
 
-  const agentSubcommands = ['run', 'start', 'stop', 'restart', 'status', 'ps', 'logs', 'rm', 'prune'];
-  for (const sc of agentSubcommands) {
-    agentCmd
-      .command(`${sc} [subArgs...]`)
-      .allowUnknownOption(true)
-      .action(async () => {
-        const agentIdx = rawArgs.indexOf('agent');
-        const args = agentIdx !== -1 ? rawArgs.slice(agentIdx + 1) : [sc];
-        const eff = resolveEffective();
-        await runAgent(args, { server: eff.server, key: eff.key });
-      });
-  }
-
-  // Top-level aliases for agent lifecycle
-  program
-    .command('run [args...]')
-    .description('Alias for gt agent run')
-    .allowUnknownOption(true)
+  agentCmd
+    .command('stop')
+    .description('Stop the running local agent daemon')
     .action(async () => {
-      const runIdx = rawArgs.indexOf('run');
-      const args = runIdx !== -1 ? rawArgs.slice(runIdx + 1) : [];
-      const eff = resolveEffective();
-      await runAgent(['run', ...args], { server: eff.server, key: eff.key });
+      await runAgent(['stop'], {});
     });
 
-  program
-    .command('stop [args...]')
-    .description('Alias for gt agent stop')
-    .allowUnknownOption(true)
-    .action(async () => {
-      const stopIdx = rawArgs.indexOf('stop');
-      const args = stopIdx !== -1 ? rawArgs.slice(stopIdx + 1) : [];
-      const eff = resolveEffective();
-      await runAgent(['stop', ...args], { server: eff.server, key: eff.key });
+  agentCmd
+    .command('restart')
+    .description('Restart the local agent daemon')
+    .option('-s, --server <url>', 'Override target Hub URL')
+    .option('-k, --key <secret>', 'Override Hub admin secret key')
+    .option('-c, --context <name>', 'Target context')
+    .action(async (opts: Record<string, any>) => {
+      const eff = resolveEffective(opts);
+      await runAgent(['restart'], { server: eff.server, key: eff.key, context: eff.context });
     });
 
-  program
-    .command('restart [args...]')
-    .description('Alias for gt agent restart')
-    .allowUnknownOption(true)
+  agentCmd
+    .command('status')
+    .description('Display local agent daemon running status')
     .action(async () => {
-      const rstIdx = rawArgs.indexOf('restart');
-      const args = rstIdx !== -1 ? rawArgs.slice(rstIdx + 1) : [];
-      const eff = resolveEffective();
-      await runAgent(['restart', ...args], { server: eff.server, key: eff.key });
+      await runAgent(['status'], {});
     });
 
-  program
-    .command('rm [args...]')
-    .description('Alias for gt agent rm')
-    .allowUnknownOption(true)
-    .action(async () => {
-      const rmIdx = rawArgs.indexOf('rm');
-      const args = rmIdx !== -1 ? rawArgs.slice(rmIdx + 1) : [];
-      const eff = resolveEffective();
-      await runAgent(['rm', ...args], { server: eff.server, key: eff.key });
+  agentCmd
+    .command('logs')
+    .description('View local agent daemon logs')
+    .option('-f, --follow', 'Follow log stream')
+    .option('-n, --lines <number>', 'Number of lines to show', '50')
+    .action(async (opts: Record<string, any>) => {
+      const args = ['logs'];
+      if (opts.follow) args.push('-f');
+      if (opts.lines) args.push(`-n=${opts.lines}`);
+      await runAgent(args, {});
+    });
+
+  agentCmd
+    .command('name [newName]')
+    .description('View or set the agent node name for this machine')
+    .action((newName?: string) => {
+      if (!newName) {
+        const res = ConfigStore.resolveAgentName();
+        console.log(`${res.name} (${res.source})`);
+      } else {
+        ConfigStore.setAgentName(newName);
+        const updated = ConfigStore.getAgentName();
+        console.log(`✓ Agent name set to "${updated}". Run 'gt agent restart' to apply changes if running.`);
+      }
     });
 
   // --- Authentication: gt auth ---
@@ -641,20 +634,6 @@ Command Shortcuts:
     });
 
   configCmd
-    .command('get <key>')
-    .description('Read a top-level configuration property')
-    .action((key: string) => {
-      handleConfigGet(key);
-    });
-
-  configCmd
-    .command('set <key> <val>')
-    .description('Set a top-level configuration property')
-    .action((key: string, val: any) => {
-      handleConfigSet(key, val);
-    });
-
-  configCmd
     .command('list')
     .description('List configuration settings (legacy format)')
     .option('-s, --server <url>', 'Hub server URL')
@@ -678,7 +657,14 @@ export async function runClient(rawArgs: string[] = process.argv.slice(2)): Prom
   }
 
   const program = createProgram(rawArgs);
-  program.exitOverride();
+
+  function applyExitOverride(cmd: Command) {
+    cmd.exitOverride();
+    for (const sub of cmd.commands) {
+      applyExitOverride(sub);
+    }
+  }
+  applyExitOverride(program);
 
   try {
     await program.parseAsync([process.argv[0] || 'node', 'gt', ...rawArgs]);
