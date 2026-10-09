@@ -1,6 +1,6 @@
 # gt Agent Singleton Daemon & Dedicated Name Configuration Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Refactor `gt agent` into a pure singleton host daemon model, introduce `gt agent name [new-name]` for persistent node naming, remove `gt agent run` and legacy multi-instance commands/aliases, and consolidate file storage to `agent.json` and `agent.log`.
 
@@ -43,7 +43,7 @@
   - `ConfigStore.setAgentName(name: string): void`
   - `ConfigStore.resolveAgentName(env?): { name: string; source: 'environment' | 'configured' | 'default' }`
 
-- [ ] **Step 1: Write failing unit test for agentName in ConfigStore**
+- [x] **Step 1: Write failing unit test for agentName in ConfigStore**
 
 Create `tests/gtAgentNameConfig.test.ts`:
 ```typescript
@@ -97,12 +97,12 @@ describe('ConfigStore Agent Name Configuration', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx jest tests/gtAgentNameConfig.test.ts`
 Expected: FAIL (methods not defined on ConfigStore)
 
-- [ ] **Step 3: Implement getAgentName, setAgentName, and resolveAgentName**
+- [x] **Step 3: Implement getAgentName, setAgentName, and resolveAgentName**
 
 In `src/client/config/configStore.ts`:
 ```typescript
@@ -146,12 +146,12 @@ export class ConfigStore {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npx jest tests/gtAgentNameConfig.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit Task 1**
+- [x] **Step 5: Commit Task 1**
 
 ```bash
 git add src/client/config/configStore.ts tests/gtAgentNameConfig.test.ts
@@ -180,7 +180,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
   - `AgentDaemonManager.getLogs(lines, follow): Promise<void>`
   - `runAgent(agentArgs, globalOpts)` simplified for singleton operation (no `run`, no `rm`, no `prune`)
 
-- [ ] **Step 1: Write failing unit tests for singleton AgentDaemonManager in tests/gtAgentDaemon.test.ts**
+- [x] **Step 1: Write failing unit tests for singleton AgentDaemonManager in tests/gtAgentDaemon.test.ts**
 
 Update `tests/gtAgentDaemon.test.ts` to test singleton status, stop, and log paths:
 ```typescript
@@ -203,12 +203,12 @@ it('operates on singleton agent.json and agent.log', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify failure**
+- [x] **Step 2: Run test to verify failure**
 
 Run: `npx jest tests/gtAgentDaemon.test.ts -t "operates on singleton agent.json"`
 Expected: FAIL
 
-- [ ] **Step 3: Refactor AgentDaemonManager in src/agent/daemon.ts**
+- [x] **Step 3: Refactor AgentDaemonManager in src/agent/daemon.ts**
 
 In `src/agent/daemon.ts`:
 1. Simplify file paths to singleton:
@@ -297,12 +297,12 @@ static async getLogs(lines: number = 50, follow: boolean = false): Promise<void>
 - If already running on `start`, error:
   `Error: Agent daemon is already running (PID: ${current.pid}). Use 'gt agent stop' or 'gt agent restart'.`
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npm run build:gt && npx jest tests/gtAgentDaemon.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit Task 2**
+- [x] **Step 5: Commit Task 2**
 
 ```bash
 git add src/agent/daemon.ts tests/gtAgentDaemon.test.ts
@@ -331,7 +331,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
   - `gt agent name [new-name]`
   - Removed: `agent run`, `agent rm`, `agent prune`, `agent ps`, top-level `run`, `stop`, `restart`, `rm`, `config get`, `config set`
 
-- [ ] **Step 1: Write test for new agent name command and removal of legacy commands**
+- [x] **Step 1: Write test for new agent name command and removal of legacy commands**
 
 In `tests/gtCommanderCli.test.ts`:
 ```typescript
@@ -379,7 +379,7 @@ it('rejects removed config get/set commands with exit code 2', () => {
 });
 ```
 
-- [ ] **Step 2: Update src/client/index.ts**
+- [x] **Step 2: Update src/client/index.ts**
 
 1. Under `agent` command in `src/client/index.ts`:
 ```typescript
@@ -450,12 +450,12 @@ agentCmd
 2. Remove top-level aliases: `run`, `stop`, `restart`, `rm`.
 3. In `src/client/commands/config.ts` and `src/client/index.ts`: Remove `gt config get` and `gt config set`. Only keep `get-contexts`, `current-context`, `use-context`, `set-context`, `delete-context`, and `view`.
 
-- [ ] **Step 3: Rebuild gt bundle and run tests**
+- [x] **Step 3: Rebuild gt bundle and run tests**
 
 Run: `npm run build:gt && npx jest tests/gtCommanderCli.test.ts`
 Expected: PASS
 
-- [ ] **Step 4: Commit Task 3**
+- [x] **Step 4: Commit Task 3**
 
 ```bash
 git add src/client/index.ts src/client/commands/config.ts tests/gtCommanderCli.test.ts
@@ -477,7 +477,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 - Consumes: Singleton agent commands
 - Produces: Passing test suites aligned with zero-argument `start`, `stop`, `status`, and `gt agent name`
 
-- [ ] **Step 1: Update test invocations from multi-agent to singleton**
+- [x] **Step 1: Update test invocations from multi-agent to singleton**
 
 In `tests/gtAgentDaemon.test.ts`:
 - Replace any references to `AgentDaemonManager.getAllAgents()` or `gt agent run` with `gt agent start` and `AgentDaemonManager.getStatus()`.
@@ -486,12 +486,12 @@ In `tests/gtAgentDaemon.test.ts`:
 In `tests/terminalAgentConflict.test.ts` and `tests/terminalAgent.test.ts`:
 - Ensure tests invoke `node ./dist/gt.js agent start` instead of deprecated `gt run` or `gt agent run`.
 
-- [ ] **Step 2: Rebuild bundle and run full test suite**
+- [x] **Step 2: Rebuild bundle and run full test suite**
 
 Run: `npm run build:gt && npm test`
 Expected: All 90+ test suites pass cleanly.
 
-- [ ] **Step 3: Commit Task 4**
+- [x] **Step 3: Commit Task 4**
 
 ```bash
 git add tests/
@@ -513,7 +513,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 - Consumes: Entire project
 - Produces: Clean docs, full build verification, end-to-end tests passing
 
-- [ ] **Step 1: Update README.md**
+- [x] **Step 1: Update README.md**
 
 Update the Agent Lifecycle Commands section in `README.md`:
 ```markdown
@@ -528,7 +528,7 @@ gt agent name [new-name] # View or configure the persistent agent node name
 ```
 ```
 
-- [ ] **Step 2: Run clean build and test verification**
+- [x] **Step 2: Run clean build and test verification**
 
 Run:
 ```bash
@@ -537,7 +537,7 @@ npm test
 ```
 Expected: 100% test pass, clean build artifacts in `dist/`.
 
-- [ ] **Step 3: Commit Task 5**
+- [x] **Step 3: Commit Task 5**
 
 ```bash
 git add README.md
