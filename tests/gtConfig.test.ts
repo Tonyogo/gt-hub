@@ -93,13 +93,12 @@ describe('gt ConfigStore and login/logout/config commands', () => {
     expect(res.stdout).toContain('key    = "val***"');
   });
 
-  it('runs config set and get', async () => {
+  it('rejects removed config set and get commands with exit code 2', async () => {
     const setRes = await runGt(['config', 'set', 'server', 'http://custom-server:3000']);
-    expect(setRes.code).toBe(0);
+    expect(setRes.code).toBe(2);
 
     const getRes = await runGt(['config', 'get', 'server']);
-    expect(getRes.code).toBe(0);
-    expect(getRes.stdout.trim()).toBe('http://custom-server:3000');
+    expect(getRes.code).toBe(2);
   });
 
   it('runs logout and removes credentials from config.json', async () => {

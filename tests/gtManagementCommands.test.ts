@@ -26,7 +26,7 @@ describe('gt management commands & legacy deprecation', () => {
     expect(res.stdout).toContain('gt prune');
     expect(res.stdout).toContain('gt login');
     expect(res.stdout).toContain('gt logout');
-    expect(res.stdout).toContain('gt agent run');
+    expect(res.stdout).toContain('agent start');
   });
 
   it('allows top-level agent commands and does not reject with 125', async () => {

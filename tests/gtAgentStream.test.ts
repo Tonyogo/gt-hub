@@ -25,11 +25,12 @@ describe('Agent StreamSessionManager', () => {
       port = addr.port;
 
       // Start agent process connecting to mock server
-      agentProcess = spawn('node', [gtPath, 'agent', '--name=stream-test-agent', '--id=agent-stream-1'], {
+      agentProcess = spawn('node', [gtPath, 'agent', 'start', '--internal-daemon'], {
         env: {
           ...process.env,
           GT_SERVER: `http://localhost:${port}`,
           GT_KEY: 'test-stream-secret',
+          GT_AGENT_NAME: 'stream-test-agent',
         },
         stdio: 'pipe',
       });

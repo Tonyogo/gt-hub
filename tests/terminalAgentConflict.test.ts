@@ -60,7 +60,7 @@ describe('Node.js Terminal Agent - 12-Hex ID, Auto-Naming and Conflict Rejection
   });
 
   it('generates 12-hex hostId and auto-derives name when not specified', (done) => {
-    const child = execFile('node', [agentScript, 'agent'], {
+    const child = execFile('node', [agentScript, 'agent', 'start', '--internal-daemon'], {
       env: {
         ...process.env,
         GT_CONFIG_DIR: tempConfigDir,
@@ -96,12 +96,13 @@ describe('Node.js Terminal Agent - 12-Hex ID, Auto-Naming and Conflict Rejection
   });
 
   it('exits with code 1 immediately without reconnect loops when rejected with 4009', (done) => {
-    const child = execFile('node', [agentScript, 'agent', '--name=conflict-name'], {
+    const child = execFile('node', [agentScript, 'agent', 'start', '--internal-daemon'], {
       env: {
         ...process.env,
         GT_CONFIG_DIR: tempConfigDir,
         GT_SERVER: `http://localhost:${serverPort}`,
         GT_KEY: 'test-secret-key',
+        GT_AGENT_NAME: 'conflict-name',
       },
     }, (error, stdout, stderr) => {
       expect(error?.code).toBe(1);

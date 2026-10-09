@@ -450,9 +450,12 @@ Command Shortcuts:
     .option('-s, --server <url>', 'Override target Hub URL')
     .option('-k, --key <secret>', 'Override Hub admin secret key')
     .option('-c, --context <name>', 'Target context')
+    .option('--internal-daemon', 'Internal daemon flag')
     .action(async (opts: Record<string, any>) => {
       const eff = resolveEffective(opts);
-      await runAgent(['start'], { server: eff.server, key: eff.key, context: eff.context });
+      const args = ['start'];
+      if (opts.internalDaemon) args.push('--internal-daemon');
+      await runAgent(args, { server: eff.server, key: eff.key, context: eff.context });
     });
 
   agentCmd
@@ -468,9 +471,12 @@ Command Shortcuts:
     .option('-s, --server <url>', 'Override target Hub URL')
     .option('-k, --key <secret>', 'Override Hub admin secret key')
     .option('-c, --context <name>', 'Target context')
+    .option('--internal-daemon', 'Internal daemon flag')
     .action(async (opts: Record<string, any>) => {
       const eff = resolveEffective(opts);
-      await runAgent(['restart'], { server: eff.server, key: eff.key, context: eff.context });
+      const args = ['restart'];
+      if (opts.internalDaemon) args.push('--internal-daemon');
+      await runAgent(args, { server: eff.server, key: eff.key, context: eff.context });
     });
 
   agentCmd

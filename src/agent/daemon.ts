@@ -388,7 +388,8 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
   }
 
   const resolvedName = ConfigStore.resolveAgentName();
-  const hostName = resolvedName.name;
+  const sanitizedName = resolvedName.name;
+  const hostName = sanitizedName;
 
   const hostname = os.hostname();
   const defaultHostname = hostname.toLowerCase().replace(/[^a-z0-9-_]/g, '-').replace(/^-+|-+$/g, '') || 'host';
