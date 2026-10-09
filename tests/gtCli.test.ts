@@ -290,6 +290,16 @@ describe('gt agent embedded runtime exports', () => {
     expect(wsUrl).not.toContain('key=');
   });
 
+  it('includes machineId query parameter in agent WebSocket URL', () => {
+    const { resolveWebSocketUrl } = require('../scripts/gt.js');
+    const url = resolveWebSocketUrl('http://localhost:8000', {
+      hostId: 'host-1',
+      name: 'test-node',
+      machineId: 'test-machine-id',
+    });
+    expect(url).toContain('machineId=test-machine-id');
+  });
+
   it('quotes shell arguments properly', () => {
     expect(quoteShellArg('simple')).toBe('simple');
     expect(quoteShellArg('with space')).toBe("'with space'");

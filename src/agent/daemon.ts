@@ -963,6 +963,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       hostname,
       ip: localIp,
       platform,
+      machineId,
     });
     console.log(`[Agent] Connecting to ${targetWsUrl.split('?')[0]}...`);
 
@@ -1023,6 +1024,14 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
         const msgStr = data.toString();
         const control = parseControlMessage(msgStr);
         if (control) {
+          if (control.type === 'rejected') {
+            isExiting = true;
+            console.error(`\x1b[31m[Error] Registration rejected by server: ${control.reason || 'Registration conflict'}\x1b[0m`);
+            if (ws) {
+              try { ws.close(); } catch {}
+            }
+            process.exit(1);
+          }
           if (control.type === 'file_rpc') {
             handleFileRpc(control, ws);
             return;
