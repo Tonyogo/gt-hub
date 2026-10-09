@@ -2,9 +2,11 @@ import fs from 'fs';
 import path from 'path';
 
 describe('Terminal Agent Script', () => {
-  const agentPath = path.resolve(__dirname, '../scripts/gt.js');
+  const scriptPath = path.resolve(__dirname, '../scripts/gt.js');
+  const agentPath = path.resolve(__dirname, '../dist/gt.js');
 
   test('gt script exists and contains embedded agent capabilities', () => {
+    expect(fs.existsSync(scriptPath)).toBe(true);
     expect(fs.existsSync(agentPath)).toBe(true);
     const content = fs.readFileSync(agentPath, 'utf-8');
     expect(content).toContain('node-pty');
