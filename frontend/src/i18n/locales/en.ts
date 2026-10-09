@@ -3,6 +3,7 @@ export const en = {
     adminKeyPlaceholder: "Admin Secret Key",
     login: "Login",
     logout: "Logout",
+    github: "GitHub",
   },
   terminal: {
     title: "Terminal Logs",

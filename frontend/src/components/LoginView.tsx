@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../auth/AuthContext';
 import { useTranslation } from '../i18n/LanguageContext';
 import { useTheme } from '../theme/ThemeContext';
-import { KeyRound, Lock, Eye, EyeOff, Languages, Sun, Moon, ArrowRight, Loader2 } from 'lucide-react';
+import { KeyRound, Lock, Eye, EyeOff, Languages, Sun, Moon, ArrowRight, Loader2, Github } from 'lucide-react';
 
 export default function LoginView() {
   const { login, error, setError } = useAuth();
@@ -29,6 +29,15 @@ export default function LoginView() {
     <div className="flex flex-col h-[100dvh] w-screen bg-[var(--bg-canvas)] text-[var(--text-primary)] select-none relative overflow-hidden">
       {/* Top Utilities */}
       <header className="absolute top-0 right-0 p-3 sm:p-4 flex items-center space-x-2 z-10">
+        <a
+          href="https://github.com/Tonyogo/gt-hub"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="p-2 rounded-lg bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-colors shadow-xs flex items-center justify-center"
+          title={t('nav.github', 'GitHub 仓库')}
+        >
+          <Github className="w-4 h-4" />
+        </a>
         <button
           type="button"
           onClick={() => setLanguage(language === 'zh' ? 'en' : 'zh')}

@@ -5,6 +5,7 @@ export const zh: Translations = {
     adminKeyPlaceholder: "管理员密钥",
     login: "进入控制台",
     logout: "退出登录",
+    github: "GitHub 仓库",
   },
   terminal: {
     title: "终端日志",
