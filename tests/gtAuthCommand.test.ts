@@ -39,7 +39,7 @@ describe('gt login & logout commands', () => {
   function run(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
     return new Promise((resolve) => {
       execFile('node', [gtPath, ...args], {
-        env: { ...process.env, HOME: tmpHome, USERPROFILE: tmpHome, TERMINAL_SERVER: '', ADMIN_SECRET_KEY: '' }
+        env: { ...process.env, HOME: tmpHome, USERPROFILE: tmpHome, GT_SERVER: '', GT_KEY: '' }
       }, (error, stdout, stderr) => {
         resolve({
           code: error ? (typeof error.code === 'number' ? error.code : 1) : 0,

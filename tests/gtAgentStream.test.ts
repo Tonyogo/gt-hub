@@ -28,8 +28,8 @@ describe('Agent StreamSessionManager', () => {
       agentProcess = spawn('node', [gtPath, 'agent', '--name=stream-test-agent', '--id=agent-stream-1'], {
         env: {
           ...process.env,
-          TERMINAL_SERVER: `http://localhost:${port}`,
-          ADMIN_SECRET_KEY: 'test-stream-secret',
+          GT_SERVER: `http://localhost:${port}`,
+          GT_KEY: 'test-stream-secret',
         },
         stdio: 'pipe',
       });

@@ -64,8 +64,8 @@ describe('Node.js Terminal Agent - 12-Hex ID, Auto-Naming and Conflict Rejection
       env: {
         ...process.env,
         GT_CONFIG_DIR: tempConfigDir,
-        TERMINAL_SERVER: `http://localhost:${serverPort}`,
-        ADMIN_SECRET_KEY: 'test-secret-key',
+        GT_SERVER: `http://localhost:${serverPort}`,
+        GT_KEY: 'test-secret-key',
       },
     });
 
@@ -100,8 +100,8 @@ describe('Node.js Terminal Agent - 12-Hex ID, Auto-Naming and Conflict Rejection
       env: {
         ...process.env,
         GT_CONFIG_DIR: tempConfigDir,
-        TERMINAL_SERVER: `http://localhost:${serverPort}`,
-        ADMIN_SECRET_KEY: 'test-secret-key',
+        GT_SERVER: `http://localhost:${serverPort}`,
+        GT_KEY: 'test-secret-key',
       },
     }, (error, stdout, stderr) => {
       expect(error?.code).toBe(1);

@@ -81,7 +81,7 @@ describe('gt logs smart default & gt kill', () => {
   function run(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
     return new Promise((resolve) => {
       execFile('node', [gtPath, ...args], {
-        env: { ...process.env, TERMINAL_SERVER: `http://127.0.0.1:${serverPort}`, ADMIN_SECRET_KEY: 'test-key' }
+        env: { ...process.env, GT_SERVER: `http://127.0.0.1:${serverPort}`, GT_KEY: 'test-key' }
       }, (error, stdout, stderr) => {
         resolve({
           code: error ? (typeof error.code === 'number' ? error.code : 1) : 0,

@@ -7,7 +7,7 @@ const gtPath = path.resolve(__dirname, '../scripts/gt.js');
 function runGt(args: string[], env: Record<string, string> = {}): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     execFile('node', [gtPath, ...args], {
-      env: { TERMINAL_SERVER: 'http://127.0.0.1:59999', ...process.env, ...env },
+      env: { GT_SERVER: 'http://127.0.0.1:59999', ...process.env, ...env },
     }, (error, stdout, stderr) => {
       resolve({
         code: error ? (typeof error.code === 'number' ? error.code : 1) : 0,
@@ -252,7 +252,7 @@ describe('gt CLI Mock Server Integration', () => {
 
   it('treats -t as --tty, not as timeout', async () => {
     const res = await runGt(['exec', '--timeout', '60000', '-t', 'node-1', 'echo hi'], {
-      TERMINAL_SERVER: `http://localhost:${serverPort}`,
+      GT_SERVER: `http://localhost:${serverPort}`,
     });
     expect(res.stderr).not.toContain('Unknown option');
   });

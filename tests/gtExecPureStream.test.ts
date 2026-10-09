@@ -74,7 +74,7 @@ describe('gt exec pure stream output', () => {
 
   it('outputs pure stdout with NO >>> or <<< banners by default', async () => {
     const res = await runGt(['exec', 'node-1', 'echo', 'hi'], {
-      TERMINAL_SERVER: `http://localhost:${serverPort}`,
+      GT_SERVER: `http://localhost:${serverPort}`,
     });
 
     expect(res.code).toBe(0);
@@ -85,7 +85,7 @@ describe('gt exec pure stream output', () => {
 
   it('outputs >>> and <<< banners when --verbose is specified', async () => {
     const res = await runGt(['exec', '--verbose', 'node-1', 'echo', 'hi'], {
-      TERMINAL_SERVER: `http://localhost:${serverPort}`,
+      GT_SERVER: `http://localhost:${serverPort}`,
     });
 
     expect(res.code).toBe(0);
