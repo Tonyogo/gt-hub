@@ -1,6 +1,6 @@
 # gt CLI Modernization and Context Architecture Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Modernize the `gt` CLI using `commander`, introduce a `kubectl`-style multi-context architecture under `gt config` with `default` context auto-initialization, isolate authentication into `gt auth`, cleanly separate remote cluster commands from local agent commands under `gt agent`, and bundle the CLI into a standalone zero-dependency executable via `esbuild`.
 
@@ -49,14 +49,14 @@
   - `ConfigStore.deleteContext(name: string)`: `{ resetDefault?: boolean; deleted?: boolean }`
   - `ConfigStore.getEffectiveConfig({ server?, key?, context? }, env)`: `{ server: string; key: string; context: string }`
 
-- [ ] **Step 1: Install commander dependency**
+- [x] **Step 1: Install commander dependency**
 
 Run:
 ```bash
 npm install commander
 ```
 
-- [ ] **Step 2: Write failing unit tests for multi-context ConfigStore**
+- [x] **Step 2: Write failing unit tests for multi-context ConfigStore**
 
 Create `tests/gtContextStore.test.ts`:
 ```typescript
@@ -148,12 +148,12 @@ describe('ConfigStore Multi-Context Architecture', () => {
 });
 ```
 
-- [ ] **Step 3: Run test to verify failure**
+- [x] **Step 3: Run test to verify failure**
 
 Run: `npx jest tests/gtContextStore.test.ts`
 Expected: FAIL (missing methods on ConfigStore)
 
-- [ ] **Step 4: Implement multi-context logic in ConfigStore**
+- [x] **Step 4: Implement multi-context logic in ConfigStore**
 
 Update `src/client/config/configStore.ts`:
 ```typescript
@@ -319,12 +319,12 @@ export class ConfigStore {
 }
 ```
 
-- [ ] **Step 5: Run tests to verify pass**
+- [x] **Step 5: Run tests to verify pass**
 
 Run: `npx jest tests/gtContextStore.test.ts`
 Expected: PASS
 
-- [ ] **Step 6: Commit Task 1**
+- [x] **Step 6: Commit Task 1**
 
 ```bash
 git add package.json package-lock.json src/client/config/configStore.ts tests/gtContextStore.test.ts
@@ -355,7 +355,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
   - `handleAuthStatus({ server, key, context })`
   - `handleAuthLogout(all?: boolean)`
 
-- [ ] **Step 1: Write failing tests for auth & config commands**
+- [x] **Step 1: Write failing tests for auth & config commands**
 
 Create `tests/gtAuthAndConfigCommands.test.ts`:
 ```typescript
@@ -418,12 +418,12 @@ describe('gt config and gt auth commands', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx jest tests/gtAuthAndConfigCommands.test.ts`
 Expected: FAIL
 
-- [ ] **Step 3: Implement src/client/commands/config.ts**
+- [x] **Step 3: Implement src/client/commands/config.ts**
 
 Create `src/client/commands/config.ts`:
 ```typescript
@@ -505,7 +505,7 @@ export function handleConfigView(raw: boolean = false): void {
 }
 ```
 
-- [ ] **Step 4: Update src/client/commands/auth.ts to support auth login/status/logout**
+- [x] **Step 4: Update src/client/commands/auth.ts to support auth login/status/logout**
 
 Update `src/client/commands/auth.ts`:
 ```typescript
@@ -599,12 +599,12 @@ export function handleAuthLogout(all: boolean = false): void {
 }
 ```
 
-- [ ] **Step 5: Run tests to verify pass**
+- [x] **Step 5: Run tests to verify pass**
 
 Run: `npx jest tests/gtAuthAndConfigCommands.test.ts`
 Expected: PASS
 
-- [ ] **Step 6: Commit Task 2**
+- [x] **Step 6: Commit Task 2**
 
 ```bash
 git add src/client/commands/config.ts src/client/commands/auth.ts tests/gtAuthAndConfigCommands.test.ts
@@ -628,7 +628,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 - Consumes: `commander`, all handlers from `src/client/commands/`
 - Produces: `createProgram(): Command` and `runClient(argv)` using Commander with standard exit codes
 
-- [ ] **Step 1: Write integration tests for Commander CLI commands**
+- [x] **Step 1: Write integration tests for Commander CLI commands**
 
 Create `tests/gtCommanderCli.test.ts`:
 ```typescript
@@ -670,7 +670,7 @@ describe('gt Commander CLI Structure', () => {
 });
 ```
 
-- [ ] **Step 2: Implement nodes and task command bridges**
+- [x] **Step 2: Implement nodes and task command bridges**
 
 Create `src/client/commands/nodes.ts`:
 ```typescript
@@ -769,7 +769,7 @@ export async function handleTaskKill({
 }
 ```
 
-- [ ] **Step 3: Refactor src/client/index.ts using Commander**
+- [x] **Step 3: Refactor src/client/index.ts using Commander**
 
 Re-implement `src/client/index.ts` with Commander `Command`, registering:
 - Global options (`-c, --context`, `-s, --server`, `-k, --key`, `--json`)
@@ -782,12 +782,12 @@ Re-implement `src/client/index.ts` with Commander `Command`, registering:
 - `gt config <get-contexts|current-context|use-context|set-context|delete-context|view>`
 - Configure `program.exitOverride()` so Commander parse errors throw, caught to set `process.exit(2)`.
 
-- [ ] **Step 4: Run tests to verify pass**
+- [x] **Step 4: Run tests to verify pass**
 
 Run: `npm run build:gt && npx jest tests/gtCommanderCli.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit Task 3**
+- [x] **Step 5: Commit Task 3**
 
 ```bash
 git add src/client/commands/nodes.ts src/client/commands/task.ts src/client/index.ts tests/gtCommanderCli.test.ts
@@ -811,7 +811,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 - Consumes: Updated CLI command tree
 - Produces: 100% passing test suites updated to modern syntax (`gt nodes`, `gt agent ps`, `gt agent run`)
 
-- [ ] **Step 1: Update test invocations in existing test files**
+- [x] **Step 1: Update test invocations in existing test files**
 
 Update command names in tests:
 - `gt ps` (remote) -> `gt nodes` or `gt ps` (if alias maintained)
@@ -819,17 +819,17 @@ Update command names in tests:
 - `gt agent ps` -> `gt agent status` (or `gt agent ps` alias)
 - `gt prune -l` -> `gt agent prune`
 
-- [ ] **Step 2: Rebuild standalone executable**
+- [x] **Step 2: Rebuild standalone executable**
 
 Run: `npm run build:gt`
 Expected: `dist/gt.js` compiled cleanly.
 
-- [ ] **Step 3: Run full test suite**
+- [x] **Step 3: Run full test suite**
 
 Run: `npm test`
 Expected: All 90+ test suites pass cleanly.
 
-- [ ] **Step 4: Commit Task 4**
+- [x] **Step 4: Commit Task 4**
 
 ```bash
 git add tests/
@@ -851,7 +851,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 - Consumes: Entire project
 - Produces: Complete, verified modern CLI with updated README documentation
 
-- [ ] **Step 1: Update README.md with modern CLI usage**
+- [x] **Step 1: Update README.md with modern CLI usage**
 
 Update CLI section in `README.md`:
 - Document `gt auth login`
@@ -859,17 +859,17 @@ Update CLI section in `README.md`:
 - Document `gt agent run`, `gt agent status`
 - Document `gt config use-context`
 
-- [ ] **Step 2: Full clean build**
+- [x] **Step 2: Full clean build**
 
 Run: `npm run clean && npm run build`
 Expected: Frontend, backend, and standalone `dist/gt.js` built successfully.
 
-- [ ] **Step 3: Full test suite verification**
+- [x] **Step 3: Full test suite verification**
 
 Run: `npm test`
 Expected: 100% pass across all tests.
 
-- [ ] **Step 4: Commit Task 5**
+- [x] **Step 4: Commit Task 5**
 
 ```bash
 git add README.md
