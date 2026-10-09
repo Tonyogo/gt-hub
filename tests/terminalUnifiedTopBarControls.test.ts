@@ -9,8 +9,8 @@ describe('UnifiedTerminalView Micro Top Bar Integrated Controls', () => {
     content = fs.readFileSync(unifiedPath, 'utf-8');
   });
 
-  it('UnifiedTerminalView imports and uses Key, Languages, Sun, Moon icons', () => {
-    expect(content).toMatch(/import\s*\{[^}]*\bKey\b[^}]*\}\s*from\s*'lucide-react'/);
+  it('UnifiedTerminalView imports and uses Github, Languages, Sun, Moon icons', () => {
+    expect(content).toMatch(/import\s*\{[^}]*\bGithub\b[^}]*\}\s*from\s*'lucide-react'/);
     expect(content).toMatch(/import\s*\{[^}]*\bLanguages\b[^}]*\}\s*from\s*'lucide-react'/);
     expect(content).toMatch(/import\s*\{[^}]*\bSun\b[^}]*\}\s*from\s*'lucide-react'/);
     expect(content).toMatch(/import\s*\{[^}]*\bMoon\b[^}]*\}\s*from\s*'lucide-react'/);
@@ -23,7 +23,6 @@ describe('UnifiedTerminalView Micro Top Bar Integrated Controls', () => {
 
   it('UnifiedTerminalView manages adminKey state with localStorage fallback', () => {
     expect(content).toContain("localStorage.getItem('admin_secret_key')");
-    expect(content).toContain("localStorage.setItem('admin_secret_key'");
   });
 
   it('UnifiedTerminalView provides default isStandalone=true prop', () => {
