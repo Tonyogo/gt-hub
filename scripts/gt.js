@@ -13,10 +13,25 @@ const http = require('http');
 const https = require('https');
 const url = require('url');
 const { spawn, execSync } = require('child_process');
-function createWebSocketAdapter() {
+function createWebSocketAdapter(customWs) {
+  const getWsCtor = () => {
+    if (customWs !== undefined) return customWs;
+    if (typeof globalThis !== 'undefined' && typeof globalThis.WebSocket === 'function') {
+      return globalThis.WebSocket;
+    }
+    try {
+      return require('ws');
+    } catch {}
+    return null;
+  };
+
   class NativeWebSocketAdapter {
     constructor(url, options = {}) {
-      this._ws = new globalThis.WebSocket(url, options);
+      const WsCtor = getWsCtor();
+      if (!WsCtor) {
+        throw new Error('WebSocket implementation not found (neither globalThis.WebSocket nor ws is available)');
+      }
+      this._ws = new WsCtor(url, options);
       this._ws.binaryType = 'arraybuffer';
       this._listeners = new Map();
 
@@ -27,9 +42,11 @@ function createWebSocketAdapter() {
       });
       this._ws.addEventListener('message', (e) => {
         let data = e.data;
-        const isBinary = data instanceof ArrayBuffer;
-        if (isBinary) {
+        const isBinary = data instanceof ArrayBuffer || ArrayBuffer.isView(data) || Buffer.isBuffer(data);
+        if (data instanceof ArrayBuffer) {
           data = Buffer.from(data);
+        } else if (ArrayBuffer.isView(data) && !Buffer.isBuffer(data)) {
+          data = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
         }
         this._emit('message', data, isBinary);
       });
@@ -39,8 +56,24 @@ function createWebSocketAdapter() {
       return this._ws.readyState;
     }
 
-    send(data) {
-      return this._ws.send(data);
+    send(data, options, cb) {
+      if (typeof options === 'function') {
+        cb = options;
+        options = undefined;
+      }
+      try {
+        const res = this._ws.send(data, options, cb);
+        if (typeof cb === 'function' && typeof this._ws.terminate !== 'function') {
+          process.nextTick(() => cb());
+        }
+        return res;
+      } catch (err) {
+        if (typeof cb === 'function') {
+          process.nextTick(() => cb(err));
+        } else {
+          throw err;
+        }
+      }
     }
 
     close(code, reason) {
@@ -51,6 +84,9 @@ function createWebSocketAdapter() {
     }
 
     terminate() {
+      if (typeof this._ws.terminate === 'function') {
+        return this._ws.terminate();
+      }
       return this._ws.close();
     }
 
@@ -60,6 +96,10 @@ function createWebSocketAdapter() {
       }
       this._listeners.get(event).push(handler);
       return this;
+    }
+
+    addListener(event, handler) {
+      return this.on(event, handler);
     }
 
     once(event, handler) {
@@ -82,6 +122,20 @@ function createWebSocketAdapter() {
 
     removeListener(event, handler) {
       return this.off(event, handler);
+    }
+
+    removeAllListeners(event) {
+      if (event) {
+        this._listeners.delete(event);
+      } else {
+        this._listeners.clear();
+      }
+      return this;
+    }
+
+    emit(event, ...args) {
+      this._emit(event, ...args);
+      return true;
     }
 
     _emit(event, ...args) {
@@ -109,7 +163,7 @@ try {
   WebSocketImpl = require('ws');
 } catch {}
 
-if (!WebSocketImpl && typeof globalThis.WebSocket !== 'undefined') {
+if (!WebSocketImpl) {
   WebSocketImpl = createWebSocketAdapter();
 }
 
@@ -726,6 +780,9 @@ async function downloadRemoteFile({ serverUrl, apiKey, hostId, remotePath, local
         }
 
         writeStream = fs.createWriteStream(partFile, { flags: writeFlags });
+        writeStream.on('error', (err) => {
+          handleRetryOrReject(err);
+        });
 
         let sessionBytes = 0;
         res.on('data', (chunk) => {

@@ -1,5 +1,5 @@
 import http from 'http';
-import { WebSocketServer } from 'ws';
+import WebSocket, { WebSocketServer } from 'ws';
 // @ts-ignore
 const gt = require('../scripts/gt.js');
 
@@ -18,6 +18,11 @@ describe('NativeWebSocketAdapter', () => {
   });
 
   afterAll((done) => {
+    for (const client of wss.clients) {
+      try {
+        client.terminate();
+      } catch {}
+    }
     wss.close(() => {
       server.close(done);
     });
@@ -97,6 +102,26 @@ describe('NativeWebSocketAdapter', () => {
     client.close();
   });
 
+  it('supports addListener, emit, and removeAllListeners', () => {
+    const AdapterClass = gt.createWebSocketAdapter();
+    const client = new AdapterClass(`ws://127.0.0.1:${port}`);
+    let called = 0;
+    const h1 = () => { called++; };
+    const h2 = () => { called += 10; };
+
+    client.addListener('evt1', h1);
+    client.addListener('evt2', h2);
+    expect(client.emit('evt1')).toBe(true);
+    expect(called).toBe(1);
+
+    client.removeAllListeners('evt1');
+    expect(client._listeners.has('evt1')).toBe(false);
+
+    client.removeAllListeners();
+    expect(client._listeners.size).toBe(0);
+    client.close();
+  });
+
   it('guards ws._socket safely if undefined', () => {
     const AdapterClass = gt.createWebSocketAdapter();
     const client = new AdapterClass(`ws://127.0.0.1:${port}`);
@@ -112,5 +137,60 @@ describe('NativeWebSocketAdapter', () => {
     expect(() => client._emit('upgrade', {})).not.toThrow();
     expect(fired).toBe(true);
     client.close();
+  });
+
+  it('supports passing a custom WebSocket constructor', () => {
+    const AdapterClass = gt.createWebSocketAdapter(WebSocket);
+    const client = new AdapterClass(`ws://127.0.0.1:${port}`);
+    expect(client).toBeDefined();
+    client.close();
+  });
+
+  it('falls back to ws package when globalThis.WebSocket is undefined', () => {
+    const origWs = (globalThis as any).WebSocket;
+    try {
+      delete (globalThis as any).WebSocket;
+      const AdapterClass = gt.createWebSocketAdapter();
+      const client = new AdapterClass(`ws://127.0.0.1:${port}`);
+      expect(client).toBeDefined();
+      client.close();
+    } finally {
+      (globalThis as any).WebSocket = origWs;
+    }
+  });
+
+  it('supports terminate() by delegating to underlying terminate or close', () => {
+    const AdapterClass = gt.createWebSocketAdapter();
+    const client = new AdapterClass(`ws://127.0.0.1:${port}`);
+    const originalTerminate = (client as any)._ws.terminate;
+    let terminateCalled = false;
+    (client as any)._ws.terminate = () => {
+      terminateCalled = true;
+      if (typeof originalTerminate === 'function') {
+        originalTerminate.call((client as any)._ws);
+      } else {
+        (client as any)._ws.close();
+      }
+    };
+    client.terminate();
+    expect(terminateCalled).toBe(true);
+  });
+
+  it('throws a descriptive error when neither globalThis.WebSocket nor ws is available', () => {
+    const AdapterClass = gt.createWebSocketAdapter(null);
+    expect(() => new AdapterClass(`ws://127.0.0.1:${port}`)).toThrow(
+      /WebSocket implementation not found \(neither globalThis\.WebSocket nor ws is available\)/
+    );
+  });
+
+  it('handles send with callback safely', (done) => {
+    const AdapterClass = gt.createWebSocketAdapter();
+    const client = new AdapterClass(`ws://127.0.0.1:${port}`);
+    client.on('open', () => {
+      client.send('ping', () => {
+        client.close();
+        done();
+      });
+    });
   });
 });
