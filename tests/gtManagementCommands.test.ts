@@ -44,13 +44,13 @@ describe('gt management commands & legacy deprecation', () => {
     expect(resRm.stderr).not.toContain("has been moved to 'gt agent");
   });
 
-  it('rejects legacy "hosts" and "nodes" with code 125 pointing to "gt ps"', async () => {
-    const resHosts = await runGt(['hosts']);
-    expect(resHosts.code).toBe(125);
-    expect(resHosts.stderr).toContain("Use 'gt ps' instead");
+  it('supports "nodes" and "hosts" as modern cluster commands', async () => {
+    const resNodes = await runGt(['nodes', '--help']);
+    expect(resNodes.code).toBe(0);
+    expect(resNodes.stdout).toContain('nodes');
 
-    const resNodes = await runGt(['nodes']);
-    expect(resNodes.code).toBe(125);
-    expect(resNodes.stderr).toContain("Use 'gt ps' instead");
+    const resHosts = await runGt(['hosts', '--help']);
+    expect(resHosts.code).toBe(0);
+    expect(resHosts.stdout).toContain('hosts');
   });
 });

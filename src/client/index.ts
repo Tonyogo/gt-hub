@@ -75,6 +75,30 @@ export function createProgram(rawArgs: string[] = []): Command {
     .option('--format <template>', 'Format output using Go/Docker template (e.g. \'table {{.ID}}\\t{{.Name}}\')')
     .enablePositionalOptions(true);
 
+  program.addHelpText('after', `
+Agent Lifecycle Commands:
+  agent run [-d] [NAME]           Run reverse terminal agent (foreground or daemon)
+  agent ps [-a|--all]             List connected hosts (or local agent daemons)
+  agent logs [-f] [-n 50] [NAME]  View local agent daemon logs
+  agent stop [NAME] [--all]       Stop running agent daemon(s)
+  agent restart [NAME]            Restart local agent daemon
+  agent rm [NAME] [--all]         Remove stopped agent daemon record(s)
+  agent prune                     Remove stopped local agent daemon records
+
+Remote Execution Commands:
+  task ls <node> [OPTIONS]        List recent tasks on a host
+
+Command Shortcuts:
+  gt ps [-a|--all]
+  gt exec <node> <cmd...>
+  gt logs [NAME]
+  gt kill <node> <taskId>
+  gt prune
+  gt login [server] [key]
+  gt logout
+  gt agent run
+`);
+
   function resolveEffective(opts: Record<string, any> = {}, extra?: { server?: string; key?: string; context?: string }) {
     const globalOpts = program.opts();
     const server = extra?.server || opts.server || globalOpts.server;
@@ -251,7 +275,6 @@ export function createProgram(rawArgs: string[] = []): Command {
     .option('-q, --quiet', 'Quiet mode (suppress banners)')
     .option('--poll-interval <ms>', 'Polling interval for log stream in ms (Default: 500)')
     .action(async (passedArgs: string[]) => {
-      // Find exec index in rawArgs
       const execIdx = rawArgs.indexOf('exec');
       const rawCmdArgs = execIdx !== -1 ? rawArgs.slice(execIdx + 1) : (passedArgs || []);
 
@@ -422,257 +445,72 @@ export function createProgram(rawArgs: string[] = []): Command {
 
   // --- Local Agent Management: gt agent ---
   const agentCmd = program
-    .command('agent')
+    .command('agent [args...]')
     .description('Manage local machine reverse agent lifecycle')
-    .allowUnknownOption(true);
-
-  agentCmd
-    .command('run [name]')
-    .description('Run reverse terminal agent (foreground or daemon)')
-    .option('-d, --detach', 'Run as a background daemon')
-    .option('-s, --server <url>', 'Hub server URL')
-    .option('-k, --key <secret>', 'Admin secret key')
     .allowUnknownOption(true)
-    .action(async (_name: string | undefined, opts: Record<string, any>) => {
+    .action(async () => {
       const agentIdx = rawArgs.indexOf('agent');
-      const args = agentIdx !== -1 ? rawArgs.slice(agentIdx + 1) : ['run'];
-      const eff = resolveEffective(opts);
-      await runAgent(args, { server: eff.server, key: eff.key, cliServer: opts.server, cliKey: opts.key });
+      const args = agentIdx !== -1 ? rawArgs.slice(agentIdx + 1) : [];
+      const eff = resolveEffective();
+      await runAgent(args, { server: eff.server, key: eff.key });
     });
 
-  agentCmd
-    .command('start [name]')
-    .description('Start reverse agent as detached background daemon')
-    .option('-s, --server <url>', 'Hub server URL')
-    .option('-k, --key <secret>', 'Admin secret key')
-    .allowUnknownOption(true)
-    .action(async (_name: string | undefined, opts: Record<string, any>) => {
-      const agentIdx = rawArgs.indexOf('agent');
-      const args = agentIdx !== -1 ? rawArgs.slice(agentIdx + 1) : ['start'];
-      const eff = resolveEffective(opts);
-      await runAgent(args, { server: eff.server, key: eff.key, cliServer: opts.server, cliKey: opts.key });
-    });
-
-  agentCmd
-    .command('stop [name]')
-    .description('Stop running local agent daemon(s)')
-    .option('-a, --all', 'Stop all running agents')
-    .action(async (name: string | undefined, opts: Record<string, any>) => {
-      if (opts.all) {
-        const results = await AgentDaemonManager.stopAll();
-        if (results.length === 0) {
-          console.log('No running agents to stop.');
-        } else {
-          for (const r of results) {
-            console.log(r.message);
-          }
-        }
-        process.exit(0);
-      }
-      const resolved = AgentDaemonManager.resolveTarget(name || undefined, 'stop');
-      if (resolved.error) {
-        console.error(resolved.error);
-        process.exit(1);
-      }
-      const res = await AgentDaemonManager.stop(resolved.agent.name);
-      console.log(res.message);
-      process.exit(0);
-    });
-
-  agentCmd
-    .command('restart [name]')
-    .description('Restart local agent daemon')
-    .option('-s, --server <url>', 'Hub server URL')
-    .option('-k, --key <secret>', 'Admin secret key')
-    .action(async (name: string | undefined, opts: Record<string, any>) => {
-      const resolved = AgentDaemonManager.resolveTarget(name || undefined, 'restart');
-      if (resolved.error) {
-        console.error(resolved.error);
-        process.exit(1);
-      }
-      const sName = resolved.agent.name;
-      await AgentDaemonManager.stop(sName);
-      const eff = resolveEffective(opts);
-      await runAgent(['start', `--name=${sName}`], { server: eff.server, key: eff.key, cliServer: opts.server, cliKey: opts.key });
-    });
-
-  agentCmd
-    .command('status [name]')
-    .alias('ps')
-    .description('Display status of local agent daemon(s)')
-    .option('-a, --all', 'Show stopped agent records')
-    .action(async (_name: string | undefined, opts: Record<string, any>) => {
-      if (opts.all) {
-        AgentDaemonManager.printAgentsTable(true);
-        return;
-      }
-      const all = AgentDaemonManager.getAllAgents();
-      const running = all.filter(a => a.running);
-      if (running.length === 0) {
-        console.log('No background agent running.');
-        process.exit(0);
-      }
-      console.log(
-        'STATUS'.padEnd(12) +
-        'PID'.padEnd(10) +
-        'HOST NAME'.padEnd(25) +
-        'TARGET HUB'.padEnd(30) +
-        'STARTED'
-      );
-      console.log('-'.repeat(95));
-      for (const status of running) {
-        console.log(
-          'Running'.padEnd(12) +
-          String(status.pid).padEnd(10) +
-          (status.name || '').padEnd(25) +
-          (status.server || '').padEnd(30) +
-          (status.startTime || '')
-        );
-      }
-      process.exit(0);
-    });
-
-  agentCmd
-    .command('logs [name]')
-    .description('View local agent daemon logs')
-    .option('-f, --follow', 'Follow log stream')
-    .option('-n, --lines <number>', 'Number of lines to show', '50')
-    .action(async (name: string | undefined, opts: Record<string, any>) => {
-      const resolved = AgentDaemonManager.resolveTarget(name || undefined, 'logs');
-      if (resolved.error) {
-        console.error(resolved.error);
-        process.exit(1);
-      }
-      await AgentDaemonManager.getLogs(resolved.agent.name, parseInt(opts.lines, 10) || 50, !!opts.follow);
-      process.exit(0);
-    });
-
-  agentCmd
-    .command('rm [name]')
-    .description('Remove stopped local agent daemon record(s)')
-    .option('-a, --all', 'Remove all stopped agents')
-    .action(async (name: string | undefined, opts: Record<string, any>) => {
-      if (opts.all) {
-        const { removed } = AgentDaemonManager.removeAll();
-        if (removed.length === 0) {
-          console.log('No stopped agents to remove.');
-        } else {
-          console.log(`Removed agents: ${removed.join(', ')}`);
-        }
-        process.exit(0);
-      }
-      let targetName = name;
-      if (!targetName) {
-        const resolved = AgentDaemonManager.resolveTarget(undefined, 'remove');
-        if (resolved.agent) {
-          targetName = resolved.agent.name;
-        } else {
-          console.error('Error: Please specify agent NAME to remove (e.g. gt rm <NAME>).');
-          process.exit(1);
-        }
-      }
-      const res = AgentDaemonManager.remove(targetName, { removeLogs: true });
-      if (!res.success) {
-        console.error(res.message);
-        process.exit(1);
-      }
-      console.log(res.message);
-      process.exit(0);
-    });
-
-  agentCmd
-    .command('prune')
-    .description('Prune all stopped local agent daemon records and logs')
-    .action(() => {
-      const { removed } = AgentDaemonManager.prune();
-      if (removed.length === 0) {
-        console.log('No stopped agents to prune.');
-      } else {
-        console.log(`Pruned stopped agents: ${removed.join(', ')}`);
-      }
-      process.exit(0);
-    });
+  const agentSubcommands = ['run', 'start', 'stop', 'restart', 'status', 'ps', 'logs', 'rm', 'prune'];
+  for (const sc of agentSubcommands) {
+    agentCmd
+      .command(`${sc} [subArgs...]`)
+      .allowUnknownOption(true)
+      .action(async () => {
+        const agentIdx = rawArgs.indexOf('agent');
+        const args = agentIdx !== -1 ? rawArgs.slice(agentIdx + 1) : [sc];
+        const eff = resolveEffective();
+        await runAgent(args, { server: eff.server, key: eff.key });
+      });
+  }
 
   // Top-level aliases for agent lifecycle
   program
     .command('run [args...]')
     .description('Alias for gt agent run')
     .allowUnknownOption(true)
-    .action(async (args: string[]) => {
+    .action(async () => {
+      const runIdx = rawArgs.indexOf('run');
+      const args = runIdx !== -1 ? rawArgs.slice(runIdx + 1) : [];
       const eff = resolveEffective();
-      await runAgent(['run', ...(args || [])], { server: eff.server, key: eff.key });
+      await runAgent(['run', ...args], { server: eff.server, key: eff.key });
     });
 
   program
-    .command('stop [name]')
+    .command('stop [args...]')
     .description('Alias for gt agent stop')
-    .option('-a, --all', 'Stop all running agents')
-    .action(async (name: string | undefined, opts: Record<string, any>) => {
-      if (opts.all) {
-        const results = await AgentDaemonManager.stopAll();
-        if (results.length === 0) {
-          console.log('No running agents to stop.');
-        } else {
-          for (const r of results) console.log(r.message);
-        }
-        process.exit(0);
-      }
-      const resolved = AgentDaemonManager.resolveTarget(name || undefined, 'stop');
-      if (resolved.error) {
-        console.error(resolved.error);
-        process.exit(1);
-      }
-      const res = await AgentDaemonManager.stop(resolved.agent.name);
-      console.log(res.message);
-      process.exit(0);
-    });
-
-  program
-    .command('restart [name]')
-    .description('Alias for gt agent restart')
-    .action(async (name: string | undefined) => {
-      const resolved = AgentDaemonManager.resolveTarget(name || undefined, 'restart');
-      if (resolved.error) {
-        console.error(resolved.error);
-        process.exit(1);
-      }
-      const sName = resolved.agent.name;
-      await AgentDaemonManager.stop(sName);
+    .allowUnknownOption(true)
+    .action(async () => {
+      const stopIdx = rawArgs.indexOf('stop');
+      const args = stopIdx !== -1 ? rawArgs.slice(stopIdx + 1) : [];
       const eff = resolveEffective();
-      await runAgent(['start', `--name=${sName}`], { server: eff.server, key: eff.key });
+      await runAgent(['stop', ...args], { server: eff.server, key: eff.key });
     });
 
   program
-    .command('rm [name]')
+    .command('restart [args...]')
+    .description('Alias for gt agent restart')
+    .allowUnknownOption(true)
+    .action(async () => {
+      const rstIdx = rawArgs.indexOf('restart');
+      const args = rstIdx !== -1 ? rawArgs.slice(rstIdx + 1) : [];
+      const eff = resolveEffective();
+      await runAgent(['restart', ...args], { server: eff.server, key: eff.key });
+    });
+
+  program
+    .command('rm [args...]')
     .description('Alias for gt agent rm')
-    .option('-a, --all', 'Remove all stopped agents')
-    .action(async (name: string | undefined, opts: Record<string, any>) => {
-      if (opts.all) {
-        const { removed } = AgentDaemonManager.removeAll();
-        if (removed.length === 0) {
-          console.log('No stopped agents to remove.');
-        } else {
-          console.log(`Removed agents: ${removed.join(', ')}`);
-        }
-        process.exit(0);
-      }
-      let targetName = name;
-      if (!targetName) {
-        const resolved = AgentDaemonManager.resolveTarget(undefined, 'remove');
-        if (resolved.agent) {
-          targetName = resolved.agent.name;
-        } else {
-          console.error('Error: Please specify agent NAME to remove (e.g. gt rm <NAME>).');
-          process.exit(1);
-        }
-      }
-      const res = AgentDaemonManager.remove(targetName, { removeLogs: true });
-      if (!res.success) {
-        console.error(res.message);
-        process.exit(1);
-      }
-      console.log(res.message);
-      process.exit(0);
+    .allowUnknownOption(true)
+    .action(async () => {
+      const rmIdx = rawArgs.indexOf('rm');
+      const args = rmIdx !== -1 ? rawArgs.slice(rmIdx + 1) : [];
+      const eff = resolveEffective();
+      await runAgent(['rm', ...args], { server: eff.server, key: eff.key });
     });
 
   // --- Authentication: gt auth ---

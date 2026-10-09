@@ -39,8 +39,8 @@ describe('gt (Gemini Terminal) CLI', () => {
 
   it('rejects unknown commands with helpful error', async () => {
     const res = await runGt(['unknown-cmd']);
-    expect(res.code).toBe(1);
-    expect(res.stderr).toContain('Unknown command: unknown-cmd');
+    expect(res.code).toBe(2);
+    expect(res.stderr).toContain('error: unknown command');
   });
 
   it('parses -it, -ti, -i, -t, and --tty flags correctly for exec', async () => {
