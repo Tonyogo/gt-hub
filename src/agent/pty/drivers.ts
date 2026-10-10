@@ -176,6 +176,10 @@ else:
         sys.exit(128 + signum)
     signal.signal(signal.SIGTERM, sig_cleanup)
     signal.signal(signal.SIGINT, sig_cleanup)
+    try:
+        signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    except Exception:
+        pass
 
     # Non-blocking IO loop between sys.stdin/stdout, ctl_fd, and master
     fl = fcntl.fcntl(master, fcntl.F_GETFL)

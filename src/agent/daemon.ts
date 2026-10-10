@@ -275,6 +275,14 @@ export class AgentDaemonManager {
 }
 
 export async function runAgent(agentArgs: string[] = [], globalOpts: Record<string, any> = {}): Promise<void> {
+  try {
+    if (process.listenerCount('SIGHUP') === 0) {
+      process.on('SIGHUP', () => {
+        console.log('[Agent] Received SIGHUP (terminal hangup/session logout), ignoring to maintain daemon persistence.');
+      });
+    }
+  } catch {}
+
   const firstArg = agentArgs[0];
   const subCmd = (firstArg && !firstArg.startsWith('-')) ? firstArg.toLowerCase() : null;
 
@@ -993,7 +1001,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     }, delay);
   }
 
-  function cleanup() {
+  function cleanup(signalName?: string) {
     if (isExiting) return;
     isExiting = true;
     if (reconnectTimer) {
@@ -1001,7 +1009,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       reconnectTimer = null;
     }
     stopHeartbeat();
-    console.log('\n[Agent] Shutting down agent...');
+    console.log(`\n[Agent] Shutting down agent${signalName ? ` (${signalName})` : ''}...`);
     if (ws) {
       try { ws.close(); } catch {}
     }
@@ -1022,12 +1030,12 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     setTimeout(() => process.exit(0), 600);
   }
 
-  process.on('SIGINT', cleanup);
-  process.on('SIGTERM', cleanup);
-  process.on('SIGHUP', cleanup);
+  process.on('SIGINT', () => cleanup('SIGINT'));
+  process.on('SIGTERM', () => cleanup('SIGTERM'));
+  process.on('SIGQUIT', () => cleanup('SIGQUIT'));
   process.on('uncaughtException', (err: any) => {
     console.error('\n[Agent] Uncaught exception:', err);
-    cleanup();
+    cleanup('uncaughtException');
   });
   process.on('exit', () => {
     for (const task of taskManager.tasks.values()) {

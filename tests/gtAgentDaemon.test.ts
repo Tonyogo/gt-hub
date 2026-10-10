@@ -338,4 +338,64 @@ describe('gt agent singleton daemon lifecycle and parameter guards', () => {
     expect(stopResult.success).toBe(true);
     expect(stopResult.message).toContain('not running');
   });
+
+  it('ignores SIGHUP signal so daemon survives terminal closure and SSH session logout', async () => {
+    // 1. Set credentials
+    fs.writeFileSync(path.join(testConfigDir, 'config.json'), JSON.stringify({
+      server: 'http://127.0.0.1:3000',
+      key: 'mock-key',
+      agentName: 'sighup-test-node',
+    }));
+
+    // 2. Start agent in daemon mode
+    const startRes = spawnSync('node', [gtPath, 'agent', 'start'], {
+      env: { ...process.env, GT_CONFIG_DIR: testConfigDir },
+      encoding: 'utf-8',
+      timeout: 5000,
+    });
+    expect(startRes.status).toBe(0);
+
+    const { AgentDaemonManager } = require('../scripts/gt.js');
+    process.env.GT_CONFIG_DIR = testConfigDir;
+    const status = AgentDaemonManager.getStatus();
+    expect(status.running).toBe(true);
+    expect(status.pid).toBeDefined();
+
+    // Wait until daemon process is fully initialized and logging
+    const logFile = AgentDaemonManager.getLogFile();
+    const waitStart = Date.now();
+    while (Date.now() - waitStart < 4000) {
+      if (fs.existsSync(logFile) && fs.readFileSync(logFile, 'utf-8').includes('[Agent] Connecting')) {
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+
+    // 3. Send SIGHUP to the running daemon process (simulating SSH session hangup)
+    process.kill(status.pid, 'SIGHUP');
+
+    // Wait for SIGHUP to be received and processed
+    const waitSighup = Date.now();
+    while (Date.now() - waitSighup < 3000) {
+      if (fs.existsSync(logFile) && fs.readFileSync(logFile, 'utf-8').includes('Received SIGHUP')) {
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+
+    // 4. Verify the daemon is STILL alive and handled SIGHUP without shutting down
+    expect(AgentDaemonManager.isProcessAlive(status.pid)).toBe(true);
+    const postStatus = AgentDaemonManager.getStatus();
+    expect(postStatus.running).toBe(true);
+    const logContent = fs.readFileSync(logFile, 'utf-8');
+    expect(logContent).toContain('Received SIGHUP');
+    expect(logContent).not.toContain('Shutting down agent');
+
+    // 5. Clean up by stopping the daemon with SIGTERM via gt agent stop
+    spawnSync('node', [gtPath, 'agent', 'stop'], {
+      env: { ...process.env, GT_CONFIG_DIR: testConfigDir },
+      encoding: 'utf-8',
+      timeout: 5000,
+    });
+  });
 });

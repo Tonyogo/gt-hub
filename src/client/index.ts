@@ -562,6 +562,16 @@ export function printHelp(): void {
 }
 
 export async function runClient(rawArgs: string[] = process.argv.slice(2)): Promise<void> {
+  if (rawArgs[0] === 'agent' || rawArgs.includes('--internal-daemon')) {
+    try {
+      if (process.listenerCount('SIGHUP') === 0) {
+        process.on('SIGHUP', () => {
+          console.log('[Agent] Received SIGHUP (terminal hangup/session logout), ignoring to maintain daemon persistence.');
+        });
+      }
+    } catch {}
+  }
+
   if (rawArgs.length === 0) {
     printHelp();
     process.exit(0);
