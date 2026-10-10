@@ -22,8 +22,8 @@ describe('Public gt CLI and installer download endpoints', () => {
 
     expect(res.status).toBe(200);
     expect(res.text).toContain('INJECTED_HUB_URL="http://hub.mycompany.internal:8000"');
-    expect(res.text).toContain('gt login \\"$EFFECTIVE_HUB_URL\\" <your-admin-key>');
-    expect(res.text).toContain('gt run -d --name=\\"my-server\\"');
+    expect(res.text).toContain('gt auth login \\"$EFFECTIVE_HUB_URL\\" <your-admin-key>');
+    expect(res.text).toContain('gt agent start');
   });
 
   it('dynamically injects Hub URL prioritizing X-Forwarded-Proto and X-Forwarded-Host', async () => {
@@ -35,7 +35,7 @@ describe('Public gt CLI and installer download endpoints', () => {
 
     expect(res.status).toBe(200);
     expect(res.text).toContain('INJECTED_HUB_URL="https://terminal.example.com"');
-    expect(res.text).toContain('gt login \\"$EFFECTIVE_HUB_URL\\" <your-admin-key>');
+    expect(res.text).toContain('gt auth login \\"$EFFECTIVE_HUB_URL\\" <your-admin-key>');
   });
 
   it('handles comma-separated multi-proxy X-Forwarded-Host and X-Forwarded-Proto', async () => {

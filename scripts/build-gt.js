@@ -1,17 +1,10 @@
 const esbuild = require('esbuild');
-const { execSync } = require('child_process');
 const path = require('path');
-const pkg = require('../package.json');
-
-let gitCommit = 'unknown';
-try {
-  gitCommit = execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
-} catch {}
-
-const buildTime = new Date().toISOString();
-const version = pkg.version || '1.0.0';
-
 const fs = require('fs');
+const { generateVersionData } = require('./generate-version');
+
+// Ensure version data is generated and unified
+const versionData = generateVersionData();
 
 const outfile = path.join(__dirname, '../dist/gt.js');
 
@@ -24,12 +17,12 @@ esbuild.buildSync({
   banner: { js: '#!/usr/bin/env node' },
   external: ['node-pty', 'ws'],
   define: {
-    '__GT_VERSION__': JSON.stringify(version),
-    '__GT_GIT_COMMIT__': JSON.stringify(gitCommit),
-    '__GT_BUILD_TIME__': JSON.stringify(buildTime),
+    '__GT_VERSION__': JSON.stringify(versionData.version),
+    '__GT_GIT_COMMIT__': JSON.stringify(versionData.gitCommit),
+    '__GT_BUILD_TIME__': JSON.stringify(versionData.buildTime),
   },
 });
 try {
   fs.chmodSync(outfile, 0o755);
 } catch {}
-console.log(`[build:gt] Built dist/gt.js v${version} (${gitCommit}) built at ${buildTime}`);
+console.log(`[build:gt] Built dist/gt.js v${versionData.version} (${versionData.gitCommit}) built at ${versionData.buildTime}`);

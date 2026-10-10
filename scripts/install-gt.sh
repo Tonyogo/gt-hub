@@ -146,8 +146,8 @@ TEMP_FILE=$(mktemp 2>/dev/null || mktemp /tmp/gt.XXXXXX 2>/dev/null || (mkdir -p
 # 1. Environment variable GT_DOWNLOAD_URL
 # 2. Injected Hub URL from server (${INJECTED_HUB_URL}/gt)
 # 3. Environment variable GT_SERVER_URL (${GT_SERVER_URL}/gt)
-# 4. Official GitHub raw repository
-GITHUB_FALLBACK_URL="https://raw.githubusercontent.com/Tonyogo/gt-hub/main/scripts/gt.js"
+# 4. Official GitHub raw repository (dist/gt.js standalone bundle)
+GITHUB_FALLBACK_URL="https://raw.githubusercontent.com/Tonyogo/gt-hub/main/dist/gt.js"
 
 if [ -n "$GT_DOWNLOAD_URL" ]; then
   DOWNLOAD_URL="$GT_DOWNLOAD_URL"
@@ -208,21 +208,26 @@ echo -e "${GREEN}✓ Successfully installed gt CLI to $TARGET_BIN${NC}"
 echo ""
 
 # 5. Output version and quickstart
-"$TARGET_BIN" --version || true
+"$TARGET_BIN" -v || true
 
-EFFECTIVE_HUB_URL="${INJECTED_HUB_URL:-${GT_SERVER_URL:-http://<hub-host>:3000}}"
+EFFECTIVE_HUB_URL="${INJECTED_HUB_URL:-${GT_SERVER_URL:-http://<hub-host>:8000}}"
 
 echo ""
 echo -e "${GREEN}Quickstart:${NC}"
 echo "  1. Authenticate with your hub server:"
-echo "     gt login \"$EFFECTIVE_HUB_URL\" <your-admin-key>"
+echo "     gt auth login \"$EFFECTIVE_HUB_URL\" <your-admin-key>"
 echo ""
-echo "  2. Connect and run agent daemon:"
-echo "     gt run -d --name=\"my-server\""
+echo "  2. Start host agent daemon (background):"
+echo "     gt agent start"
 echo ""
-echo "  3. List remote agent nodes:"
+echo "  3. Check agent status & logs:"
+echo "     gt agent status"
+echo "     gt agent logs -f"
+echo ""
+echo "  4. List remote agent nodes:"
+echo "     gt nodes"
 echo "     gt ps"
 echo ""
-echo "  4. Execute commands remotely:"
-echo "     gt exec <host> uptime"
+echo "  5. Execute commands remotely:"
+echo "     gt exec <node> uptime"
 echo ""

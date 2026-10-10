@@ -5,7 +5,7 @@ describe('Version Metadata Resolver', () => {
   it('returns valid VersionInfo with package version in fallback/dev mode', () => {
     const info = getVersionInfo();
     expect(info).toBeDefined();
-    expect(info.version).toBe(pkg.version);
+    expect(info.version.startsWith(pkg.version)).toBe(true);
     expect(typeof info.gitCommit).toBe('string');
     expect(typeof info.buildTime).toBe('string');
     expect(info.platform).toBe(`${process.platform}/${process.arch}`);

@@ -8,7 +8,7 @@ describe('Hub Server Version Endpoints', () => {
     const res = await request(app).get('/health');
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('ok');
-    expect(res.body.version).toBe(pkg.version);
+    expect(res.body.version.startsWith(pkg.version)).toBe(true);
   });
 
   it('GET /api/terminal/version rejects unauthorized requests when key is set', async () => {
@@ -30,7 +30,7 @@ describe('Hub Server Version Endpoints', () => {
         .get('/api/terminal/version')
         .set('x-admin-key', 'test-secret-key');
       expect(res.status).toBe(200);
-      expect(res.body.version).toBe(pkg.version);
+      expect(res.body.version.startsWith(pkg.version)).toBe(true);
       expect(res.body.gitCommit).toBeDefined();
       expect(res.body.buildTime).toBeDefined();
       expect(res.body.platform).toBeDefined();

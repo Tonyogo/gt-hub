@@ -127,7 +127,7 @@ describe('gt Commander CLI Structure', () => {
       timeout: 5000,
     });
     expect(res.status).toBe(0);
-    expect(res.stdout).toMatch(/^gt version \d+\.\d+\.\d+ \(commit: [^,]+, built: [^,]+, [^)]+\)/);
+    expect(res.stdout).toMatch(/^gt version \d+\.\d+\.\d+(\+[a-f0-9]+)? \(commit: [^,]+, built: [^,]+, [^)]+\)/);
   });
 
   it('gt version --client outputs formatted local client version info', () => {
