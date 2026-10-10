@@ -3,6 +3,7 @@ import { URL } from 'url';
 import { WebSocketServer, WebSocket, RawData } from 'ws';
 import config from '../../../config/default';
 import logger from '../../utils/logger';
+import { safeCompareSecret } from '../../shared/utils/security';
 import { terminalHostManager } from '../services/terminalHostManager';
 import { terminalExecBridge } from '../services/terminalExecBridge';
 
@@ -25,12 +26,13 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
     const secretKey = config.adminSecretKey;
     if (secretKey) {
       const parsedUrl = new URL(reqUrl, `http://${req.headers.host || 'localhost'}`);
-      const providedKey =
+      const rawProvidedKey =
         req.headers['x-admin-key'] ||
         parsedUrl.searchParams.get('x-admin-key') ||
         parsedUrl.searchParams.get('key');
+      const providedKey = Array.isArray(rawProvidedKey) ? rawProvidedKey[0] : rawProvidedKey;
 
-      if (providedKey !== secretKey) {
+      if (!safeCompareSecret(providedKey, secretKey)) {
         logger.warn(`[TerminalWS] Unauthorized WebSocket connection attempt rejected (${reqUrl})`);
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
         socket.destroy();

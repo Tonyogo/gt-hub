@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import config from '../../config/default';
+import { safeCompareSecret } from '../../../shared/utils/security';
 
 export class AuthController {
   static getStatus(req: Request, res: Response): void {
@@ -9,8 +10,9 @@ export class AuthController {
       return;
     }
 
-    const providedKey = req.headers['x-admin-key'] || req.query['x-admin-key'] || req.query.key;
-    const authenticated = providedKey === secretKey;
+    const rawProvidedKey = req.headers['x-admin-key'] || req.query['x-admin-key'] || req.query.key;
+    const providedKey = Array.isArray(rawProvidedKey) ? rawProvidedKey[0] : rawProvidedKey;
+    const authenticated = safeCompareSecret(providedKey, secretKey);
 
     res.status(200).json({
       authRequired: true,
@@ -26,7 +28,7 @@ export class AuthController {
     }
 
     const { key } = req.body || {};
-    if (key === secretKey) {
+    if (safeCompareSecret(key, secretKey)) {
       res.status(200).json({ success: true });
     } else {
       res.status(401).json({ error: 'Unauthorized: Invalid secret key' });
