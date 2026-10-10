@@ -36,7 +36,7 @@
 - Consumes: `ConfigStore.getMachineId()`
 - Produces: `hostId = options.id || options.hostId || machineId`
 
-- [ ] **Step 1: Write unit test in tests/gtAgentDaemon.test.ts for clean hostId**
+- [x] **Step 1: Write unit test in tests/gtAgentDaemon.test.ts for clean hostId**
 
 Add a test in `tests/gtAgentDaemon.test.ts`:
 ```typescript
@@ -53,7 +53,7 @@ it('assigns hostId strictly as machineId without appending agentName', () => {
 });
 ```
 
-- [ ] **Step 2: Update hostId resolution in src/agent/daemon.ts**
+- [x] **Step 2: Update hostId resolution in src/agent/daemon.ts**
 
 In `src/agent/daemon.ts` around line 398:
 ```typescript
@@ -70,12 +70,12 @@ Remove the old conditional:
   // }
 ```
 
-- [ ] **Step 3: Run test to verify it passes**
+- [x] **Step 3: Run test to verify it passes**
 
 Run: `npx jest tests/gtAgentDaemon.test.ts`
 Expected: PASS
 
-- [ ] **Step 4: Commit Task 1**
+- [x] **Step 4: Commit Task 1**
 
 ```bash
 git add src/agent/daemon.ts tests/gtAgentDaemon.test.ts
@@ -97,7 +97,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 - Consumes: `handleNodesCommand`
 - Produces: Streamlined Commander program with `gt ps` preserved, and `hosts`, `host`, `kill`, `logs`, `prune` removed
 
-- [ ] **Step 1: Update tests/gtCommanderCli.test.ts to verify command removals and gt ps preservation**
+- [x] **Step 1: Update tests/gtCommanderCli.test.ts to verify command removals and gt ps preservation**
 
 In `tests/gtCommanderCli.test.ts`:
 ```typescript
@@ -125,7 +125,7 @@ it('rejects removed top-level shortcut commands with exit code 2', () => {
 });
 ```
 
-- [ ] **Step 2: Remove aliases and shortcut commands from src/client/index.ts**
+- [x] **Step 2: Remove aliases and shortcut commands from src/client/index.ts**
 
 1. Remove `.alias('hosts')` from `nodesCmd`.
 2. Remove the entire `hostCmd` definition (lines ~155-196).
@@ -157,12 +157,12 @@ it('rejects removed top-level shortcut commands with exit code 2', () => {
 6. Remove top-level `logs` command (lines ~427-444).
 7. Clean up `printHelp()` text in `src/client/index.ts`: remove `kill`, `logs`, `prune`, `host` shortcuts, keeping `gt ps` and remote execution shortcuts.
 
-- [ ] **Step 3: Run Commander CLI tests**
+- [x] **Step 3: Run Commander CLI tests**
 
 Run: `npm run build:gt && npx jest tests/gtCommanderCli.test.ts`
 Expected: PASS
 
-- [ ] **Step 4: Commit Task 2**
+- [x] **Step 4: Commit Task 2**
 
 ```bash
 git add src/client/index.ts tests/gtCommanderCli.test.ts tests/gtPsCommand.test.ts
@@ -183,14 +183,14 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 - Consumes: Streamlined CLI commands
 - Produces: 100% passing test suites, updated README documentation
 
-- [ ] **Step 1: Update README.md to remove deleted shortcut commands**
+- [x] **Step 1: Update README.md to remove deleted shortcut commands**
 
 In `README.md`, update references:
 - Change `gt kill <node> <taskId>` to `gt task kill <node> <taskId>`
 - Remove references to `gt host`, `gt logs`, `gt prune` (point to `gt task logs`, `gt agent logs`, `gt nodes prune`)
 - Keep `gt ps` as remote node listing shortcut.
 
-- [ ] **Step 2: Run full build and test suite**
+- [x] **Step 2: Run full build and test suite**
 
 Run:
 ```bash
@@ -199,7 +199,7 @@ npm test
 ```
 Expected: All test suites pass.
 
-- [ ] **Step 3: Commit Task 3**
+- [x] **Step 3: Commit Task 3**
 
 ```bash
 git add README.md
