@@ -1,8 +1,22 @@
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
-import * as pty from 'node-pty';
+import type * as pty from 'node-pty';
 import logger from '../../utils/logger';
+
+let _cachedNodePty: any = null;
+
+export function getNodePty(): any {
+  if (_cachedNodePty) return _cachedNodePty;
+  try {
+    _cachedNodePty = require('node-pty');
+    return _cachedNodePty;
+  } catch (err: any) {
+    throw new Error(
+      `Failed to load native node-pty module. Please run 'npm rebuild node-pty'. Original error: ${err.message}`
+    );
+  }
+}
 
 export interface TerminalSessionOptions {
   cols?: number;
@@ -87,6 +101,7 @@ export function spawnTerminalSession(options: TerminalSessionOptions = {}): pty.
 
   logger.info(`Spawning PTY shell: ${shell} (${cols}x${rows}) in ${cwd}`);
 
+  const pty = getNodePty();
   const ptyProcess = pty.spawn(shell, [], {
     name: 'xterm-256color',
     cols,
