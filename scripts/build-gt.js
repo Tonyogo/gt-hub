@@ -11,12 +11,16 @@ try {
 const buildTime = new Date().toISOString();
 const version = pkg.version || '1.0.0';
 
+const fs = require('fs');
+
+const outfile = path.join(__dirname, '../dist/gt.js');
+
 esbuild.buildSync({
   entryPoints: [path.join(__dirname, '../src/bin/gt.ts')],
   bundle: true,
   platform: 'node',
   target: 'node18',
-  outfile: path.join(__dirname, '../dist/gt.js'),
+  outfile,
   banner: { js: '#!/usr/bin/env node' },
   external: ['node-pty', 'ws'],
   define: {
@@ -25,4 +29,7 @@ esbuild.buildSync({
     '__GT_BUILD_TIME__': JSON.stringify(buildTime),
   },
 });
+try {
+  fs.chmodSync(outfile, 0o755);
+} catch {}
 console.log(`[build:gt] Built dist/gt.js v${version} (${gitCommit}) built at ${buildTime}`);

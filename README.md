@@ -78,7 +78,16 @@ gt nodes
 gt ps                       # Shortcut for gt nodes
 gt nodes -a                 # Include offline nodes
 gt nodes prune              # Remove offline hosts
+```
 
+Example tabular output:
+```text
+NODE ID             NAME                     STATUS      VERSION     PLATFORM    IP                 LAST SEEN
+---------------------------------------------------------------------------------------------------------------
+c4d930fe86a7        worker-bj                online      1.0.0       linux       192.168.1.10       Just now
+```
+
+```bash
 # Execute command on a remote host (streaming output with exit code forwarding)
 gt exec my-server uptime
 gt exec -it my-server bash
@@ -94,6 +103,28 @@ gt task logs -f my-server <task-id>
 gt task kill my-server <task-id>
 ```
 
+#### Version Information & Diagnostics (`gt -v`, `gt version`)
+Display local CLI version or diagnostic client/server environment info:
+```bash
+# Ultra-fast local client version
+gt -v
+# Output: gt version 1.0.0 (commit: abcdef1, built: 2026-10-10T12:00:00Z, linux/x64)
+
+# Full diagnostic output querying active target Hub server
+gt version
+
+# Query offline / client-only local version
+gt version --client
+
+# Machine-readable JSON output for CI/CD and automation
+gt version --json
+gt version --client --json
+
+# Query specific Hub server or context
+gt version -s http://staging-hub:8000 -k <secret>
+gt version -c prod
+```
+
 #### Local Machine Agent Management (`gt agent`)
 Manage the singleton reverse agent daemon on the local host:
 ```bash
@@ -103,4 +134,19 @@ gt agent restart         # Restart the agent daemon
 gt agent status          # View daemon status (running/stopped, PID, uptime)
 gt agent logs -f         # Follow daemon logs
 gt agent name [new-name] # View or configure the persistent agent node name
+```
+
+## Release Workflow & Versioning
+
+`package.json` serves as the single source of truth for versioning. To release a new version:
+
+```bash
+# Bump version (updates package.json and creates git tag)
+npm version patch   # or minor, major
+
+# Build release artifacts with injected metadata
+npm run build
+
+# Verify build
+./dist/gt.js -v
 ```
