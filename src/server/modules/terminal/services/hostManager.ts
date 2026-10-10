@@ -174,11 +174,33 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
       }
     }
 
-    while (this.totalBufferSize > this.maxBufferSize && this.historyBuffer.length > 0) {
-      const removed = this.historyBuffer.shift();
-      if (removed) {
-        this.totalBufferSize -= removed.length;
+    if (this.totalBufferSize > this.maxBufferSize) {
+      let dropCount = 0;
+      let droppedBytes = 0;
+      const bytesToDrop = this.totalBufferSize - this.maxBufferSize;
+      while (dropCount < this.historyBuffer.length && droppedBytes < bytesToDrop) {
+        droppedBytes += this.historyBuffer[dropCount].length;
+        dropCount++;
       }
+      if (dropCount > 0) {
+        if (dropCount >= this.historyBuffer.length) {
+          const lastChunk = this.historyBuffer[this.historyBuffer.length - 1];
+          if (lastChunk.length > this.maxBufferSize) {
+            this.historyBuffer = [lastChunk.slice(lastChunk.length - this.maxBufferSize)];
+            this.totalBufferSize = this.maxBufferSize;
+          } else {
+            this.historyBuffer = [];
+            this.totalBufferSize = 0;
+          }
+        } else {
+          this.historyBuffer.splice(0, dropCount);
+          this.totalBufferSize -= droppedBytes;
+        }
+      }
+    }
+
+    if (this.historyBuffer.length > 500) {
+      this.historyBuffer = [this.historyBuffer.join('')];
     }
 
     const deadSockets: any[] = [];

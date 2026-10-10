@@ -225,12 +225,29 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
   const lastSentColsRef = useRef<number>(0);
   const lastSentRowsRef = useRef<number>(0);
   const viewportDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const [isMobile, setIsMobile] = useState<boolean>(() => {
     return typeof window !== 'undefined'
       ? window.innerWidth < 768 || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
       : false;
   });
+  const isMobileRef = useRef<boolean>(isMobile);
+  useEffect(() => {
+    isMobileRef.current = isMobile;
+  }, [isMobile]);
+
+  const standaloneRef = useRef<boolean>(standalone);
+  useEffect(() => {
+    standaloneRef.current = standalone;
+  }, [standalone]);
+
+  const clearPingInterval = useCallback(() => {
+    if (pingIntervalRef.current) {
+      clearInterval(pingIntervalRef.current);
+      pingIntervalRef.current = null;
+    }
+  }, []);
 
   const [fontSize, setFontSize] = useState<number>(() => {
     const mobile = typeof window !== 'undefined'
@@ -398,7 +415,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       return;
     }
 
-    const isMobileDevice = isMobile || (typeof window !== 'undefined' && (window.innerWidth < 768 || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)));
+    const isMobileDevice = isMobileRef.current || (typeof window !== 'undefined' && (window.innerWidth < 768 || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)));
     if (isMobileDevice && !force && lastSentRowsRef.current > 0) {
       const isWidthUnchanged = Math.abs(cols - lastSentColsRef.current) <= 2;
       const isHeightShrunk = rows < lastSentRowsRef.current;
@@ -417,7 +434,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       console.debug(`[WebTerminal] Sending resize to backend: ${cols}x${rows}`);
       wsRef.current.send(`JSON:${JSON.stringify({ type: 'resize', cols, rows })}`);
     }
-  }, [isMobile]);
+  }, []);
 
   const safeFit = useCallback((forceResize: boolean = false): boolean => {
     if (!isMountedRef.current || !fitAddonRef.current || !xtermRef.current || !terminalContainerRef.current) {
@@ -475,7 +492,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       console.debug('[WebTerminal] safeFit bypassed:', err);
     }
     return false;
-  }, [sendResize, isMobile, standalone]);
+  }, [sendResize]);
 
   const safeFitRef = useRef(safeFit);
   safeFitRef.current = safeFit;
@@ -485,8 +502,9 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       clearInterval(countdownIntervalRef.current);
       countdownIntervalRef.current = null;
     }
+    clearPingInterval();
     setReconnectCountdown(0);
-  }, []);
+  }, [clearPingInterval]);
 
   const initWebSocket = useCallback(() => {
     clearReconnectTimers();
@@ -531,6 +549,16 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       setIsConnected(true);
       reconnectAttemptRef.current = 0;
       clearReconnectTimers();
+      clearPingInterval();
+
+      // Start ping heartbeat (every 15 seconds) to prevent reverse proxy/NAT idle drop
+      pingIntervalRef.current = setInterval(() => {
+        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          try {
+            wsRef.current.send(`JSON:${JSON.stringify({ type: 'ping' })}`);
+          } catch {}
+        }
+      }, 15000);
 
       // Reset xterm buffer so replayed history stream does not duplicate existing content
       if (xtermRef.current) {
@@ -567,6 +595,10 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         if (data.startsWith('JSON:')) {
           try {
             const parsed = JSON.parse(data.slice(5));
+            if (parsed.type === 'pong') {
+              // Server keepalive heartbeat response
+              return;
+            }
             console.debug('[WebTerminal] Received backend control message:', parsed);
             if (parsed.type === 'reset') {
               console.debug('[WebTerminal] Received reset signal from backend, clearing buffer and muting synthetic reports');
@@ -598,49 +630,28 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
             // Not json, print as raw text
           }
         }
-        // Log preview in console for debugging
-        if (data.length > 0) {
-          console.debug('[WebTerminal] WS Recv Text:', JSON.stringify(data.slice(0, 50)), 'len:', data.length);
-        }
         const term = xtermRef.current;
         const wasAtBottom = isAtBottomRef.current;
         term?.write(data, () => {
           if (!isRefittingRef.current && shouldScrollToBottom({ isReplaying: isReplayingRef.current, wasAtBottom, bufferType: term?.buffer.active.type })) {
             scrollToBottomSafe(term);
           }
-          term?.refresh(0, Math.max(0, (term.rows || 1) - 1));
-          if (replayTimerRef.current) {
-            clearTimeout(replayTimerRef.current);
-          }
-          replayTimerRef.current = setTimeout(() => {
+          if (isReplayingRef.current) {
+            term?.refresh(0, Math.max(0, (term.rows || 1) - 1));
             isReplayingRef.current = false;
-            // Only auto-scroll to bottom if user is already at the bottom or replaying
-            if (shouldScrollToBottom({ isReplaying: false, wasAtBottom: isAtBottomRef.current, bufferType: xtermRef.current?.buffer.active.type })) {
-              scrollToBottomSafe(xtermRef.current);
-            }
-            xtermRef.current?.refresh(0, Math.max(0, (xtermRef.current.rows || 1) - 1));
-          }, 150);
+          }
         });
       } else if (data instanceof ArrayBuffer) {
-        console.debug('[WebTerminal] WS Recv Binary:', data.byteLength);
         const term = xtermRef.current;
         const wasAtBottom = isAtBottomRef.current;
         term?.write(new Uint8Array(data), () => {
           if (!isRefittingRef.current && shouldScrollToBottom({ isReplaying: isReplayingRef.current, wasAtBottom, bufferType: term?.buffer.active.type })) {
             scrollToBottomSafe(term);
           }
-          term?.refresh(0, Math.max(0, (term.rows || 1) - 1));
-          if (replayTimerRef.current) {
-            clearTimeout(replayTimerRef.current);
-          }
-          replayTimerRef.current = setTimeout(() => {
+          if (isReplayingRef.current) {
+            term?.refresh(0, Math.max(0, (term.rows || 1) - 1));
             isReplayingRef.current = false;
-            // Only auto-scroll to bottom if user is already at the bottom or replaying
-            if (shouldScrollToBottom({ isReplaying: false, wasAtBottom: isAtBottomRef.current, bufferType: xtermRef.current?.buffer.active.type })) {
-              scrollToBottomSafe(xtermRef.current);
-            }
-            xtermRef.current?.refresh(0, Math.max(0, (xtermRef.current.rows || 1) - 1));
-          }, 150);
+          }
         });
       }
     };
@@ -670,13 +681,15 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     };
 
     ws.onclose = () => {
+      clearPingInterval();
       triggerReconnect();
     };
 
     ws.onerror = (err) => {
+      clearPingInterval();
       console.debug('[WebTerminal] WebSocket encountered error:', err);
     };
-  }, [adminKey, clearReconnectTimers, sendResize]);
+  }, [adminKey, clearReconnectTimers, sendResize, clearPingInterval]);
 
   // Lock body scroll and set overscroll-behavior when standalone is active
   useEffect(() => {
@@ -1149,7 +1162,6 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         return;
       }
 
-      console.debug('[WebTerminal] term.onData dispatched:', JSON.stringify(data), 'len:', data.length, 'hex:', Array.from(data).map(c => c.charCodeAt(0).toString(16).padStart(2, '0')).join(' '));
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send(data);
       }
@@ -1158,9 +1170,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       scrollToBottomSafe(term);
     });
 
-    term.onKey((e) => {
-      console.debug('[WebTerminal] term.onKey event:', e.key, 'domEvent:', e.domEvent.key, 'code:', e.domEvent.code);
-    });
+    term.onKey(() => {});
 
     let cancelRaf = false;
     const fallbackTimers: NodeJS.Timeout[] = [];
@@ -1440,6 +1450,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         window.visualViewport.removeEventListener('resize', handleViewportChange);
         window.visualViewport.removeEventListener('scroll', handleViewportChange);
       }
+      clearPingInterval();
       if (wsRef.current) {
         const oldWs = wsRef.current;
         oldWs.onopen = null;
@@ -1893,7 +1904,6 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       const timers = [
         setTimeout(() => {
           safeFit(true);
-          xtermRef.current?.refresh(0, Math.max(0, (xtermRef.current?.rows || 1) - 1));
         }, 60),
         setTimeout(() => { safeFit(true); }, 200),
         setTimeout(() => { safeFit(true); }, 500),

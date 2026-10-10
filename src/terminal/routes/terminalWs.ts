@@ -65,6 +65,9 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
 
   // Agent Reverse Tunnel Handler
   agentWss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
+    if (req.socket && typeof (req.socket as any).setKeepAlive === 'function') {
+      (req.socket as any).setKeepAlive(true, 10000);
+    }
     const parsedUrl = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
     const hostId = parsedUrl.searchParams.get('hostId') || parsedUrl.searchParams.get('id') || `agent-${Date.now()}`;
     const name = parsedUrl.searchParams.get('name') || undefined;
@@ -103,9 +106,15 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
     logger.info(`[TerminalWS:Agent] Agent connected: ${hostId} (${host.name}) from ${ip}`);
     ws.send(`JSON:${JSON.stringify({ type: 'registered', hostId, status: 'online' })}`);
 
+    let lastTouch = 0;
+
     ws.on('message', (message: RawData, isBinary: boolean) => {
       try {
-        hostMgr.touchAgent(hostId, ws, agentMeta);
+        const now = Date.now();
+        if (now - lastTouch > 2000) {
+          lastTouch = now;
+          hostMgr.touchAgent(hostId, ws, agentMeta);
+        }
 
         if (isBinary) {
           hostMgr.handleAgentData(hostId, message);
@@ -116,6 +125,8 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
         if (msgStr.startsWith('JSON:')) {
           const control = JSON.parse(msgStr.slice(5));
           if (control.type === 'ping') {
+            lastTouch = now;
+            hostMgr.touchAgent(hostId, ws, agentMeta);
             ws.send(`JSON:${JSON.stringify({ type: 'pong' })}`);
             return;
           }
@@ -185,6 +196,9 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
 
   // Client Web Terminal Connection Handler
   wss.on('connection', (ws: WebSocket, req: http.IncomingMessage) => {
+    if (req.socket && typeof (req.socket as any).setKeepAlive === 'function') {
+      (req.socket as any).setKeepAlive(true, 10000);
+    }
     const parsedUrl = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
     const hostId = (parsedUrl.searchParams.get('hostId') || '').trim();
 
@@ -236,9 +250,11 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
           }
         }
 
-        const hex = Buffer.from(msgStr).toString('hex');
-        const preview = JSON.stringify(msgStr.length > 30 ? msgStr.slice(0, 30) + '...' : msgStr);
-        logger.debug(`[TerminalWS:${hostId}] Raw input frame (len=${msgStr.length}, hex=${hex}, preview=${preview})`);
+        if (config.logLevel === 'debug') {
+          const hex = Buffer.from(msgStr.length > 64 ? msgStr.slice(0, 64) : msgStr).toString('hex');
+          const preview = JSON.stringify(msgStr.length > 30 ? msgStr.slice(0, 30) + '...' : msgStr);
+          logger.debug(`[TerminalWS:${hostId}] Raw input frame (len=${msgStr.length}, hex=${hex}, preview=${preview})`);
+        }
         session.write(msgStr);
       } catch (err: any) {
         logger.warn(`[TerminalWS:${hostId}] Message parse exception: ${err.message}`);

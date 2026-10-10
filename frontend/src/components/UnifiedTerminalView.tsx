@@ -213,10 +213,10 @@ export default function UnifiedTerminalView({
     };
   }, [isStandalone, isMobile]);
 
-  const handleHostChange = (newHostId: string) => {
+  const handleHostChange = useCallback((newHostId: string) => {
     setActiveHostId(newHostId);
     localStorage.setItem('terminal_active_host', newHostId);
-  };
+  }, []);
 
   const handleSubTabChange = useCallback((newTab: TerminalSubTab) => {
     setSubTab(newTab);

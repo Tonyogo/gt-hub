@@ -39,4 +39,26 @@ describe('Terminal Fullscreen Resize Repaint Stabilization', () => {
   it('WebTerminalView should apply subtle visual opacity transition during refit', () => {
     expect(webTerminalContent).toMatch(/isRefitting\s*\?\s*['"]opacity-40/);
   });
+
+  it('WebTerminalView sends client ping heartbeat every 15s and ignores pong responses', () => {
+    expect(webTerminalContent).toContain('pingIntervalRef');
+    expect(webTerminalContent).toMatch(/pingIntervalRef\.current\s*=\s*setInterval\(\(\)\s*=>\s*\{[\s\S]*?\{ type: 'ping' \}/);
+    expect(webTerminalContent).toContain("if (parsed.type === 'pong')");
+    expect(webTerminalContent).toContain('clearPingInterval()');
+  });
+
+  it('WebTerminalView stabilizes sendResize and safeFit dependencies and UnifiedTerminalView memoizes handleHostChange', () => {
+    // sendResize must not re-trigger on mobile viewport changes
+    expect(webTerminalContent).toMatch(/const sendResize = useCallback\([\s\S]*?\},\s*\[\]\);/);
+    // safeFit must only depend on sendResize and not re-trigger on viewport/standalone shifts
+    expect(webTerminalContent).toMatch(/const safeFit = useCallback\([\s\S]*?\},\s*\[sendResize\]\);/);
+    // handleHostChange in UnifiedTerminalView must be memoized
+    expect(unifiedContent).toMatch(/const handleHostChange = useCallback\(\(newHostId: string\) =>/);
+  });
+
+  it('terminalWs sets TCP keepalive on underlying HTTP upgrade sockets', () => {
+    const wsRoutePath = path.resolve(__dirname, '../src/terminal/routes/terminalWs.ts');
+    const wsRouteContent = fs.readFileSync(wsRoutePath, 'utf-8');
+    expect(wsRouteContent).toMatch(/setKeepAlive\(true,\s*10000\)/);
+  });
 });

@@ -187,4 +187,38 @@ describe('Terminal WebSocket Gateway', () => {
       });
     });
   });
+
+  it('should respond with prefixed JSON:{"type":"pong"} when interactive client sends ping keepalive', (done) => {
+    const originalKey = config.adminSecretKey;
+    config.adminSecretKey = 'valid-key';
+    const testHostId = 'client-ping-test';
+
+    const agentWs = new WebSocket(
+      `ws://127.0.0.1:${port}/api/admin/terminal/agent-ws?hostId=${testHostId}&name=PingClientNode&key=valid-key`
+    );
+
+    agentWs.on('open', () => {
+      const clientWs = new WebSocket(
+        `ws://127.0.0.1:${port}/api/admin/terminal/ws?hostId=${testHostId}&key=valid-key`
+      );
+
+      clientWs.on('open', () => {
+        clientWs.send(`JSON:${JSON.stringify({ type: 'ping' })}`);
+      });
+
+      clientWs.on('message', (msg) => {
+        const text = msg.toString();
+        if (text.startsWith('JSON:')) {
+          const payload = JSON.parse(text.slice(5));
+          if (payload.type === 'pong') {
+            expect(text).toBe('JSON:{"type":"pong"}');
+            clientWs.close();
+            agentWs.close();
+            config.adminSecretKey = originalKey;
+            done();
+          }
+        }
+      });
+    });
+  });
 });
