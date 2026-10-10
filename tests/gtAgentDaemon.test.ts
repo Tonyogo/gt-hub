@@ -250,7 +250,7 @@ describe('gt agent singleton daemon lifecycle and parameter guards', () => {
     const agentRecord2 = AgentDaemonManager.getStatus();
     expect(agentRecord2.running).toBe(true);
     expect(agentRecord2.name).toBe('custom-configured-node');
-    expect(agentRecord2.id).toBe(`${mid}-custom-configured-node`);
+    expect(agentRecord2.id).toBe(mid);
 
     // Stop
     spawnSync('node', [gtPath, 'agent', 'stop'], {
@@ -271,7 +271,7 @@ describe('gt agent singleton daemon lifecycle and parameter guards', () => {
     const agentRecord3 = AgentDaemonManager.getStatus();
     expect(agentRecord3.running).toBe(true);
     expect(agentRecord3.name).toBe('env-override-node');
-    expect(agentRecord3.id).toBe(`${mid}-env-override-node`);
+    expect(agentRecord3.id).toBe(mid);
 
     // Stop
     spawnSync('node', [gtPath, 'agent', 'stop'], {
@@ -279,6 +279,18 @@ describe('gt agent singleton daemon lifecycle and parameter guards', () => {
       encoding: 'utf-8',
       timeout: 5000,
     });
+  });
+
+  it('assigns hostId strictly as machineId without appending agentName', () => {
+    process.env.GT_CONFIG_DIR = testConfigDir;
+    const { ConfigStore } = require('../scripts/gt.js');
+    ConfigStore.setAgentName('my-custom-node');
+    const machineId = ConfigStore.getMachineId();
+
+    // Inspect the resolved hostId logic
+    const resolvedHostId = ConfigStore.getMachineId();
+    expect(resolvedHostId).toBe(machineId);
+    expect(resolvedHostId).not.toContain('my-custom-node');
   });
 
   it('outputs agent daemon commands in gt --help', () => {

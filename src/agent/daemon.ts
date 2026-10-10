@@ -392,17 +392,9 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
   const hostName = sanitizedName;
 
   const hostname = os.hostname();
-  const defaultHostname = hostname.toLowerCase().replace(/[^a-z0-9-_]/g, '-').replace(/^-+|-+$/g, '') || 'host';
 
   const machineId = ConfigStore.getMachineId();
-  let hostId = options.id || options.hostId;
-  if (!hostId) {
-    if (hostName === defaultHostname) {
-      hostId = machineId;
-    } else {
-      hostId = `${machineId}-${hostName}`;
-    }
-  }
+  const hostId = options.id || options.hostId || machineId;
 
   // Resolve effective credentials
   const effectiveConfig = ConfigStore.getEffectiveConfig({
