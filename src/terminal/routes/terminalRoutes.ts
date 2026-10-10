@@ -32,4 +32,7 @@ router.get('/exec/:hostId', (req, res) => terminalExecController.listExec(req, r
 // System Console Logs
 router.get('/logs', (req, res) => terminalLogController.getTerminalLogs(req, res));
 
+// System Info
+router.get('/version', (req, res) => terminalHostController.getVersion(req, res));
+
 export default router;

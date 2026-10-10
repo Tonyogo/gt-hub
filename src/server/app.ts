@@ -4,6 +4,7 @@ import authRoutes from './modules/auth/authRoutes';
 import terminalRoutes from '../terminal/routes/terminalRoutes';
 import staticMiddleware from './modules/static/staticMiddleware';
 import errorHandlerMiddleware from './middlewares/errorHandler';
+import { getVersionInfo } from '../shared/version';
 
 const app = express();
 
@@ -21,7 +22,8 @@ app.use('/api/admin/terminal', terminalRoutes); // Compatibility alias
 
 // Server Health check
 app.get('/health', (req: Request, res: Response) => {
-  res.status(200).json({ status: 'ok' });
+  const info = getVersionInfo();
+  res.status(200).json({ status: 'ok', version: info.version });
 });
 
 // Frontend UI static files & SPA fallback

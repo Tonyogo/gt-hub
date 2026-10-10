@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { terminalHostManager } from '../services/terminalHostManager';
+import { getVersionInfo } from '../../shared/version';
 
 class TerminalHostController {
   public async getHosts(req: Request, res: Response): Promise<void> {
@@ -14,6 +15,10 @@ class TerminalHostController {
       prunedCount: prunedIds.length,
       prunedIds,
     });
+  }
+
+  public async getVersion(req: Request, res: Response): Promise<void> {
+    res.json(getVersionInfo());
   }
 }
 
