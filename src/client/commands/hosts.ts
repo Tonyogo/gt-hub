@@ -69,18 +69,21 @@ export async function handleRemotePs({
         'NODE ID'.padEnd(20) +
         'NAME'.padEnd(25) +
         'STATUS'.padEnd(12) +
+        'VERSION'.padEnd(12) +
         'PLATFORM'.padEnd(12) +
         'IP'.padEnd(18) +
         'LAST SEEN'
       );
-      console.log('-'.repeat(95));
+      console.log('-'.repeat(107));
 
       for (const h of hosts) {
         const statusStr = h.status === 'online' ? 'online' : 'offline';
+        const verStr = h.version || '-';
         console.log(
           (h.id || '').padEnd(20) +
           (h.name || h.hostname || '').padEnd(25) +
           statusStr.padEnd(12) +
+          verStr.padEnd(12) +
           (h.platform || '').padEnd(12) +
           (h.ip || '').padEnd(18) +
           formatRelativeTime(h.lastSeen)

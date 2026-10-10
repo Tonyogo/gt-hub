@@ -30,8 +30,11 @@ import {
   handleConfigList,
 } from './commands/config';
 import { runAgent } from '../agent/daemon';
+import { getVersionInfo, formatShortVersion } from '../shared/version';
+import { handleVersionCommand } from './commands/version';
 
-export const VERSION = '1.0.0';
+const versionInfo = getVersionInfo();
+export const VERSION = versionInfo.version;
 
 export {
   DEFAULT_SERVER_URL,
@@ -53,6 +56,7 @@ export {
   runCp,
   parseExecArgs,
   runInteractiveExec,
+  handleVersionCommand,
 };
 
 export function createProgram(rawArgs: string[] = []): Command {
@@ -62,7 +66,7 @@ export function createProgram(rawArgs: string[] = []): Command {
     .name('gt')
     .usage('[GLOBAL_OPTIONS] COMMAND [ARGS...]')
     .description('gt (Gemini Terminal) - Unified Docker-Style Terminal CLI')
-    .version(`gt version ${VERSION}`, '-v, --version', 'Output the version number')
+    .version(formatShortVersion(versionInfo), '-v, --version', 'Output the version number')
     .helpOption('-h, --help', 'Display help for command')
     .option('-c, --context <name>', 'Target Hub context to use (overrides current-context)')
     .option('-s, --server <url>', 'Hub server URL (Default: env GT_SERVER or http://localhost:8000)')
@@ -107,6 +111,25 @@ Command Shortcuts:
     const globalOpts = program.opts();
     return opts.format || globalOpts.format;
   }
+
+  // --- Version Information: gt version ---
+  program
+    .command('version')
+    .description('Show full gt version and environment information')
+    .option('--client', 'Only print client version (offline mode)')
+    .option('-s, --server <url>', 'Hub server URL')
+    .option('-k, --key <secret>', 'Admin secret key')
+    .option('-c, --context <name>', 'Target Hub context')
+    .option('--json', 'Output in JSON format')
+    .action(async (opts: Record<string, any>) => {
+      const eff = resolveEffective(opts);
+      await handleVersionCommand({
+        server: eff.server,
+        key: eff.key,
+        clientOnly: !!opts.client,
+        jsonOutput: resolveJson(opts),
+      });
+    });
 
   // --- Remote Cluster Management: gt nodes ---
   const nodesCmd = program

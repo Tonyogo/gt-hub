@@ -66,6 +66,12 @@ describe('gt ps & gt prune remote node management', () => {
     expect(res.stdout).not.toContain('worker-offline');
   });
 
+  it('displays VERSION column in table header', async () => {
+    const res = await run(['ps']);
+    expect(res.code).toBe(0);
+    expect(res.stdout).toContain('VERSION');
+  });
+
   it('shows all nodes including offline when passing -a or --all', async () => {
     const res = await run(['ps', '-a']);
     expect(res.code).toBe(0);

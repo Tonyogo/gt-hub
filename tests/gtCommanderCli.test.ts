@@ -119,4 +119,43 @@ describe('gt Commander CLI Structure', () => {
       expect(res.stderr).toContain('error: unknown command');
     }
   });
+
+  it('gt -v and gt --version output single-line version with commit and build info', () => {
+    const res = spawnSync('node', [gtPath, '-v'], {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+      timeout: 5000,
+    });
+    expect(res.status).toBe(0);
+    expect(res.stdout).toMatch(/^gt version \d+\.\d+\.\d+ \(commit: [^,]+, built: [^,]+, [^)]+\)/);
+  });
+
+  it('gt version --client outputs formatted local client version info', () => {
+    const res = spawnSync('node', [gtPath, 'version', '--client'], {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+      timeout: 5000,
+    });
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain('Client:');
+    expect(res.stdout).toContain('Version:');
+    expect(res.stdout).toContain('Git Commit:');
+    expect(res.stdout).toContain('Build Time:');
+    expect(res.stdout).toContain('OS/Arch:');
+    expect(res.stdout).not.toContain('Server:');
+  });
+
+  it('gt version --client --json outputs structured json', () => {
+    const res = spawnSync('node', [gtPath, 'version', '--client', '--json'], {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+      timeout: 5000,
+    });
+    expect(res.status).toBe(0);
+    const data = JSON.parse(res.stdout.trim());
+    expect(data.client).toBeDefined();
+    expect(data.client.version).toBeDefined();
+    expect(data.client.gitCommit).toBeDefined();
+    expect(data.client.platform).toBeDefined();
+  });
 });
