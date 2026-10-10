@@ -50,7 +50,7 @@
   export function formatShortVersion(info?: VersionInfo): string;
   ```
 
-- [ ] **Step 1: Write failing unit tests for version metadata in tests/gtVersion.test.ts**
+- [x] **Step 1: Write failing unit tests for version metadata in tests/gtVersion.test.ts**
 
 Create `tests/gtVersion.test.ts`:
 ```typescript
@@ -80,12 +80,12 @@ describe('Version Metadata Resolver', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx jest tests/gtVersion.test.ts`
 Expected: FAIL (Cannot find module `../src/shared/version`)
 
-- [ ] **Step 3: Implement src/shared/version.ts**
+- [x] **Step 3: Implement src/shared/version.ts**
 
 Create `src/shared/version.ts`:
 ```typescript
@@ -146,7 +146,7 @@ export function formatShortVersion(info: VersionInfo = getVersionInfo()): string
 }
 ```
 
-- [ ] **Step 4: Create scripts/build-gt.js and update package.json**
+- [x] **Step 4: Create scripts/build-gt.js and update package.json**
 
 Create `scripts/build-gt.js`:
 ```javascript
@@ -186,12 +186,12 @@ Change `"build:gt"` from the raw esbuild CLI command to:
 "build:gt": "node scripts/build-gt.js",
 ```
 
-- [ ] **Step 5: Run unit tests and build script to verify**
+- [x] **Step 5: Run unit tests and build script to verify**
 
 Run: `npx jest tests/gtVersion.test.ts && npm run build:gt`
 Expected: PASS
 
-- [ ] **Step 6: Commit Task 1**
+- [x] **Step 6: Commit Task 1**
 
 ```bash
 git add src/shared/version.ts scripts/build-gt.js package.json tests/gtVersion.test.ts
@@ -216,7 +216,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
   - `GET /api/terminal/version` -> `VersionInfo`
   - `GET /health` -> `{ status: 'ok', version: string }`
 
-- [ ] **Step 1: Write integration tests for server version endpoints in tests/gtServerVersion.test.ts**
+- [x] **Step 1: Write integration tests for server version endpoints in tests/gtServerVersion.test.ts**
 
 Create `tests/gtServerVersion.test.ts`:
 ```typescript
@@ -263,12 +263,12 @@ describe('Hub Server Version Endpoints', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx jest tests/gtServerVersion.test.ts`
 Expected: FAIL (Endpoints not returning version or route missing)
 
-- [ ] **Step 3: Update src/server/app.ts and terminal routes/controllers**
+- [x] **Step 3: Update src/server/app.ts and terminal routes/controllers**
 
 In `src/server/app.ts`, update `/health`:
 ```typescript
@@ -300,12 +300,12 @@ In `src/terminal/routes/terminalRoutes.ts`, register `GET /version`:
 router.get('/version', (req, res) => terminalHostController.getVersion(req, res));
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npx jest tests/gtServerVersion.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit Task 2**
+- [x] **Step 5: Commit Task 2**
 
 ```bash
 git add src/server/app.ts src/terminal/controllers/terminalHostController.ts src/terminal/routes/terminalRoutes.ts tests/gtServerVersion.test.ts
@@ -330,7 +330,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 - Consumes: `getVersionInfo().version`
 - Produces: `ManagedHost.version?: string`, `HostInfo.version?: string`
 
-- [ ] **Step 1: Write unit test in tests/gtAgentVersionTelemetry.test.ts**
+- [x] **Step 1: Write unit test in tests/gtAgentVersionTelemetry.test.ts**
 
 Create `tests/gtAgentVersionTelemetry.test.ts`:
 ```typescript
@@ -379,12 +379,12 @@ describe('Agent Version Telemetry in HostManager', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npx jest tests/gtAgentVersionTelemetry.test.ts`
 Expected: FAIL (Type error or `version` not supported on `registerAgent`)
 
-- [ ] **Step 3: Update types, terminalUI, daemon, terminalWs, and hostManager**
+- [x] **Step 3: Update types, terminalUI, daemon, terminalWs, and hostManager**
 
 1. In `src/shared/types/host.ts`:
 ```typescript
@@ -509,12 +509,12 @@ if (!host) {
 }
 ```
 
-- [ ] **Step 4: Run unit tests to verify**
+- [x] **Step 4: Run unit tests to verify**
 
 Run: `npx jest tests/gtAgentVersionTelemetry.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit Task 3**
+- [x] **Step 5: Commit Task 3**
 
 ```bash
 git add src/shared/types/host.ts src/client/utils/terminalUI.ts src/agent/daemon.ts src/terminal/routes/terminalWs.ts src/server/modules/terminal/services/hostManager.ts tests/gtAgentVersionTelemetry.test.ts
@@ -541,7 +541,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
   - `gt version [--client] [--json] [-s <url>] [-k <key>] [-c <context>]`
   - `gt nodes` / `gt ps` tabular output with `VERSION` column
 
-- [ ] **Step 1: Write tests in tests/gtCommanderCli.test.ts and tests/gtPsCommand.test.ts**
+- [x] **Step 1: Write tests in tests/gtCommanderCli.test.ts and tests/gtPsCommand.test.ts**
 
 In `tests/gtCommanderCli.test.ts`, add:
 ```typescript
@@ -590,12 +590,12 @@ In `tests/gtPsCommand.test.ts`, verify `VERSION` column in table header:
 expect(res.stdout).toContain('VERSION');
 ```
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run: `npm run build:gt && npx jest tests/gtCommanderCli.test.ts -t "version"`
 Expected: FAIL (`version` command not recognized or flag output mismatch)
 
-- [ ] **Step 3: Implement src/client/commands/version.ts**
+- [x] **Step 3: Implement src/client/commands/version.ts**
 
 Create `src/client/commands/version.ts`:
 ```typescript
@@ -683,7 +683,7 @@ export async function handleVersionCommand({
 }
 ```
 
-- [ ] **Step 4: Update src/client/index.ts to register gt version and update -v**
+- [x] **Step 4: Update src/client/index.ts to register gt version and update -v**
 
 In `src/client/index.ts`:
 1. Import `getVersionInfo`, `formatShortVersion` from `../shared/version`.
@@ -719,7 +719,7 @@ program
   });
 ```
 
-- [ ] **Step 5: Add VERSION column in src/client/commands/hosts.ts**
+- [x] **Step 5: Add VERSION column in src/client/commands/hosts.ts**
 
 In `src/client/commands/hosts.ts`:
 Update column headers:
@@ -752,12 +752,12 @@ for (const h of hosts) {
 }
 ```
 
-- [ ] **Step 6: Build standalone bundle and run tests**
+- [x] **Step 6: Build standalone bundle and run tests**
 
 Run: `npm run build:gt && npx jest tests/gtCommanderCli.test.ts tests/gtPsCommand.test.ts`
 Expected: PASS
 
-- [ ] **Step 7: Commit Task 4**
+- [x] **Step 7: Commit Task 4**
 
 ```bash
 git add src/client/commands/version.ts src/client/index.ts src/client/commands/hosts.ts tests/gtCommanderCli.test.ts tests/gtPsCommand.test.ts
@@ -778,14 +778,14 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 - Consumes: All updated CLI commands and server endpoints
 - Produces: Updated docs, 100% passing test suites
 
-- [ ] **Step 1: Update README.md with version command documentation**
+- [x] **Step 1: Update README.md with version command documentation**
 
 In `README.md`, add:
 - Section describing `gt -v` and `gt version [--client] [--json]`.
 - Updated table in `gt nodes` / `gt ps` showing `VERSION` column.
 - Note on `npm version [patch|minor|major]` release workflow.
 
-- [ ] **Step 2: Clean build and execute all test suites**
+- [x] **Step 2: Clean build and execute all test suites**
 
 Run:
 ```bash
@@ -794,7 +794,7 @@ npm test
 ```
 Expected: All test suites pass.
 
-- [ ] **Step 3: Commit Task 5**
+- [x] **Step 3: Commit Task 5**
 
 ```bash
 git add README.md
