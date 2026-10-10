@@ -76,14 +76,14 @@ describe('gt ps & gt prune remote node management', () => {
     expect(resAll.stdout).toContain('worker-offline');
   });
 
-  it('supports transparent alias "gt host ls"', async () => {
-    const res = await run(['host', 'ls', '-a']);
+  it('lists nodes with "gt nodes -a"', async () => {
+    const res = await run(['nodes', '-a']);
     expect(res.code).toBe(0);
     expect(res.stdout).toContain('worker-offline');
   });
 
-  it('prunes offline nodes with "gt prune"', async () => {
-    const res = await run(['prune']);
+  it('prunes offline nodes with "gt nodes prune"', async () => {
+    const res = await run(['nodes', 'prune']);
     expect(res.code).toBe(0);
     expect(res.stdout).toContain('Pruned 1 offline host(s)');
   });

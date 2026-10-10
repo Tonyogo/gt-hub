@@ -96,4 +96,27 @@ describe('gt Commander CLI Structure', () => {
     expect(parsed.host).toBe('worker');
     expect(parsed.fullCommand).toBe("bash -c 'ls -la'");
   });
+
+  it('preserves gt ps as a remote node listing command', () => {
+    const res = spawnSync('node', [gtPath, 'ps', '--help'], {
+      encoding: 'utf-8',
+      stdio: 'pipe',
+      timeout: 5000,
+    });
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain('List connected hosts');
+    expect(res.stdout).not.toContain('--local');
+  });
+
+  it('rejects removed top-level shortcut commands with exit code 2', () => {
+    for (const cmd of ['host', 'hosts', 'kill', 'logs', 'prune']) {
+      const res = spawnSync('node', [gtPath, cmd], {
+        encoding: 'utf-8',
+        stdio: 'pipe',
+        timeout: 5000,
+      });
+      expect(res.status).toBe(2);
+      expect(res.stderr).toContain('error: unknown command');
+    }
+  });
 });

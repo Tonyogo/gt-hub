@@ -17,7 +17,7 @@ import { parseCpArgs, uploadLocalFile, downloadRemoteFile, runCp } from './comma
 import { parseExecArgs, runExecCommand } from './commands/exec';
 import { runInteractiveExec } from './interactive/interactiveExec';
 import { handleAuthLogin, handleAuthLogout, handleAuthStatus, handleLogin, handleLogout } from './commands/auth';
-import { handleRemotePs, handleRemotePrune } from './commands/hosts';
+import { handleRemotePs } from './commands/hosts';
 import { handleNodesCommand, handleNodesPruneCommand } from './commands/nodes';
 import { handleTaskLs, handleTaskLogs, handleTaskKill } from './commands/task';
 import {
@@ -29,9 +29,7 @@ import {
   handleConfigView,
   handleConfigList,
 } from './commands/config';
-import { handleLogsDispatcher, handleRemoteLogs } from './commands/logs';
-import { handleRemoteKill, handleConfig } from './commands/manage';
-import { AgentDaemonManager, runAgent } from '../agent/daemon';
+import { runAgent } from '../agent/daemon';
 
 export const VERSION = '1.0.0';
 
@@ -88,9 +86,6 @@ Remote Execution Commands:
 Command Shortcuts:
   gt ps [-a|--all]
   gt exec <node> <cmd...>
-  gt logs [NAME]
-  gt kill <node> <taskId>
-  gt prune
   gt login [server] [key]
   gt logout
 `);
@@ -113,10 +108,9 @@ Command Shortcuts:
     return opts.format || globalOpts.format;
   }
 
-  // --- Remote Cluster Management: gt nodes (alias: hosts) ---
+  // --- Remote Cluster Management: gt nodes ---
   const nodesCmd = program
     .command('nodes')
-    .alias('hosts')
     .description('List registered agent hosts connected to the target Hub')
     .option('-a, --all', 'Include offline hosts')
     .option('-s, --server <url>', 'Hub server URL')
@@ -151,15 +145,10 @@ Command Shortcuts:
       });
     });
 
-  // Backward compatibility alias: gt host
-  const hostCmd = program
-    .command('host')
-    .description('Manage hosts (alias for nodes)');
-
-  hostCmd
-    .command('ls')
-    .alias('list')
-    .description('List hosts')
+  // Simplified gt ps (strictly remote nodes)
+  program
+    .command('ps')
+    .description('List connected hosts on the target Hub')
     .option('-a, --all', 'Include offline hosts')
     .option('-s, --server <url>', 'Hub server URL')
     .option('-k, --key <secret>', 'Admin secret key')
@@ -174,84 +163,6 @@ Command Shortcuts:
         args: opts.all ? ['-a'] : [],
         jsonOutput: resolveJson(opts),
         formatTemplateStr: resolveFormat(opts),
-      });
-    });
-
-  hostCmd
-    .command('prune')
-    .description('Prune offline hosts')
-    .option('-s, --server <url>', 'Hub server URL')
-    .option('-k, --key <secret>', 'Admin secret key')
-    .option('-c, --context <name>', 'Target context')
-    .option('--json', 'Output in JSON format')
-    .action(async (opts: Record<string, any>) => {
-      const eff = resolveEffective(opts);
-      await handleRemotePrune({
-        server: eff.server,
-        key: eff.key,
-        args: [],
-        jsonOutput: resolveJson(opts),
-      });
-    });
-
-  // Backward compatibility alias: gt ps
-  program
-    .command('ps')
-    .description('List connected hosts (default: remote; -l for local)')
-    .option('-a, --all', 'Include offline hosts or stopped local agents')
-    .option('-l, --local', 'List local agent daemons')
-    .option('-s, --server <url>', 'Hub server URL')
-    .option('-k, --key <secret>', 'Admin secret key')
-    .option('-c, --context <name>', 'Target context')
-    .option('--json', 'Output in JSON format')
-    .option('--format <template>', 'Format output template')
-    .action(async (opts: Record<string, any>) => {
-      if (opts.local) {
-        AgentDaemonManager.printAgentsTable(!!opts.all);
-        return;
-      }
-      const eff = resolveEffective(opts);
-      await handleRemotePs({
-        server: eff.server,
-        key: eff.key,
-        args: opts.all ? ['-a'] : [],
-        jsonOutput: resolveJson(opts),
-        formatTemplateStr: resolveFormat(opts),
-      });
-    });
-
-  // Backward compatibility alias: gt prune
-  program
-    .command('prune')
-    .description('Remove offline remote nodes (or -l for local agents)')
-    .option('-a, --all', 'Prune all')
-    .option('-l, --local', 'Prune local stopped agents')
-    .option('-s, --server <url>', 'Hub server URL')
-    .option('-k, --key <secret>', 'Admin secret key')
-    .option('-c, --context <name>', 'Target context')
-    .option('--json', 'Output in JSON format')
-    .action(async (opts: Record<string, any>) => {
-      if (opts.local) {
-        const { removed } = AgentDaemonManager.prune();
-        if (removed.length === 0) {
-          console.log('No stopped agents to prune.');
-        } else {
-          console.log(`Pruned ${removed.length} stopped agent(s): ${removed.join(', ')}`);
-        }
-        process.exit(0);
-      }
-      if (opts.all) {
-        const { removed } = AgentDaemonManager.prune();
-        if (removed.length > 0) {
-          console.log(`Pruned ${removed.length} local stopped agent(s): ${removed.join(', ')}`);
-        }
-      }
-      const eff = resolveEffective(opts);
-      await handleRemotePrune({
-        server: eff.server,
-        key: eff.key,
-        args: [],
-        jsonOutput: resolveJson(opts),
       });
     });
 
@@ -409,35 +320,6 @@ Command Shortcuts:
       });
     });
 
-  // Top-level shortcut: gt kill
-  program
-    .command('kill [args...]')
-    .description('Shortcut for gt task kill')
-    .allowUnknownOption(true)
-    .action(async (args: string[]) => {
-      const eff = resolveEffective();
-      await handleRemoteKill({
-        server: eff.server,
-        key: eff.key,
-        args: args || [],
-        jsonOutput: resolveJson(),
-      });
-    });
-
-  // Top-level shortcut: gt logs
-  program
-    .command('logs [args...]')
-    .description('View agent or task logs')
-    .allowUnknownOption(true)
-    .action(async (args: string[]) => {
-      const eff = resolveEffective();
-      await handleLogsDispatcher({
-        server: eff.server,
-        key: eff.key,
-        args: args || [],
-        jsonOutput: resolveJson(),
-      });
-    });
 
   // --- Local Agent Management: gt agent ---
   const agentCmd = program
