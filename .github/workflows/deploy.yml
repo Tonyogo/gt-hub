@@ -26,8 +26,8 @@ jobs:
 
       - name: Validate configuration & Deploy via gt
         env:
-          GT_SERVER: ${{ secrets.TERMINAL_SERVER || 'https://gt.yatao.cc.cd' }}
-          GT_KEY: ${{ secrets.ADMIN_SECRET_KEY }}
+          GT_SERVER: ${{ secrets.GT_SERVER}}
+          GT_KEY: ${{ secrets.GT_KEY }}
           DEPLOY_PATH: '~/gt-hub'
           TARGET_HOST: 'gt-hub'
         run: |
