@@ -309,62 +309,24 @@ describe('gt agent singleton daemon lifecycle and parameter guards', () => {
     expect(helpRes.stdout).not.toContain('agent rm');
   });
 
-  it('supports gt ps -l to list local singleton agent', async () => {
-    fs.writeFileSync(path.join(testConfigDir, 'config.json'), JSON.stringify({
-      server: 'http://127.0.0.1:3000',
-      key: 'mock-key',
-      agentName: 'ps-local-test',
-    }));
-
-    const startRes = spawnSync('node', [gtPath, 'agent', 'start'], {
+  it('rejects gt ps -l with unknown option error and code 2', async () => {
+    const res = spawnSync('node', [gtPath, 'ps', '-l'], {
       env: { ...process.env, GT_CONFIG_DIR: testConfigDir },
       encoding: 'utf-8',
       timeout: 5000,
     });
-    expect(startRes.status).toBe(0);
-
-    const psLocalRes = spawnSync('node', [gtPath, 'ps', '-l'], {
-      env: { ...process.env, GT_CONFIG_DIR: testConfigDir },
-      encoding: 'utf-8',
-      timeout: 5000,
-    });
-    expect(psLocalRes.status).toBe(0);
-    expect(psLocalRes.stdout).toContain('ps-local-test');
-    expect(psLocalRes.stdout).toContain('Running');
-
-    spawnSync('node', [gtPath, 'agent', 'stop'], {
-      env: { ...process.env, GT_CONFIG_DIR: testConfigDir },
-      encoding: 'utf-8',
-      timeout: 5000,
-    });
+    expect(res.status).toBe(2);
+    expect(res.stderr).toContain("error: unknown option '-l'");
   });
 
-  it('supports gt logs for local daemon and redirects to remote tasks when 2 positional arguments given', async () => {
-    fs.writeFileSync(path.join(testConfigDir, 'config.json'), JSON.stringify({
-      server: 'http://127.0.0.1:3000',
-      key: 'mock-key',
-    }));
-
-    // Start daemon
-    spawnSync('node', [gtPath, 'agent', 'start'], {
+  it('rejects top-level gt logs with code 2 in favor of gt agent logs', async () => {
+    const res = spawnSync('node', [gtPath, 'logs'], {
       env: { ...process.env, GT_CONFIG_DIR: testConfigDir },
       encoding: 'utf-8',
       timeout: 5000,
     });
-
-    const logRes = spawnSync('node', [gtPath, 'logs'], {
-      env: { ...process.env, GT_CONFIG_DIR: testConfigDir },
-      encoding: 'utf-8',
-      timeout: 5000,
-    });
-    expect(logRes.status).toBe(0);
-
-    // Stop daemon
-    spawnSync('node', [gtPath, 'agent', 'stop'], {
-      env: { ...process.env, GT_CONFIG_DIR: testConfigDir },
-      encoding: 'utf-8',
-      timeout: 5000,
-    });
+    expect(res.status).toBe(2);
+    expect(res.stderr).toContain('error: unknown command');
   });
 
   it('does not error when stopping a non-running agent daemon', async () => {

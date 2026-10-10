@@ -92,35 +92,34 @@ describe('gt logs smart default & gt kill', () => {
     });
   }
 
-  it('automatically picks the latest task when taskId is omitted in "gt logs <node>"', async () => {
-    const res = await run(['logs', 'my-server']);
-    expect(res.code).toBe(0);
-    expect(res.stdout).toContain('task-latest-999');
-    expect(res.stdout).toContain('Hello latest task output!');
-  });
-
-  it('supports transparent alias "gt task logs <node>" with smart taskId inference', async () => {
+  it('automatically picks the latest task when taskId is omitted in "gt task logs <node>"', async () => {
     const res = await run(['task', 'logs', 'my-server']);
     expect(res.code).toBe(0);
     expect(res.stdout).toContain('task-latest-999');
     expect(res.stdout).toContain('Hello latest task output!');
   });
 
-  it('handles empty task list gracefully with code 1 in "gt logs <node>"', async () => {
-    const res = await run(['logs', 'empty-server']);
+  it('rejects removed top-level "gt logs <node>" with code 2', async () => {
+    const res = await run(['logs', 'my-server']);
+    expect(res.code).toBe(2);
+    expect(res.stderr).toContain('error: unknown command');
+  });
+
+  it('handles empty task list gracefully with code 1 in "gt task logs <node>"', async () => {
+    const res = await run(['task', 'logs', 'empty-server']);
     expect(res.code).toBe(1);
     expect(res.stderr).toContain('No tasks found on node [srv-empty].');
   });
 
-  it('kills a remote task with "gt kill <node> <taskId>"', async () => {
-    const res = await run(['kill', 'my-server', 'task-latest-999']);
+  it('kills a remote task with "gt task kill <node> <taskId>"', async () => {
+    const res = await run(['task', 'kill', 'my-server', 'task-latest-999']);
     expect(res.code).toBe(0);
     expect(res.stdout).toContain('Kill signal sent to task [task-latest-999]');
   });
 
-  it('supports transparent alias "gt task kill <node> <taskId>"', async () => {
-    const res = await run(['task', 'kill', 'my-server', 'task-latest-999']);
-    expect(res.code).toBe(0);
-    expect(res.stdout).toContain('Kill signal sent to task [task-latest-999]');
+  it('rejects removed top-level "gt kill <node> <taskId>" with code 2', async () => {
+    const res = await run(['kill', 'my-server', 'task-latest-999']);
+    expect(res.code).toBe(2);
+    expect(res.stderr).toContain('error: unknown command');
   });
 });

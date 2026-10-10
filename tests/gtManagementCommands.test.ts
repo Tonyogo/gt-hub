@@ -21,9 +21,6 @@ describe('gt management commands & legacy deprecation', () => {
     expect(res.code).toBe(0);
     expect(res.stdout).toContain('gt ps [-a|--all]');
     expect(res.stdout).toContain('gt exec');
-    expect(res.stdout).toContain('gt logs');
-    expect(res.stdout).toContain('gt kill');
-    expect(res.stdout).toContain('gt prune');
     expect(res.stdout).toContain('gt login');
     expect(res.stdout).toContain('gt logout');
     expect(res.stdout).toContain('agent start');
@@ -44,13 +41,13 @@ describe('gt management commands & legacy deprecation', () => {
     expect(resRm.stderr).not.toContain("has been moved to 'gt agent");
   });
 
-  it('supports "nodes" and "hosts" as modern cluster commands', async () => {
+  it('supports "nodes" command and rejects removed "hosts" alias', async () => {
     const resNodes = await runGt(['nodes', '--help']);
     expect(resNodes.code).toBe(0);
     expect(resNodes.stdout).toContain('nodes');
 
-    const resHosts = await runGt(['hosts', '--help']);
-    expect(resHosts.code).toBe(0);
-    expect(resHosts.stdout).toContain('hosts');
+    const resHosts = await runGt(['hosts']);
+    expect(resHosts.code).toBe(2);
+    expect(resHosts.stderr).toContain('error: unknown command');
   });
 });

@@ -73,10 +73,11 @@ gt config view
 #### Remote Cluster Management (`gt nodes`, `gt exec`, `gt cp`, `gt task`)
 Manage and interact with remote agent hosts connected to the Hub:
 ```bash
-# List connected hosts (alias: gt hosts)
+# List connected hosts (shortcut: gt ps)
 gt nodes
-gt nodes -a               # Include offline nodes
-gt nodes prune            # Remove offline hosts
+gt ps                       # Shortcut for gt nodes
+gt nodes -a                 # Include offline nodes
+gt nodes prune              # Remove offline hosts
 
 # Execute command on a remote host (streaming output with exit code forwarding)
 gt exec my-server uptime

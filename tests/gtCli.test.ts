@@ -26,8 +26,7 @@ describe('gt (Gemini Terminal) CLI', () => {
     expect(res.stdout).toContain('ps');
     expect(res.stdout).toContain('exec');
     expect(res.stdout).toContain('task ls');
-    expect(res.stdout).toContain('logs');
-    expect(res.stdout).toContain('kill');
+    expect(res.stdout).toContain('nodes');
     expect(res.stdout).toContain('agent');
   });
 
@@ -159,7 +158,7 @@ describe('gt CLI Mock Server Integration', () => {
   });
 
   it('queries and prints formatted hosts table', async () => {
-    const res = await runGt(['host', 'ls', '-a', `--server=http://localhost:${serverPort}`]);
+    const res = await runGt(['nodes', '-a', `--server=http://localhost:${serverPort}`]);
     expect(res.code).toBe(0);
     expect(res.stdout).toContain('node-1');
     expect(res.stdout).toContain('online');
@@ -167,7 +166,7 @@ describe('gt CLI Mock Server Integration', () => {
   });
 
   it('queries hosts in JSON format with --json', async () => {
-    const res = await runGt(['host', 'ls', '--json', `--server=http://localhost:${serverPort}`]);
+    const res = await runGt(['nodes', '--json', `--server=http://localhost:${serverPort}`]);
     expect(res.code).toBe(0);
     const parsed = JSON.parse(res.stdout);
     expect(Array.isArray(parsed.hosts)).toBe(true);
