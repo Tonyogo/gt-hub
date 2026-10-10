@@ -10,6 +10,7 @@ export interface ManagedHost {
   lastSeen: number;
   type: 'agent';
   machineId?: string;
+  version?: string;
 }
 
 export interface HostInfo {
@@ -21,4 +22,5 @@ export interface HostInfo {
   status?: HostStatus;
   lastSeen?: number;
   machineId?: string;
+  version?: string;
 }

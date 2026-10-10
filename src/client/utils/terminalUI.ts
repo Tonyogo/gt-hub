@@ -149,15 +149,30 @@ export function quoteShellArg(arg: string): string {
   return `'${arg.replace(/'/g, `'\\''`)}'`;
 }
 
-export function resolveWebSocketUrl(serverUrl: string, metadata: Record<string, any> = {}): string {
+export function resolveWebSocketUrl(
+  serverUrl: string,
+  metadata: {
+    hostId?: string;
+    name?: string;
+    hostname?: string;
+    ip?: string;
+    platform?: string;
+    machineId?: string;
+    version?: string;
+    [key: string]: any;
+  } = {}
+): string {
   let wsUrl = serverUrl.replace(/^http:\/\//i, 'ws://').replace(/^https:\/\//i, 'wss://');
   if (!wsUrl.startsWith('ws://') && !wsUrl.startsWith('wss://')) {
     wsUrl = `ws://${wsUrl}`;
   }
   wsUrl = wsUrl.replace(/\/+$/, '');
-  const cleanMeta = { ...metadata };
-  delete cleanMeta.key;
-  delete cleanMeta['x-admin-key'];
+  const cleanMeta: Record<string, string> = {};
+  for (const [k, v] of Object.entries(metadata)) {
+    if (k !== 'key' && k !== 'x-admin-key' && v !== undefined && v !== null && v !== '') {
+      cleanMeta[k] = String(v);
+    }
+  }
   const query = new URLSearchParams(cleanMeta);
   const qs = query.toString();
   return qs ? `${wsUrl}/api/terminal/agent-ws?${qs}` : `${wsUrl}/api/terminal/agent-ws`;

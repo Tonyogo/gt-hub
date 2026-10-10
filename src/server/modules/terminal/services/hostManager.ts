@@ -11,6 +11,7 @@ export interface ManagedHost {
   lastSeen: number;
   type: 'agent';
   machineId?: string;
+  version?: string;
   agentWs?: any;
 }
 
@@ -404,13 +405,14 @@ export class TerminalHostManager {
     return null;
   }
 
-  public registerHost(metadata: { id: string; name?: string; hostname?: string; ip?: string; platform?: string; type?: string }, agentWs?: any) {
+  public registerHost(metadata: { id: string; name?: string; hostname?: string; ip?: string; platform?: string; version?: string; type?: string }, agentWs?: any) {
     return this.registerAgent({
       hostId: metadata.id,
       name: metadata.name,
       hostname: metadata.hostname,
       ip: metadata.ip,
       platform: metadata.platform,
+      version: metadata.version,
       agentWs,
     });
   }
@@ -426,7 +428,8 @@ export class TerminalHostManager {
     ip?: string;
     platform?: string;
     machineId?: string;
-    agentWs: any;
+    version?: string;
+    agentWs?: any;
   }): { success: boolean; host?: ManagedHost; error?: string } {
     const id = metadata.hostId.trim();
     const targetName = (metadata.name || metadata.hostname || id).trim();
@@ -496,6 +499,7 @@ export class TerminalHostManager {
         lastSeen: Date.now(),
         type: 'agent',
         machineId,
+        version: metadata.version,
         agentWs: metadata.agentWs,
       };
       this.hosts.set(id, host);
@@ -508,6 +512,7 @@ export class TerminalHostManager {
       if (metadata.hostname) host.hostname = metadata.hostname;
       if (metadata.ip) host.ip = metadata.ip;
       if (metadata.platform) host.platform = metadata.platform;
+      if (metadata.version) host.version = metadata.version;
     }
 
     let session = this.sessions.get(id);
@@ -572,7 +577,7 @@ export class TerminalHostManager {
   public touchAgent(
     hostId: string,
     ws?: any,
-    metadata?: { name?: string; hostname?: string; ip?: string; platform?: string }
+    metadata?: { name?: string; hostname?: string; ip?: string; platform?: string; version?: string }
   ): void {
     const canonicalId = this.resolveCanonicalHostId(hostId) || hostId;
     let host = this.hosts.get(canonicalId);
@@ -584,6 +589,7 @@ export class TerminalHostManager {
           hostname: metadata?.hostname,
           ip: metadata?.ip,
           platform: metadata?.platform,
+          version: metadata?.version,
           agentWs: ws,
         });
       }
@@ -608,6 +614,9 @@ export class TerminalHostManager {
     }
 
     host.lastSeen = Date.now();
+    if (metadata?.version) {
+      host.version = metadata.version;
+    }
     if (host.status !== 'online') {
       host.status = 'online';
       logger.info(`[TerminalHostManager] Agent status restored to online via message: ${canonicalId}`);

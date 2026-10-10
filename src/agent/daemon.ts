@@ -10,6 +10,7 @@ import { tryRequirePty, hasSystemPython3, PosixPtyDriver, InteractivePipeDriver 
 import { StreamSessionManager } from './pty/sessionManager';
 import { handleFileRpc } from './handlers/fileRpcHandler';
 import { handleCmdExec } from './handlers/cmdExecHandler';
+import { getVersionInfo } from '../shared/version';
 
 export const HANDSHAKE_TIMEOUT_MS = 4000;
 export const HEARTBEAT_INTERVAL_MS = 15000;
@@ -770,6 +771,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       ws = null;
     }
 
+    const clientVersion = getVersionInfo().version;
     const targetWsUrl = resolveWebSocketUrl(serverArg, {
       hostId,
       name: hostName,
@@ -777,6 +779,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       ip: localIp,
       platform,
       machineId,
+      version: clientVersion,
     });
     console.log(`[Agent] Connecting to ${targetWsUrl.split('?')[0]}...`);
 
