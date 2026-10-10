@@ -26,15 +26,15 @@ jobs:
 
       - name: Validate configuration & Deploy via gt
         env:
-          TERMINAL_SERVER: ${{ secrets.TERMINAL_SERVER || 'https://gt.yatao.cc.cd' }}
-          ADMIN_SECRET_KEY: ${{ secrets.ADMIN_SECRET_KEY }}
+          GT_SERVER: ${{ secrets.TERMINAL_SERVER || 'https://gt.yatao.cc.cd' }}
+          GT_KEY: ${{ secrets.ADMIN_SECRET_KEY }}
           DEPLOY_PATH: '~/gt-hub'
           TARGET_HOST: 'gt-hub'
         run: |
           # 1. Validate required GitHub Secrets
           MISSING=""
-          [ -z "$TERMINAL_SERVER" ] && MISSING="$MISSING TERMINAL_SERVER"
-          [ -z "$ADMIN_SECRET_KEY" ] && MISSING="$MISSING ADMIN_SECRET_KEY"
+          [ -z "$GT_SERVER" ] && MISSING="$MISSING GT_SERVER"
+          [ -z "$GT_KEY" ] && MISSING="$MISSING GT_KEY"
           [ -z "$DEPLOY_PATH" ] && MISSING="$MISSING DEPLOY_PATH"
 
           if [ -n "$MISSING" ]; then
@@ -45,14 +45,14 @@ jobs:
 
           echo "=========================================="
           echo "Gemini Terminal (gt) Remote Deployment"
-          echo "Target Hub  : $TERMINAL_SERVER"
+          echo "Target Hub  : $GT_SERVER"
           echo "Target Host : $TARGET_HOST"
           echo "Deploy Path : $DEPLOY_PATH"
           echo "=========================================="
 
-          # 2. Dynamically download gt CLI from TERMINAL_SERVER
-          echo "Downloading gt CLI from $TERMINAL_SERVER/gt..."
-          curl -fsSL "$TERMINAL_SERVER/gt" -o ./gt.js
+          # 2. Dynamically download gt CLI from GT_SERVER
+          echo "Downloading gt CLI from $GT_SERVER/gt..."
+          curl -fsSL "$GT_SERVER/gt" -o ./gt.js
 
           # 3. Trigger deployment command via gt exec with repository auto-discovery fallback
           node ./gt.js exec \
