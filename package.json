@@ -8,7 +8,7 @@
   },
   "scripts": {
     "gt": "node scripts/gt.js",
-    "build:gt": "esbuild src/bin/gt.ts --bundle --platform=node --target=node18 --outfile=dist/gt.js --banner:js=\"#!/usr/bin/env node\" --external:node-pty --external:ws",
+    "build:gt": "node scripts/build-gt.js",
     "postinstall": "cd frontend && ( [ -d node_modules ] || npm install )",
     "build:frontend": "cd frontend && ( [ -d node_modules ] || npm install ) && npm run build",
     "build:backend": "tsc",
