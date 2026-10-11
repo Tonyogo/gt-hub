@@ -21,7 +21,8 @@
     "dev": "npm run version:gen && ts-node-dev --respawn --transpile-only src/index.ts",
     "pretest": "npm run build:gt",
     "test": "jest --detectOpenHandles --forceExit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "version": "npm --prefix frontend version $npm_package_version --no-git-tag-version && git add frontend/package.json frontend/package-lock.json"
   },
   "dependencies": {
     "commander": "^15.0.0",

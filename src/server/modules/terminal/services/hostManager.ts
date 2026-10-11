@@ -46,7 +46,7 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
   private activeSockets: Set<any> = new Set();
   private historyBuffer: string[] = [];
   private totalBufferSize: number = 0;
-  private readonly maxBufferSize: number = 200 * 1024; // 200KB scrollback
+  private readonly maxBufferSize: number = 2 * 1024 * 1024; // 2MB scrollback
   private currentCols: number = 0;
   private currentRows: number = 0;
 
@@ -165,10 +165,10 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
     this.historyBuffer.push(text);
     this.totalBufferSize += text.length;
 
-    // If stream contains terminal clear scrollback sequence (\x1b[3J or \x1bc), compact buffer to purge stale screen history
-    if (text.includes('\x1b[3J') || text.includes('\x1bc')) {
+    // If stream contains terminal hardware reset sequence (\x1bc), compact buffer to purge stale screen history
+    if (text.includes('\x1bc')) {
       const combined = this.historyBuffer.join('');
-      const lastClearIdx = Math.max(combined.lastIndexOf('\x1b[3J'), combined.lastIndexOf('\x1bc'));
+      const lastClearIdx = combined.lastIndexOf('\x1bc');
       if (lastClearIdx !== -1) {
         this.historyBuffer = [combined.slice(lastClearIdx)];
         this.totalBufferSize = this.historyBuffer[0].length;

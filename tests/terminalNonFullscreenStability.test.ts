@@ -5,17 +5,20 @@ describe('Non-Fullscreen Terminal Stability & Continuous Canvas', () => {
   const unifiedPath = path.resolve(__dirname, '../frontend/src/components/UnifiedTerminalView.tsx');
   const webTerminalPath = path.resolve(__dirname, '../frontend/src/components/WebTerminalView.tsx');
   const agentPath = path.resolve(__dirname, '../src/agent/daemon.ts');
+  const driversPath = path.resolve(__dirname, '../src/agent/pty/drivers.ts');
   const legacyGtPath = path.resolve(__dirname, '../scripts/gt.js');
   const gtPath = fs.existsSync(agentPath) ? agentPath : legacyGtPath;
 
   let unifiedContent: string;
   let webTerminalContent: string;
   let gtContent: string;
+  let driversContent: string;
 
   beforeAll(() => {
     unifiedContent = fs.readFileSync(unifiedPath, 'utf-8');
     webTerminalContent = fs.readFileSync(webTerminalPath, 'utf-8');
     gtContent = fs.readFileSync(gtPath, 'utf-8');
+    driversContent = fs.existsSync(driversPath) ? fs.readFileSync(driversPath, 'utf-8') : '';
   });
 
   it('UnifiedTerminalView enforces min-h-[420px] on non-fullscreen container to prevent height collapse', () => {
@@ -58,9 +61,9 @@ describe('Non-Fullscreen Terminal Stability & Continuous Canvas', () => {
     expect(webTerminalContent).toMatch(/if\s*\(\s*isInitialStandaloneMountRef\.current\s*\)\s*\{\s*isInitialStandaloneMountRef\.current\s*=\s*false;\s*return;\s*\}/);
   });
 
-  it('scripts/gt.js nudges rows by 1 when target resize matches current PTY size to force kernel SIGWINCH', () => {
+  it('scripts/gt.js skips resize when target dimensions match current PTY size to avoid redundant SIGWINCH', () => {
     expect(gtContent).toMatch(/currentCols\s*===\s*cols\s*&&\s*currentRows\s*===\s*rows/);
-    expect(gtContent).toMatch(/ptyProcess\.resize\(cols,\s*nudgeRows\)/);
+    expect(gtContent).not.toMatch(/ptyProcess\.resize\(cols,\s*nudgeRows\)/);
   });
 
   it('scripts/gt.js queues early shell output before WebSocket opens and flushes on connection', () => {
@@ -70,9 +73,26 @@ describe('Non-Fullscreen Terminal Stability & Continuous Canvas', () => {
     expect(gtContent).toMatch(/flushPendingOutput\(\)/);
   });
 
-  it('scripts/gt.js debounces duplicate dimension nudges to prevent resize storms', () => {
-    expect(gtContent).toContain('lastNudgeTimestamp');
-    expect(gtContent).toContain('nudgeRestoreTimer');
-    expect(gtContent).toMatch(/!nudgeRestoreTimer\s*&&\s*\(now\s*-\s*lastNudgeTimestamp\s*>\s*1000\)/);
+  it('scripts/gt.js returns immediately on identical dimensions to prevent resize storms', () => {
+    expect(gtContent).toMatch(/if\s*\(\s*typeof currentCols === 'number' && typeof currentRows === 'number' && currentCols === cols && currentRows === rows\s*\)\s*\{\s*return;\s*\}/);
+  });
+
+  it('PosixPtyDriver skips resize and avoids nudgeRows when dimensions match', () => {
+    if (driversContent) {
+      expect(driversContent).not.toMatch(/nudgeRows/);
+      expect(driversContent).toMatch(/if\s*\(\s*this\.cols === targetCols && this\.rows === targetRows\s*\)\s*\{\s*return;\s*\}/);
+    }
+  });
+
+  it('WebTerminalView sets scrollback to 30000 and intercepts CSI 3J to prevent scrollback wipe', () => {
+    // Scrollback must be at least 30000 for lengthy AI dialogue
+    expect(webTerminalContent).toMatch(/scrollback:\s*30000/);
+
+    // Must register CSI handler for 'J' checking code === 3
+    expect(webTerminalContent).toMatch(/registerCsiHandler\(\{\s*final:\s*['"]J['"]\s*\}/);
+    expect(webTerminalContent).toMatch(/code\s*===\s*3/);
+
+    // Must dispose csiDisposable during unmount
+    expect(webTerminalContent).toMatch(/csiDisposable\.dispose\(\)/);
   });
 });

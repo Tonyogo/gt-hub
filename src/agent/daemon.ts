@@ -538,8 +538,6 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
   const pendingOutputQueue: Buffer[] = [];
   const maxPendingQueueBytes = 256 * 1024; // 256KB early buffer
   let pendingQueueBytes = 0;
-  let lastNudgeTimestamp = 0;
-  let nudgeRestoreTimer: NodeJS.Timeout | null = null;
 
   const WebSocket = getWebSocketCtor();
   const pty = tryRequirePty();
@@ -895,25 +893,11 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
               const currentCols = ptyProcess.cols;
               const currentRows = ptyProcess.rows;
               if (typeof currentCols === 'number' && typeof currentRows === 'number' && currentCols === cols && currentRows === rows) {
-                // Dimensions match: Linux kernel TIOCSWINSZ will not emit SIGWINCH on identical size.
-                // Briefly nudge rows by 1 and restore to force kernel SIGWINCH so shells (bash/zsh) redraw prompt.
-                const now = Date.now();
-                if (!nudgeRestoreTimer && (now - lastNudgeTimestamp > 1000)) {
-                  lastNudgeTimestamp = now;
-                  const nudgeRows = rows > 5 ? rows - 1 : rows + 1;
-                  ptyProcess.resize(cols, nudgeRows);
-                  nudgeRestoreTimer = setTimeout(() => {
-                    nudgeRestoreTimer = null;
-                    if (ptyProcess) {
-                      ptyProcess.resize(cols, rows);
-                    }
-                  }, 30);
-                }
-              } else {
-                try {
-                  ptyProcess.resize(cols, rows);
-                } catch {}
+                return;
               }
+              try {
+                ptyProcess.resize(cols, rows);
+              } catch {}
             }
             return;
           }

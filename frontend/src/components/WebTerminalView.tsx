@@ -733,11 +733,21 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       fontSize,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
       convertEol: false,
-      scrollback: 5000,
+      scrollback: 30000,
       macOptionIsMeta: true,
       altClickMovesCursor: true,
       theme: resolvedTheme === 'dark' ? DARK_TERMINAL_THEME : LIGHT_TERMINAL_THEME,
       allowProposedApi: true,
+    });
+
+    // Intercept CSI 3J (Erase Saved Lines) to prevent applications like Claude Code
+    // from wiping the terminal scrollback history (trimStart).
+    const csiDisposable = term.parser.registerCsiHandler({ final: 'J' }, (params) => {
+      const code = typeof params[0] === 'number' ? params[0] : (Array.isArray(params[0]) ? params[0][0] : 0);
+      if (code === 3) {
+        return true;
+      }
+      return false;
     });
 
     const fitAddon = new FitAddon();
@@ -1440,6 +1450,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         container.removeEventListener('touchend', handleTouchEnd, { capture: true } as any);
         container.removeEventListener('mouseup', handleMouseUp);
       }
+      csiDisposable.dispose();
       selectionDisposable.dispose();
       cursorMoveDisposable.dispose();
       renderDisposable.dispose();

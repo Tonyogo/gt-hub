@@ -121,8 +121,6 @@ export class PosixPtyDriver {
   public rows: number;
   public proc: ChildProcess;
   public ctlStream: any;
-  private _nudgeTimer: any = null;
-  private _lastNudge: number = 0;
 
   constructor({ command, shell, cwd, env, cols, rows, onData, onExit }: PtyDriverOptions) {
     this.onData = onData;
@@ -316,29 +314,7 @@ else:
     const targetCols = Math.max(10, Math.min(500, Math.floor(cols || 80)));
     const targetRows = Math.max(5, Math.min(200, Math.floor(rows || 24)));
     if (this.cols === targetCols && this.rows === targetRows) {
-      const now = Date.now();
-      if (!this._nudgeTimer && (!this._lastNudge || now - this._lastNudge > 1000)) {
-        this._lastNudge = now;
-        const nudgeRows = targetRows > 5 ? targetRows - 1 : targetRows + 1;
-        if (this.ctlStream && !this.ctlStream.destroyed && !this.ctlStream.writableEnded) {
-          try {
-            this.ctlStream.write(`RESIZE ${targetCols} ${nudgeRows}\n`);
-            this._nudgeTimer = setTimeout(() => {
-              this._nudgeTimer = null;
-              if (this.ctlStream && !this.ctlStream.destroyed && !this.ctlStream.writableEnded) {
-                try {
-                  this.ctlStream.write(`RESIZE ${targetCols} ${targetRows}\n`);
-                } catch {}
-              }
-            }, 30);
-          } catch {}
-        }
-      }
       return;
-    }
-    if (this._nudgeTimer) {
-      clearTimeout(this._nudgeTimer);
-      this._nudgeTimer = null;
     }
     this.cols = targetCols;
     this.rows = targetRows;
