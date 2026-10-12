@@ -338,6 +338,13 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     }
     console.log('Status     : Running');
     console.log(`PID        : ${current.pid}`);
+    const currentCliVer = getVersionInfo().version;
+    if (current.version) {
+      const isOutdated = current.version !== currentCliVer;
+      console.log(`Version    : ${current.version}${isOutdated ? ` (Outdated, current CLI is ${currentCliVer})` : ''}`);
+    } else {
+      console.log(`Version    : legacy (Outdated, current CLI is ${currentCliVer})`);
+    }
     console.log(`Agent Name : ${current.name}`);
     console.log(`Target Hub : ${current.server}`);
     if (current.startTime) {
@@ -386,13 +393,20 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
   // Singleton Mutex on Start:
   if (!isInternalDaemon) {
     const current = AgentDaemonManager.getStatus();
+    const currentCliVersion = getVersionInfo().version;
     if (subCmd === 'restart') {
       if (current && current.running) {
         await AgentDaemonManager.stop();
       }
     } else if (current && current.running) {
-      console.error(`Error: Agent daemon is already running (PID: ${current.pid}). Use 'gt agent stop' or 'gt agent restart'.`);
-      process.exit(1);
+      if (!current.version || current.version !== currentCliVersion) {
+        const oldVer = current.version || 'legacy';
+        console.log(`[Agent] Active agent daemon is running outdated version (${oldVer}). Upgrading to current CLI version (${currentCliVersion})...`);
+        await AgentDaemonManager.stop();
+      } else {
+        console.error(`Error: Agent daemon is already running (PID: ${current.pid}). Use 'gt agent stop' or 'gt agent restart'.`);
+        process.exit(1);
+      }
     }
   }
 
@@ -468,6 +482,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       server: serverArg,
       startTime: new Date().toISOString(),
       logFile: logFile,
+      version: getVersionInfo().version,
     });
 
     child.unref();

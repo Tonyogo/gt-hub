@@ -14,7 +14,7 @@ echo "PM2 Version          : $(pm2 -v 2>/dev/null || echo 'not found')"
 echo "=========================================="
 
 echo "===> [1/5] Pulling latest code and tags from origin/main..."
-git fetch origin main --tags
+git fetch origin main --tags -f
 git reset --hard origin/main
 
 # Inspect current git commit, package version, and derive version from git describe --tags --always
@@ -24,7 +24,7 @@ BASE_VERSION=$(node -p "require('./package.json').version" 2>/dev/null || echo "
 GIT_DESCRIBE=$(git describe --tags --always 2>/dev/null || echo "${GIT_COMMIT}")
 
 # Generate deployment version based on git describe --tags --always
-if [[ "$GIT_DESCRIBE" =~ ^v?[0-9]+\.[0-9]+ ]]; then
+if [[ "$GIT_DESCRIBE" =~ ^v?[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
   [[ "$GIT_DESCRIBE" != v* ]] && TARGET_VERSION="v${GIT_DESCRIBE}" || TARGET_VERSION="${GIT_DESCRIBE}"
 else
   TARGET_VERSION="v${BASE_VERSION}+${GIT_COMMIT}"

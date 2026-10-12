@@ -3,8 +3,8 @@ import path from 'path';
 
 describe('Deploy Script & Git Describe Version Derivation', () => {
   it('derives clean version without suffix on tagged commit (v1.0.1)', () => {
-    // Commit 4f64c59 is tagged v1.0.1
-    const describeOut = execSync('git describe --tags --always 4f64c59', {
+    // v1.0.1 tag
+    const describeOut = execSync('git describe --tags --always v1.0.1', {
       cwd: path.join(__dirname, '..'),
     }).toString().trim();
 
@@ -12,7 +12,7 @@ describe('Deploy Script & Git Describe Version Derivation', () => {
 
     // Test deploy.sh regex logic
     let targetVersion = '';
-    if (/^v?[0-9]+\.[0-9]+/.test(describeOut)) {
+    if (/^v?[0-9]+\.[0-9]+(\.[0-9]+)?$/.test(describeOut)) {
       targetVersion = describeOut.startsWith('v') ? describeOut : `v${describeOut}`;
     } else {
       targetVersion = `v1.0.0+${describeOut}`;
@@ -32,7 +32,7 @@ describe('Deploy Script & Git Describe Version Derivation', () => {
 
     // Test deploy.sh regex logic
     let targetVersion = '';
-    if (/^v?[0-9]+\.[0-9]+/.test(describeOut)) {
+    if (/^v?[0-9]+\.[0-9]+(\.[0-9]+)?$/.test(describeOut)) {
       targetVersion = describeOut.startsWith('v') ? describeOut : `v${describeOut}`;
     } else {
       targetVersion = `v1.0.0+${describeOut}`;

@@ -37,9 +37,9 @@ function generateVersionData() {
   const buildTime = new Date().toISOString();
   const platform = `${process.platform}/${process.arch}`;
 
-  // Directly derive version from git describe --tags --always
+  // If the current commit is directly tagged with a release version (e.g. v1.0.1 or 1.0.1), use it cleanly
   let effectiveVersion = baseVersion;
-  if (gitDescribe && /^v?[0-9]+\.[0-9]+/.test(gitDescribe)) {
+  if (gitDescribe && /^v?[0-9]+\.[0-9]+(\.[0-9]+)?$/.test(gitDescribe)) {
     effectiveVersion = gitDescribe.replace(/^v/, '');
   } else if (gitCommit && gitCommit !== 'unknown') {
     effectiveVersion = `${baseVersion}+${gitCommit}`;

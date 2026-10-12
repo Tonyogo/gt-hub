@@ -210,6 +210,14 @@ echo ""
 # 5. Output version and quickstart
 "$TARGET_BIN" -v || true
 
+# If agent daemon is already running, restart it to apply updated binary
+if [ -x "$TARGET_BIN" ]; then
+  if "$TARGET_BIN" agent status 2>/dev/null | grep -q "Status     : Running"; then
+    echo -e "${YELLOW}[Notice] Detected active agent daemon. Restarting to apply updated version...${NC}"
+    "$TARGET_BIN" agent restart 2>/dev/null || true
+  fi
+fi
+
 EFFECTIVE_HUB_URL="${INJECTED_HUB_URL:-${GT_SERVER_URL:-http://<hub-host>:8000}}"
 
 echo ""

@@ -2,6 +2,7 @@ import { makeRequest, formatTemplate } from '../utils/terminalUI';
 import { formatRelativeTime } from '../../shared/utils/timeHelpers';
 import { AgentDaemonManager } from '../../agent/daemon';
 import { ConfigStore } from '../config/configStore';
+import { getVersionInfo } from '../../shared/version';
 
 export async function handleRemotePs({
   server,
@@ -38,12 +39,41 @@ export async function handleRemotePs({
       apiKey: key,
     });
 
-    if (jsonOutput) {
-      console.log(JSON.stringify(res.data, null, 2));
-      process.exit(0);
-    }
-
     if (res.data && Array.isArray(res.data.hosts)) {
+      let localMachineId = '';
+      try {
+        localMachineId = ConfigStore.getMachineId();
+      } catch {}
+
+      let localStatus: any = null;
+      try {
+        localStatus = AgentDaemonManager.getStatus();
+      } catch {}
+
+      let localVersion = '';
+      try {
+        localVersion = getVersionInfo().version;
+      } catch {}
+
+      for (const h of res.data.hosts) {
+        const isLocal = !!(
+          (localMachineId && h.machineId && h.machineId === localMachineId) ||
+          (localMachineId && h.id && h.id === localMachineId) ||
+          (localStatus && localStatus.running && (
+            (localStatus.id && h.id === localStatus.id) ||
+            (localStatus.name && (h.name === localStatus.name || h.hostname === localStatus.name))
+          ))
+        );
+        if (isLocal && localVersion && h.status === 'online') {
+          h.version = localVersion;
+        }
+      }
+
+      if (jsonOutput) {
+        console.log(JSON.stringify(res.data, null, 2));
+        process.exit(0);
+      }
+
       let hosts: any[] = res.data.hosts;
       if (!showAll) {
         hosts = hosts.filter(h => h.status === 'online');
@@ -59,16 +89,6 @@ export async function handleRemotePs({
         console.log(showAll ? 'No terminal agent hosts recorded.' : 'No online terminal agent hosts found. (Use -a to show offline)');
         process.exit(0);
       }
-
-      let localMachineId = '';
-      try {
-        localMachineId = ConfigStore.getMachineId();
-      } catch {}
-
-      let localStatus: any = null;
-      try {
-        localStatus = AgentDaemonManager.getStatus();
-      } catch {}
 
       const headers = ['NODE ID', 'NAME', 'STATUS', 'VERSION', 'PLATFORM', 'IP', 'LAST SEEN'];
       const minColWidths = [18, 20, 10, 10, 10, 16, 10];

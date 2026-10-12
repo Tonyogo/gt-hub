@@ -1,7 +1,7 @@
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
-import { spawnSync } from 'child_process';
+import { spawnSync, spawn } from 'child_process';
 
 const gtPath = path.resolve(__dirname, '../scripts/gt.js');
 
@@ -337,6 +337,75 @@ describe('gt agent singleton daemon lifecycle and parameter guards', () => {
     const stopResult = await AgentDaemonManager.stop();
     expect(stopResult.success).toBe(true);
     expect(stopResult.message).toContain('not running');
+  });
+
+  it('outputs Version in gt agent status and indicates when outdated', () => {
+    process.env.GT_CONFIG_DIR = testConfigDir;
+    const { AgentDaemonManager } = require('../scripts/gt.js');
+    AgentDaemonManager.saveStatus({
+      pid: process.pid,
+      name: 'status-test-node',
+      server: 'http://localhost:8000',
+      version: '0.9.0-old',
+    });
+
+    const res = spawnSync('node', [gtPath, 'agent', 'status'], {
+      env: { ...process.env, GT_CONFIG_DIR: testConfigDir },
+      encoding: 'utf-8',
+      timeout: 5000,
+    });
+    expect(res.status).toBe(0);
+    expect(res.stdout).toContain('Version    : 0.9.0-old (Outdated');
+
+    // Test legacy status without version property
+    AgentDaemonManager.saveStatus({
+      pid: process.pid,
+      name: 'status-test-node',
+      server: 'http://localhost:8000',
+    });
+    const resLegacy = spawnSync('node', [gtPath, 'agent', 'status'], {
+      env: { ...process.env, GT_CONFIG_DIR: testConfigDir },
+      encoding: 'utf-8',
+      timeout: 5000,
+    });
+    expect(resLegacy.status).toBe(0);
+    expect(resLegacy.stdout).toContain('Version    : legacy (Outdated');
+    AgentDaemonManager.clearStatus();
+  });
+
+  it('auto-upgrades running daemon when version is outdated or legacy', async () => {
+    process.env.GT_CONFIG_DIR = testConfigDir;
+    const { AgentDaemonManager } = require('../scripts/gt.js');
+
+    // Write login config
+    fs.writeFileSync(path.join(testConfigDir, 'config.json'), JSON.stringify({
+      server: 'http://127.0.0.1:8000',
+      key: 'mock-key',
+      agentName: 'upgrade-test-node',
+    }));
+
+    const dummy = spawn('node', ['-e', 'setInterval(()=>{}, 1000)']);
+
+    // Simulate legacy running daemon (no version property)
+    AgentDaemonManager.saveStatus({
+      pid: dummy.pid,
+      name: 'upgrade-test-node',
+      server: 'http://127.0.0.1:8000',
+    });
+
+    // Starting agent should detect legacy daemon and upgrade
+    const startLegacy = spawnSync('node', [gtPath, 'agent', 'start'], {
+      env: { ...process.env, GT_CONFIG_DIR: testConfigDir },
+      encoding: 'utf-8',
+      timeout: 5000,
+    });
+    expect(startLegacy.stdout).toContain('Upgrading to current CLI version');
+    const newStatus = AgentDaemonManager.getStatus();
+    if (newStatus && newStatus.pid && newStatus.pid !== dummy.pid) {
+      try { process.kill(newStatus.pid, 'SIGKILL'); } catch {}
+    }
+    try { if (dummy.pid) process.kill(dummy.pid, 'SIGKILL'); } catch {}
+    AgentDaemonManager.clearStatus();
   });
 
   it('ignores SIGHUP signal so daemon survives terminal closure and SSH session logout', async () => {

@@ -126,16 +126,52 @@ describe('gt ps & gt prune remote node management', () => {
     }
   });
 
-  it('marks local machine agent with (local) in NAME column', async () => {
+  it('marks local machine agent with (local) in NAME column and syncs VERSION with local CLI version', async () => {
     const localMachineId = ConfigStore.getMachineId();
     const orig = mockHosts;
+    // Host has stale version '0.9.0-old' on server
     mockHosts = [
-      { id: 'node-local', name: 'worker-this-machine', status: 'online', machineId: localMachineId, version: '1.0.0', platform: 'linux', ip: '127.0.0.1', lastSeen: Date.now() },
+      { id: 'node-local', name: 'worker-this-machine', status: 'online', machineId: localMachineId, version: '0.9.0-old', platform: 'linux', ip: '127.0.0.1', lastSeen: Date.now() },
     ];
     try {
       const res = await run(['ps']);
       expect(res.code).toBe(0);
       expect(res.stdout).toContain('worker-this-machine (local)');
+      expect(res.stdout).not.toContain('0.9.0-old');
+
+      const versionRes = await run(['version', '--client', '--json']);
+      expect(versionRes.code).toBe(0);
+      const clientVer = JSON.parse(versionRes.stdout).client.version;
+      expect(res.stdout).toContain(clientVer);
+
+      const jsonRes = await run(['ps', '--json']);
+      expect(jsonRes.code).toBe(0);
+      const jsonHosts = JSON.parse(jsonRes.stdout).hosts;
+      const localHost = jsonHosts.find((h: any) => h.id === 'node-local');
+      expect(localHost?.version).toBe(clientVer);
+    } finally {
+      mockHosts = orig;
+    }
+  });
+
+  it('retains historical version for offline local hosts without overwrite', async () => {
+    const localMachineId = ConfigStore.getMachineId();
+    const orig = mockHosts;
+    const historicalVer = '0.8.5-historical';
+    mockHosts = [
+      { id: 'node-local-offline', name: 'worker-offline-machine', status: 'offline', machineId: localMachineId, version: historicalVer, platform: 'linux', ip: '127.0.0.1', lastSeen: Date.now() - 86400000 },
+    ];
+    try {
+      const res = await run(['ps', '-a']);
+      expect(res.code).toBe(0);
+      expect(res.stdout).toContain('worker-offline-machine (local)');
+      expect(res.stdout).toContain(historicalVer);
+
+      const jsonRes = await run(['ps', '-a', '--json']);
+      expect(jsonRes.code).toBe(0);
+      const jsonHosts = JSON.parse(jsonRes.stdout).hosts;
+      const localHost = jsonHosts.find((h: any) => h.id === 'node-local-offline');
+      expect(localHost?.version).toBe(historicalVer);
     } finally {
       mockHosts = orig;
     }
