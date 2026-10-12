@@ -18,9 +18,9 @@ function getCommitCount() {
   }
 }
 
-function getExactTag() {
+function getGitDescribe() {
   try {
-    return execSync('git describe --tags --exact-match 2>/dev/null', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    return execSync('git describe --tags --always 2>/dev/null', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
   } catch {
     return null;
   }
@@ -33,17 +33,15 @@ function generateVersionData() {
 
   const gitCommit = getGitCommit();
   const commitCount = getCommitCount();
-  const exactTag = getExactTag();
+  const gitDescribe = getGitDescribe();
   const buildTime = new Date().toISOString();
   const platform = `${process.platform}/${process.arch}`;
 
-  // If the current commit is directly tagged with a release version (e.g. v1.0.1 or 1.0.1), use it cleanly
+  // Directly derive version from git describe --tags --always
   let effectiveVersion = baseVersion;
-  if (exactTag) {
-    effectiveVersion = exactTag.replace(/^v/, '');
+  if (gitDescribe && /^v?[0-9]+\.[0-9]+/.test(gitDescribe)) {
+    effectiveVersion = gitDescribe.replace(/^v/, '');
   } else if (gitCommit && gitCommit !== 'unknown') {
-    // Dynamically derive semver build metadata with git commit and commit count
-    // e.g. 1.0.0+d9ebcb4
     effectiveVersion = `${baseVersion}+${gitCommit}`;
   }
 
@@ -52,6 +50,7 @@ function generateVersionData() {
     rawVersion: baseVersion,
     gitCommit,
     commitCount,
+    gitDescribe,
     buildTime,
     platform,
   };

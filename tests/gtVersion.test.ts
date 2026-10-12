@@ -21,4 +21,19 @@ describe('Version Metadata Resolver', () => {
     const line = formatShortVersion(mockInfo);
     expect(line).toBe('gt version 1.2.3 (commit: abcdef1, built: 2026-10-10T12:00:00Z, linux/x64)');
   });
+
+  it('generates unified version data using generateVersionData()', () => {
+    const { generateVersionData } = require('../scripts/generate-version');
+    const data = generateVersionData();
+    expect(data).toBeDefined();
+    expect(typeof data.version).toBe('string');
+    expect(data.rawVersion).toBe(pkg.version);
+    expect(typeof data.gitCommit).toBe('string');
+    expect(typeof data.buildTime).toBe('string');
+    // If on a tagged release, version should not contain + suffix; otherwise semver+hash
+    if (data.gitDescribe && /^v?[0-9]+\.[0-9]+$/.test(data.gitDescribe)) {
+      expect(data.version.includes('+')).toBe(false);
+      expect(data.version).toBe(data.gitDescribe.replace(/^v/, ''));
+    }
+  });
 });

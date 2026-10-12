@@ -13,18 +13,27 @@ echo "NPM Version          : $(npm -v 2>/dev/null || echo 'not found')"
 echo "PM2 Version          : $(pm2 -v 2>/dev/null || echo 'not found')"
 echo "=========================================="
 
-echo "===> [1/5] Pulling latest code from origin/main..."
-git fetch origin main
+echo "===> [1/5] Pulling latest code and tags from origin/main..."
+git fetch origin main --tags
 git reset --hard origin/main
 
-# Inspect current git commit and package version
+# Inspect current git commit, package version, and derive version from git describe --tags --always
 GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 COMMIT_TITLE=$(git log -1 --pretty=%B 2>/dev/null | head -n 1 || echo "")
 BASE_VERSION=$(node -p "require('./package.json').version" 2>/dev/null || echo "1.0.0")
+GIT_DESCRIBE=$(git describe --tags --always 2>/dev/null || echo "${GIT_COMMIT}")
+
+# Generate deployment version based on git describe --tags --always
+if [[ "$GIT_DESCRIBE" =~ ^v?[0-9]+\.[0-9]+ ]]; then
+  [[ "$GIT_DESCRIBE" != v* ]] && TARGET_VERSION="v${GIT_DESCRIBE}" || TARGET_VERSION="${GIT_DESCRIBE}"
+else
+  TARGET_VERSION="v${BASE_VERSION}+${GIT_COMMIT}"
+fi
 
 echo "------------------------------------------"
-echo "Deploying Target Version : v${BASE_VERSION}+${GIT_COMMIT}"
+echo "Deploying Target Version : ${TARGET_VERSION}"
 echo "Current Git Commit       : ${GIT_COMMIT} - \"${COMMIT_TITLE}\""
+echo "Git Describe Output      : ${GIT_DESCRIBE}"
 echo "------------------------------------------"
 
 echo "===> [2/5] Installing dependencies..."
@@ -63,5 +72,5 @@ if [ "$HEALTH_STATUS" != "ok" ]; then
 fi
 
 echo "=========================================="
-echo "Deployment completed successfully! (Version: v${BASE_VERSION}+${GIT_COMMIT})"
+echo "Deployment completed successfully! (Version: ${TARGET_VERSION})"
 echo "=========================================="
