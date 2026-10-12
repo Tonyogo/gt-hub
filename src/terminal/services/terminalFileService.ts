@@ -306,21 +306,101 @@ export class TerminalFileService {
   }
 
   /**
-   * Save uploaded file via agent RPC
+   * Save uploaded file via agent RPC with chunked streaming to prevent high memory usage.
+   * If a Buffer is passed, small buffers (<=512KB) use single chunk RPC,
+   * while larger buffers or streams are chunked into 512KB RPC requests sequentially.
    */
   public async saveUploadedFile(
     hostId: string,
     targetDir: string,
     filename: string,
-    buffer: Buffer
+    data: Buffer | NodeJS.ReadableStream
   ): Promise<{ success: boolean; error?: string }> {
     if (!hostId || !hostId.trim()) {
       return { success: false, error: 'hostId is required' };
     }
-    return this.rpcAgent(hostId, 'upload_chunk', targetDir, {
-      filename,
-      data: buffer.toString('base64'),
-    });
+
+    if (Buffer.isBuffer(data)) {
+      const CHUNK_SIZE = 512 * 1024;
+      if (data.length <= CHUNK_SIZE) {
+        return this.rpcAgent(hostId, 'upload_chunk', targetDir, {
+          filename,
+          data: data.toString('base64'),
+          offset: 0,
+          truncate: true,
+        });
+      }
+      return this.saveUploadedStream(hostId, targetDir, filename, Readable.from(data), CHUNK_SIZE);
+    }
+
+    return this.saveUploadedStream(hostId, targetDir, filename, data);
+  }
+
+  /**
+   * Streams a file from a ReadableStream directly to the Agent in 512KB chunks.
+   * Neither server nor agent ever buffers the whole file in memory.
+   */
+  public async saveUploadedStream(
+    hostId: string,
+    targetDir: string,
+    filename: string,
+    stream: NodeJS.ReadableStream,
+    chunkSize: number = 512 * 1024
+  ): Promise<{ success: boolean; error?: string }> {
+    if (!hostId || !hostId.trim()) {
+      return { success: false, error: 'hostId is required' };
+    }
+
+    let currentOffset = 0;
+    let pendingChunks: Buffer[] = [];
+    let pendingBytes = 0;
+
+    try {
+      for await (const chunk of stream) {
+        const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        pendingChunks.push(buf);
+        pendingBytes += buf.length;
+
+        while (pendingBytes >= chunkSize) {
+          const combined = Buffer.concat(pendingChunks);
+          const toSend = combined.slice(0, chunkSize);
+          const rest = combined.slice(chunkSize);
+          pendingChunks = rest.length > 0 ? [rest] : [];
+          pendingBytes = rest.length;
+
+          const res = await this.rpcAgent(hostId, 'upload_chunk', targetDir, {
+            filename,
+            data: toSend.toString('base64'),
+            offset: currentOffset,
+            truncate: currentOffset === 0,
+          }, 60000);
+
+          if (!res || !res.success) {
+            return { success: false, error: res?.error || 'Failed to upload file chunk to agent' };
+          }
+          currentOffset += toSend.length;
+        }
+      }
+
+      // Flush any remaining bytes, or if file was 0 bytes, ensure an empty file is created
+      if (pendingBytes > 0 || currentOffset === 0) {
+        const combined = Buffer.concat(pendingChunks);
+        const res = await this.rpcAgent(hostId, 'upload_chunk', targetDir, {
+          filename,
+          data: combined.toString('base64'),
+          offset: currentOffset,
+          truncate: currentOffset === 0,
+        }, 60000);
+
+        if (!res || !res.success) {
+          return { success: false, error: res?.error || 'Failed to upload final file chunk to agent' };
+        }
+      }
+
+      return { success: true };
+    } catch (err: any) {
+      return { success: false, error: err?.message || 'Error processing stream upload' };
+    }
   }
 
   /**

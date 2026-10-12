@@ -60,14 +60,13 @@ export async function uploadLocalFile({
   }
 
   const filename = path.basename(localPath);
-  const fileContent = fs.readFileSync(localPath);
   const boundary = `----GtFormBoundary${crypto.randomBytes(8).toString('hex')}`;
 
   const head = Buffer.from(
     `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: application/octet-stream\r\n\r\n`
   );
   const tail = Buffer.from(`\r\n--${boundary}--\r\n`);
-  const payload = Buffer.concat([head, fileContent, tail]);
+  const totalLength = head.length + stat.size + tail.length;
 
   const endpoint = `/api/terminal/files/upload?hostId=${encodeURIComponent(hostId)}&path=${encodeURIComponent(remotePath || '.')}`;
 
@@ -85,7 +84,7 @@ export async function uploadLocalFile({
 
   const headers: Record<string, any> = {
     'Content-Type': `multipart/form-data; boundary=${boundary}`,
-    'Content-Length': payload.length,
+    'Content-Length': totalLength,
   };
   if (apiKey) {
     headers['x-admin-key'] = apiKey;
@@ -103,18 +102,55 @@ export async function uploadLocalFile({
       let data = '';
       res.on('data', (chunk) => { data += chunk; });
       res.on('end', () => {
+        cleanupReadStream();
         let json: any = null;
         try { json = JSON.parse(data); } catch { json = { raw: data }; }
         if ((res.statusCode && res.statusCode >= 400) || (json && json.success === false)) {
+          try { req.destroy(); } catch {}
           return reject(new Error(`Upload failed: ${json?.error || `HTTP ${res.statusCode}`}`));
         }
         console.log(`Successfully copied ${localPath} -> [${hostId}]:${remotePath} (${(stat.size / 1024).toFixed(1)} KB)`);
         resolve(0);
       });
     });
-    req.on('error', reject);
-    req.write(payload);
-    req.end();
+
+    const readStream = fs.createReadStream(localPath, { highWaterMark: 64 * 1024 });
+
+    const cleanupReadStream = () => {
+      try {
+        if (!readStream.destroyed) {
+          readStream.destroy();
+        }
+      } catch {}
+    };
+
+    req.on('error', (err) => {
+      cleanupReadStream();
+      try { req.destroy(); } catch {}
+      reject(err);
+    });
+
+    req.on('close', () => {
+      cleanupReadStream();
+    });
+
+    // Stream file content chunk-by-chunk with backpressure
+    req.write(head);
+    readStream.on('data', (chunk) => {
+      const ok = req.write(chunk);
+      if (!ok) {
+        readStream.pause();
+        req.once('drain', () => readStream.resume());
+      }
+    });
+    readStream.on('end', () => {
+      req.end(tail);
+    });
+    readStream.on('error', (err) => {
+      cleanupReadStream();
+      req.destroy(err);
+      reject(err);
+    });
   });
 }
 

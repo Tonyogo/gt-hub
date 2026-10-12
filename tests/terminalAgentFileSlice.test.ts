@@ -95,4 +95,97 @@ describe('Agent File RPC Slice and Stat Tests', () => {
       ws
     );
   });
+
+  test('upload_chunk with offset and truncate writes chunked file sequentially', (done) => {
+    const chunkFile = path.join(tempDir, 'chunked-output.txt');
+    const chunk1 = Buffer.from('CHUNK-ONE-');
+    const chunk2 = Buffer.from('CHUNK-TWO');
+
+    // First chunk: offset 0, truncate true
+    const ws1 = createMockWs((res1) => {
+      expect(res1.success).toBe(true);
+
+      // Second chunk: offset chunk1.length
+      const ws2 = createMockWs((res2) => {
+        expect(res2.success).toBe(true);
+        const assembled = fs.readFileSync(chunkFile, 'utf-8');
+        expect(assembled).toBe('CHUNK-ONE-CHUNK-TWO');
+        done();
+      });
+
+      handleFileRpc(
+        {
+          reqId: 'req-upload-2',
+          action: 'upload_chunk',
+          path: tempDir,
+          params: {
+            filename: 'chunked-output.txt',
+            data: chunk2.toString('base64'),
+            offset: chunk1.length,
+          },
+        },
+        ws2
+      );
+    });
+
+    handleFileRpc(
+      {
+        reqId: 'req-upload-1',
+        action: 'upload_chunk',
+        path: tempDir,
+        params: {
+          filename: 'chunked-output.txt',
+          data: chunk1.toString('base64'),
+          offset: 0,
+          truncate: true,
+        },
+      },
+      ws1
+    );
+  });
+
+  test('async list, write, read, mkdir, rename, delete operations execute without blocking', async () => {
+    const rpcPromise = (action: string, targetPath: string, params?: any) => {
+      return new Promise<any>((resolve) => {
+        const ws = createMockWs((res) => resolve(res));
+        handleFileRpc({ reqId: `req-${Date.now()}-${Math.random()}`, action, path: targetPath, params }, ws);
+      });
+    };
+
+    // 1. mkdir
+    const subDirName = `sub-${Date.now()}`;
+    const mkdirRes = await rpcPromise('mkdir', tempDir, { dirName: subDirName });
+    expect(mkdirRes.success).toBe(true);
+    const subDir = path.join(tempDir, subDirName);
+    expect(fs.existsSync(subDir)).toBe(true);
+
+    // 2. write
+    const asyncFile = path.join(subDir, 'test-async.txt');
+    const writeRes = await rpcPromise('write', asyncFile, { content: 'hello async fs' });
+    expect(writeRes.success).toBe(true);
+
+    // 3. read
+    const readRes = await rpcPromise('read', asyncFile);
+    expect(readRes.success).toBe(true);
+    expect(readRes.data.content).toBe('hello async fs');
+    expect(readRes.data.isBinary).toBe(false);
+
+    // 4. list
+    const listRes = await rpcPromise('list', subDir);
+    expect(listRes.success).toBe(true);
+    expect(listRes.data.files.length).toBe(1);
+    expect(listRes.data.files[0].name).toBe('test-async.txt');
+
+    // 5. rename
+    const renamedFile = path.join(subDir, 'renamed-async.txt');
+    const renameRes = await rpcPromise('rename', asyncFile, { newPath: renamedFile });
+    expect(renameRes.success).toBe(true);
+    expect(fs.existsSync(renamedFile)).toBe(true);
+    expect(fs.existsSync(asyncFile)).toBe(false);
+
+    // 6. delete
+    const deleteRes = await rpcPromise('delete', renamedFile);
+    expect(deleteRes.success).toBe(true);
+    expect(fs.existsSync(renamedFile)).toBe(false);
+  });
 });

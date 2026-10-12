@@ -1,4 +1,4 @@
-import { TerminalHostManager } from '../src/server/modules/terminal/services/hostManager';
+import { TerminalHostManager } from '../src/terminal/services/terminalHostManager';
 
 describe('Agent Version Telemetry in HostManager', () => {
   let hostManager: TerminalHostManager;

@@ -238,6 +238,18 @@ describe('Terminal File Manager Pure RPC Integration Tests', () => {
     expect(res.body.success).toBe(true);
   });
 
+  test('uploads file via multipart form API endpoint', async () => {
+    const res = await request(app)
+      .post('/api/admin/terminal/files/upload')
+      .set('x-admin-key', secretKey)
+      .query({ hostId: testHostId, path: '/var/log' })
+      .attach('file', Buffer.from('multipart-test-data'), 'test-multi.txt');
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.uploaded).toContain('test-multi.txt');
+  });
+
   test('deletes file via API endpoint', async () => {
     const res = await request(app)
       .delete('/api/admin/terminal/files/delete')

@@ -30,6 +30,13 @@ import { useTranslation } from '../../i18n/LanguageContext';
 import { useTheme } from '../../theme/ThemeContext';
 import { defineGeminiProxyTheme } from '../../utils/monacoTheme';
 import { TerminalImagePreviewModal } from './TerminalImagePreviewModal';
+import { apiFetch } from '../../utils/apiClient';
+
+export interface ToastMessage {
+  id: string;
+  message: string;
+  type: 'error' | 'success' | 'info';
+}
 
 export interface TerminalFileManagerHandle {
   refresh: () => void;
@@ -196,6 +203,19 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
   const [deleteTarget, setDeleteTarget] = useState<TerminalFileItem | null>(null);
   const [deleting, setDeleting] = useState<boolean>(false);
 
+  // Friendly Toast Notifications
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const showToast = useCallback((message: string, type: 'error' | 'success' | 'info' = 'error') => {
+    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    setToasts((prev) => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4000);
+  }, []);
+  const dismissToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
   // File Preview & Edit Modal
   const [editorTarget, setEditorTarget] = useState<{
     file: TerminalFileItem;
@@ -227,7 +247,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
       if (targetPath) {
         url += `&path=${encodeURIComponent(targetPath)}`;
       }
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         headers: { 'x-admin-key': adminKey },
       });
       const data: ListFilesResponse = await res.json();
@@ -307,7 +327,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
   // Native Download
   const handleDownload = useCallback((file: TerminalFileItem) => {
     const url = `/api/terminal/files/download?hostId=${encodeURIComponent(activeHostId)}&path=${encodeURIComponent(file.path)}`;
-    fetch(url, { headers: { 'x-admin-key': adminKey } })
+    apiFetch(url, { headers: { 'x-admin-key': adminKey } })
       .then(async (res) => {
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
@@ -325,8 +345,8 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
         document.body.removeChild(a);
         URL.revokeObjectURL(blobUrl);
       })
-      .catch((err) => alert(err.message));
-  }, [activeHostId, adminKey]);
+      .catch((err) => showToast(err.message, 'error'));
+  }, [activeHostId, adminKey, showToast]);
 
   // Open Preview / Edit
   const handleOpenFile = useCallback(async (file: TerminalFileItem) => {
@@ -335,13 +355,13 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
       // Fetch image as blob for preview
       try {
         const url = `/api/terminal/files/download?hostId=${encodeURIComponent(activeHostId)}&path=${encodeURIComponent(file.path)}`;
-        const res = await fetch(url, { headers: { 'x-admin-key': adminKey } });
+        const res = await apiFetch(url, { headers: { 'x-admin-key': adminKey } });
         if (!res.ok) throw new Error('Failed to load image');
         const blob = await res.blob();
         const blobUrl = URL.createObjectURL(blob);
         setImagePreviewTarget({ file, blobUrl });
       } catch (err: any) {
-        alert(err.message);
+        showToast(err.message, 'error');
       }
       return;
     }
@@ -358,7 +378,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
 
     try {
       const url = `/api/terminal/files/content?hostId=${encodeURIComponent(activeHostId)}&path=${encodeURIComponent(file.path)}`;
-      const res = await fetch(url, { headers: { 'x-admin-key': adminKey } });
+      const res = await apiFetch(url, { headers: { 'x-admin-key': adminKey } });
       const data = await res.json();
       if (!res.ok || !data.success) {
         setEditorTarget(prev => prev ? {
@@ -390,7 +410,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
     setEditorTarget(prev => prev ? { ...prev, saving: true } : null);
 
     try {
-      const res = await fetch('/api/terminal/files/save', {
+      const res = await apiFetch('/api/terminal/files/save', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -404,19 +424,20 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        alert(data.error || 'Failed to save file');
+        showToast(data.error || 'Failed to save file', 'error');
       } else {
         setEditorTarget(prev => prev ? { ...prev, savedAlert: true } : null);
+        showToast(t('common.saved', 'Saved successfully'), 'success');
         setTimeout(() => {
           setEditorTarget(prev => prev ? { ...prev, savedAlert: false } : null);
         }, 2500);
       }
     } catch (err: any) {
-      alert(err.message);
+      showToast(err.message, 'error');
     } finally {
       setEditorTarget(prev => prev ? { ...prev, saving: false } : null);
     }
-  }, [editorTarget, adminKey, activeHostId]);
+  }, [editorTarget, adminKey, activeHostId, showToast, t]);
 
   // Upload handler
   const handleUploadFiles = useCallback(async (fileList: FileList | File[]) => {
@@ -428,7 +449,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
         formData.append('file', fileList[i]);
       }
       const url = `/api/terminal/files/upload?hostId=${encodeURIComponent(activeHostId)}&path=${encodeURIComponent(currentPath)}`;
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method: 'POST',
         headers: { 'x-admin-key': adminKey },
         body: formData,
@@ -437,20 +458,21 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
       if (!res.ok || !data.success) {
         throw new Error(data.error || 'Failed to upload file');
       }
+      showToast(t('common.uploadSuccess', 'Files uploaded successfully'), 'success');
       loadFiles(currentPath);
     } catch (err: any) {
-      alert(err.message);
+      showToast(err.message, 'error');
     } finally {
       setUploading(false);
     }
-  }, [activeHostId, currentPath, adminKey, loadFiles]);
+  }, [activeHostId, currentPath, adminKey, loadFiles, showToast, t]);
 
   // Create folder
   const handleCreateFolder = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newFolderName.trim()) return;
     try {
-      const res = await fetch('/api/terminal/files/mkdir', {
+      const res = await apiFetch('/api/terminal/files/mkdir', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -464,16 +486,17 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        alert(data.error || 'Failed to create directory');
+        showToast(data.error || 'Failed to create directory', 'error');
       } else {
         setNewFolderOpen(false);
         setNewFolderName('');
+        showToast(t('common.created', 'Folder created successfully'), 'success');
         loadFiles(currentPath);
       }
     } catch (err: any) {
-      alert(err.message);
+      showToast(err.message, 'error');
     }
-  }, [newFolderName, activeHostId, currentPath, adminKey, loadFiles]);
+  }, [newFolderName, activeHostId, currentPath, adminKey, loadFiles, showToast, t]);
 
   // Rename
   const handleRename = useCallback(async (e: React.FormEvent) => {
@@ -485,7 +508,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
       : `${parentDir}${separator}${renameInput.trim()}`;
 
     try {
-      const res = await fetch('/api/terminal/files/rename', {
+      const res = await apiFetch('/api/terminal/files/rename', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -499,16 +522,17 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        alert(data.error || 'Failed to rename');
+        showToast(data.error || 'Failed to rename', 'error');
       } else {
         setRenameTarget(null);
         setRenameInput('');
+        showToast(t('common.renamed', 'Renamed successfully'), 'success');
         loadFiles(currentPath);
       }
     } catch (err: any) {
-      alert(err.message);
+      showToast(err.message, 'error');
     }
-  }, [renameTarget, renameInput, currentPath, separator, activeHostId, adminKey, loadFiles]);
+  }, [renameTarget, renameInput, currentPath, separator, activeHostId, adminKey, loadFiles, showToast, t]);
 
   // Delete
   const handleDelete = useCallback(async () => {
@@ -516,23 +540,24 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
     setDeleting(true);
     try {
       const url = `/api/terminal/files/delete?hostId=${encodeURIComponent(activeHostId)}&path=${encodeURIComponent(deleteTarget.path)}`;
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method: 'DELETE',
         headers: { 'x-admin-key': adminKey },
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
-        alert(data.error || 'Failed to delete');
+        showToast(data.error || 'Failed to delete', 'error');
       } else {
         setDeleteTarget(null);
+        showToast(t('common.deleted', 'Deleted successfully'), 'success');
         loadFiles(currentPath);
       }
     } catch (err: any) {
-      alert(err.message);
+      showToast(err.message, 'error');
     } finally {
       setDeleting(false);
     }
-  }, [deleteTarget, activeHostId, adminKey, loadFiles, currentPath]);
+  }, [deleteTarget, activeHostId, adminKey, loadFiles, currentPath, showToast, t]);
 
   // Copy Path
   const handleCopyPath = () => {
@@ -1167,6 +1192,38 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
           onClose={() => setImagePreviewTarget(null)}
           onDownload={handleDownload}
         />
+      )}
+
+      {/* Toast Notifications */}
+      {toasts.length > 0 && (
+        <div className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 max-w-md w-full px-4 pointer-events-none">
+          {toasts.map((toast) => (
+            <div
+              key={toast.id}
+              className={`pointer-events-auto flex items-center justify-between p-3.5 rounded-lg shadow-lg text-sm transition-all duration-200 ${
+                toast.type === 'error'
+                  ? 'bg-red-600 text-white dark:bg-red-700'
+                  : toast.type === 'success'
+                  ? 'bg-emerald-600 text-white dark:bg-emerald-700'
+                  : 'bg-zinc-800 text-white dark:bg-zinc-700'
+              }`}
+            >
+              <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                {toast.type === 'error' && <AlertTriangle className="w-4 h-4 shrink-0" />}
+                {toast.type === 'success' && <Check className="w-4 h-4 shrink-0" />}
+                {toast.type === 'info' && <AlertTriangle className="w-4 h-4 shrink-0" />}
+                <span className="truncate">{toast.message}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => dismissToast(toast.id)}
+                className="ml-3 p-1 hover:bg-white/20 rounded transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );

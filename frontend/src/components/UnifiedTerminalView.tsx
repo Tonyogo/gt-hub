@@ -22,6 +22,7 @@ import {
 import { useTranslation } from '../i18n/LanguageContext';
 import { useTheme } from '../theme/ThemeContext';
 import { calculateKeyboardTranslateY } from '../utils/mobileViewportHelper';
+import { onUnauthorized } from '../utils/apiClient';
 
 export interface UnifiedTerminalViewProps {
   adminKey?: string;
@@ -55,20 +56,7 @@ export default function UnifiedTerminalView({
   // Auto-logout on 401 unauthorized responses from terminal API
   useEffect(() => {
     if (!onLogout) return;
-    const originalFetch = window.fetch;
-    window.fetch = async (...args) => {
-      const response = await originalFetch(...args);
-      if (response.status === 401) {
-        const url = typeof args[0] === 'string' ? args[0] : (args[0] instanceof Request ? args[0].url : '');
-        if (!url.includes('/api/auth/login') && !url.includes('/api/auth/status')) {
-          onLogout();
-        }
-      }
-      return response;
-    };
-    return () => {
-      window.fetch = originalFetch;
-    };
+    return onUnauthorized(onLogout);
   }, [onLogout]);
 
   const [subTab, setSubTab] = useState<TerminalSubTab>('interactive');

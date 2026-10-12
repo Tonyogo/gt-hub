@@ -1,74 +1,240 @@
 import { Request, Response } from 'express';
 import path from 'path';
+import { PassThrough } from 'stream';
 import terminalFileService from '../services/terminalFileService';
 import logger from '../../utils/logger';
 import { parseRangeHeader, applyRangeHeaders, applyUnsatisfiableHeaders } from '../utils/rangeParser';
 
-function parseMultipartForm(buffer: Buffer, boundary: string): { filename: string; data: Buffer }[] {
+async function parseAndUploadMultipart(
+  source: NodeJS.ReadableStream,
+  boundary: string,
+  hostId: string,
+  targetDir: string
+): Promise<{ success: boolean; uploaded?: string[]; error?: string }> {
   const delimiter = Buffer.from(`--${boundary}`);
-  const results: { filename: string; data: Buffer }[] = [];
+  const crlfCrlf = Buffer.from('\r\n\r\n');
+  const uploaded: string[] = [];
 
-  let offset = 0;
-  while (offset < buffer.length) {
-    const idx = buffer.indexOf(delimiter, offset);
-    if (idx === -1) break;
+  let state: 'WAIT_DELIMITER' | 'READ_HEADER' | 'READ_BODY' | 'SKIP_BODY' = 'WAIT_DELIMITER';
+  let buffer = Buffer.alloc(0);
+  let currentFileStream: PassThrough | null = null;
+  let currentSavePromise: Promise<{ success: boolean; error?: string }> | null = null;
+  let currentFilename = '';
+  let saveError: string | undefined = undefined;
+  let closedGracefully = false;
 
-    const afterDelimiter = idx + delimiter.length;
-    // Check if closing boundary "--boundary--"
-    if (
-      afterDelimiter + 1 < buffer.length &&
-      buffer[afterDelimiter] === 45 &&
-      buffer[afterDelimiter + 1] === 45
-    ) {
-      break;
+  const writeToFileStream = async (data: Buffer): Promise<boolean> => {
+    if (!currentFileStream || data.length === 0) return true;
+    if (saveError) return false;
+    const ok = currentFileStream.write(data);
+    if (!ok) {
+      await new Promise<void>((resolve) => {
+        const onDrain = () => {
+          currentFileStream?.removeListener('error', onError);
+          resolve();
+        };
+        const onError = () => {
+          currentFileStream?.removeListener('drain', onDrain);
+          resolve();
+        };
+        currentFileStream?.once('drain', onDrain);
+        currentFileStream?.once('error', onError);
+      });
     }
+    return !saveError;
+  };
 
-    // Skip delimiter line ending CRLF or LF
-    let headerStart = afterDelimiter;
-    if (headerStart + 1 < buffer.length && buffer[headerStart] === 13 && buffer[headerStart + 1] === 10) {
-      headerStart += 2;
-    } else if (headerStart < buffer.length && buffer[headerStart] === 10) {
-      headerStart += 1;
-    }
+  try {
+    for await (const chunk of source) {
+      if (saveError) {
+        currentFileStream?.destroy();
+        return { success: false, error: saveError };
+      }
 
-    // Next delimiter position
-    const nextDelimiter = buffer.indexOf(delimiter, headerStart);
-    if (nextDelimiter === -1) break;
+      const chunkBuf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      buffer = Buffer.concat([buffer, chunkBuf]);
 
-    // Search for header separator \r\n\r\n or \n\n
-    let bodyStart = -1;
-    let headerEndLen = 0;
-    const crlfIndex = buffer.indexOf(Buffer.from('\r\n\r\n'), headerStart);
-    const lfIndex = buffer.indexOf(Buffer.from('\n\n'), headerStart);
-
-    if (crlfIndex !== -1 && crlfIndex < nextDelimiter && (lfIndex === -1 || crlfIndex <= lfIndex)) {
-      bodyStart = crlfIndex + 4;
-      headerEndLen = 4;
-    } else if (lfIndex !== -1 && lfIndex < nextDelimiter) {
-      bodyStart = lfIndex + 2;
-      headerEndLen = 2;
-    }
-
-    if (bodyStart !== -1 && bodyStart <= nextDelimiter) {
-      const headerText = buffer.slice(headerStart, bodyStart - headerEndLen).toString('utf-8');
-      const filenameMatch = /filename="?([^"\r\n]+)"?/i.exec(headerText);
-      if (filenameMatch) {
-        const filename = path.basename(filenameMatch[1].trim());
-        let bodyEnd = nextDelimiter;
-        // Strip trailing CRLF before boundary
-        if (bodyEnd >= 2 && buffer[bodyEnd - 2] === 13 && buffer[bodyEnd - 1] === 10) {
-          bodyEnd -= 2;
-        } else if (bodyEnd >= 1 && buffer[bodyEnd - 1] === 10) {
-          bodyEnd -= 1;
+      let keepProcessing = true;
+      while (keepProcessing) {
+        if (saveError) {
+          currentFileStream?.destroy();
+          return { success: false, error: saveError };
         }
-        const fileData = buffer.slice(bodyStart, bodyEnd);
-        results.push({ filename, data: fileData });
+
+        if (state === 'WAIT_DELIMITER') {
+          const idx = buffer.indexOf(delimiter);
+          if (idx === -1) {
+            if (buffer.length > delimiter.length + 4) {
+              buffer = buffer.slice(buffer.length - (delimiter.length + 4));
+            }
+            break;
+          }
+          const after = idx + delimiter.length;
+          if (buffer.length < after + 2) {
+            if (idx > 0) {
+              buffer = buffer.slice(idx);
+            }
+            break;
+          }
+          if (buffer[after] === 45 && buffer[after + 1] === 45) {
+            closedGracefully = true;
+            return { success: true, uploaded };
+          }
+          let skip = 0;
+          if (buffer[after] === 13 && buffer[after + 1] === 10) {
+            skip = 2;
+          } else if (buffer[after] === 10) {
+            skip = 1;
+          }
+          buffer = buffer.slice(after + skip);
+          state = 'READ_HEADER';
+        }
+
+        if (state === 'READ_HEADER') {
+          const headerEnd = buffer.indexOf(crlfCrlf);
+          if (headerEnd === -1) {
+            break;
+          }
+          const headerText = buffer.slice(0, headerEnd).toString('utf-8');
+          buffer = buffer.slice(headerEnd + 4);
+
+          const filenameMatch = /filename="?([^"\r\n]+)"?/i.exec(headerText);
+          if (filenameMatch) {
+            currentFilename = path.basename(filenameMatch[1].trim());
+            currentFileStream = new PassThrough();
+            currentSavePromise = terminalFileService
+              .saveUploadedStream(hostId, targetDir, currentFilename, currentFileStream)
+              .then((res) => {
+                if (!res.success) {
+                  saveError = res.error || `Failed to save ${currentFilename}`;
+                }
+                return res;
+              })
+              .catch((err) => {
+                saveError = err?.message || `Failed to save ${currentFilename}`;
+                return { success: false, error: saveError };
+              });
+            state = 'READ_BODY';
+          } else {
+            state = 'SKIP_BODY';
+          }
+        }
+
+        if (state === 'READ_BODY') {
+          const delimIdx = buffer.indexOf(delimiter);
+          if (delimIdx === -1) {
+            const safeLen = buffer.length - (delimiter.length + 4);
+            if (safeLen > 0) {
+              const ok = await writeToFileStream(buffer.slice(0, safeLen));
+              if (!ok || saveError) {
+                currentFileStream?.destroy();
+                return { success: false, error: saveError || 'Stream write failed' };
+              }
+              buffer = buffer.slice(safeLen);
+            }
+            break;
+          } else {
+            const after = delimIdx + delimiter.length;
+            if (buffer.length < after + 2) {
+              let bodyEnd = delimIdx;
+              if (bodyEnd >= 2 && buffer[bodyEnd - 2] === 13 && buffer[bodyEnd - 1] === 10) {
+                bodyEnd -= 2;
+              } else if (bodyEnd >= 1 && buffer[bodyEnd - 1] === 10) {
+                bodyEnd -= 1;
+              }
+              if (bodyEnd > 0) {
+                const ok = await writeToFileStream(buffer.slice(0, bodyEnd));
+                if (!ok || saveError) {
+                  currentFileStream?.destroy();
+                  return { success: false, error: saveError || 'Stream write failed' };
+                }
+              }
+              buffer = buffer.slice(delimIdx);
+              break;
+            }
+
+            let bodyEnd = delimIdx;
+            if (bodyEnd >= 2 && buffer[bodyEnd - 2] === 13 && buffer[bodyEnd - 1] === 10) {
+              bodyEnd -= 2;
+            } else if (bodyEnd >= 1 && buffer[bodyEnd - 1] === 10) {
+              bodyEnd -= 1;
+            }
+            if (bodyEnd > 0) {
+              await writeToFileStream(buffer.slice(0, bodyEnd));
+            }
+            currentFileStream?.end();
+
+            if (currentSavePromise) {
+              const saveRes = await currentSavePromise;
+              if (!saveRes.success) {
+                return { success: false, error: saveRes.error || `Failed to save ${currentFilename}` };
+              }
+              uploaded.push(currentFilename);
+              currentSavePromise = null;
+              currentFileStream = null;
+            }
+
+            if (buffer[after] === 45 && buffer[after + 1] === 45) {
+              closedGracefully = true;
+              return { success: true, uploaded };
+            }
+
+            let skip = 0;
+            if (buffer[after] === 13 && buffer[after + 1] === 10) {
+              skip = 2;
+            } else if (buffer[after] === 10) {
+              skip = 1;
+            }
+            buffer = buffer.slice(after + skip);
+            state = 'READ_HEADER';
+          }
+        }
+
+        if (state === 'SKIP_BODY') {
+          const delimIdx = buffer.indexOf(delimiter);
+          if (delimIdx === -1) {
+            if (buffer.length > delimiter.length + 4) {
+              buffer = buffer.slice(buffer.length - (delimiter.length + 4));
+            }
+            break;
+          }
+          const after = delimIdx + delimiter.length;
+          if (buffer.length < after + 2) {
+            buffer = buffer.slice(delimIdx);
+            break;
+          }
+          if (buffer[after] === 45 && buffer[after + 1] === 45) {
+            closedGracefully = true;
+            return { success: true, uploaded };
+          }
+          let skip = 0;
+          if (buffer[after] === 13 && buffer[after + 1] === 10) {
+            skip = 2;
+          } else if (buffer[after] === 10) {
+            skip = 1;
+          }
+          buffer = buffer.slice(after + skip);
+          state = 'READ_HEADER';
+        }
       }
     }
-
-    offset = nextDelimiter;
+  } catch (err: any) {
+    currentFileStream?.destroy(err);
+    return { success: false, error: err?.message || 'Multipart stream read error' };
   }
-  return results;
+
+  if (currentFileStream) {
+    currentFileStream.destroy(new Error('Premature stream termination'));
+  }
+
+  if (!closedGracefully) {
+    return {
+      success: false,
+      error: 'Unexpected end of multipart stream: closing boundary not found',
+    };
+  }
+
+  return { success: true, uploaded };
 }
 
 class TerminalFileController {
@@ -306,53 +472,36 @@ class TerminalFileController {
       const targetDir = (req.query.path as string) || '';
       const contentType = req.headers['content-type'] || '';
 
-      const chunks: Buffer[] = [];
-      req.on('data', (chunk) => chunks.push(chunk));
-      req.on('end', async () => {
-        try {
-          const bodyBuffer = Buffer.concat(chunks);
+      req.setTimeout(0);
+      res.setTimeout(0);
 
-          if (contentType.includes('multipart/form-data')) {
-            const boundaryMatch = contentType.match(/boundary=([^;]+)/i);
-            const boundary = boundaryMatch ? boundaryMatch[1].trim().replace(/^["']|["']$/g, '') : '';
-            if (!boundary) {
-              res.status(400).json({ success: false, error: 'Multipart boundary not found' });
-              return;
-            }
-
-            const files = parseMultipartForm(bodyBuffer, boundary);
-            if (files.length === 0) {
-              res.status(400).json({ success: false, error: 'No files uploaded' });
-              return;
-            }
-
-            const uploaded: string[] = [];
-            for (const file of files) {
-              const saveRes = await terminalFileService.saveUploadedFile(hostId, targetDir, file.filename, file.data);
-              if (!saveRes.success) {
-                res.status(500).json({ success: false, error: saveRes.error || `Failed to save ${file.filename}` });
-                return;
-              }
-              uploaded.push(file.filename);
-            }
-            res.status(200).json({ success: true, uploaded });
-          } else {
-            // Direct raw binary upload with filename in header
-            const filename = (req.headers['x-filename'] as string) || `upload-${Date.now()}`;
-            const saveRes = await terminalFileService.saveUploadedFile(hostId, targetDir, filename, bodyBuffer);
-            res.status(saveRes.success ? 200 : 500).json(saveRes);
-          }
-        } catch (innerErr: any) {
-          logger.error(`[TerminalFileController] upload processing error: ${innerErr.message}`);
-          res.status(500).json({ success: false, error: innerErr.message });
+      if (contentType.includes('multipart/form-data')) {
+        const boundaryMatch = contentType.match(/boundary=([^;]+)/i);
+        const boundary = boundaryMatch ? boundaryMatch[1].trim().replace(/^["']|["']$/g, '') : '';
+        if (!boundary) {
+          res.status(400).json({ success: false, error: 'Multipart boundary not found' });
+          return;
         }
-      });
 
-      req.on('error', (err: any) => {
-        logger.error(`[TerminalFileController] upload request error: ${err.message}`);
-        res.status(500).json({ success: false, error: err.message });
-      });
+        const result = await parseAndUploadMultipart(req, boundary, hostId, targetDir);
+        if (!result.success) {
+          res.status(500).json({ success: false, error: result.error || 'Failed to upload files' });
+          return;
+        }
+        if (!result.uploaded || result.uploaded.length === 0) {
+          res.status(400).json({ success: false, error: 'No files uploaded' });
+          return;
+        }
+        res.status(200).json({ success: true, uploaded: result.uploaded });
+        return;
+      }
+
+      // Direct binary stream upload with filename in header
+      const filename = (req.headers['x-filename'] as string) || `upload-${Date.now()}`;
+      const saveRes = await terminalFileService.saveUploadedStream(hostId, targetDir, filename, req);
+      res.status(saveRes.success ? 200 : 500).json(saveRes);
     } catch (err: any) {
+      logger.error(`[TerminalFileController] upload processing error: ${err.message}`);
       res.status(500).json({ success: false, error: err.message });
     }
   }

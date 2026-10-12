@@ -57,6 +57,11 @@ describe('gt cp upload and download', () => {
       }
 
       if (parsedUrl.pathname === '/api/terminal/files/upload') {
+        if (req.headers['x-admin-key'] === 'invalid-key') {
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Unauthorized key' }));
+          return;
+        }
         let body = '';
         req.on('data', chunk => { body += chunk; });
         req.on('end', () => {
@@ -92,6 +97,9 @@ describe('gt cp upload and download', () => {
   });
 
   afterAll((done) => {
+    if (typeof (server as any).closeAllConnections === 'function') {
+      (server as any).closeAllConnections();
+    }
     server.close(() => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
       done();
@@ -136,5 +144,20 @@ describe('gt cp upload and download', () => {
     expect(code).toBe(0);
     expect(fs.existsSync(destFile)).toBe(true);
     expect(fs.readFileSync(destFile, 'utf-8')).toBe('remote file content for test');
+  });
+
+  it('rejects upload and destroys read stream when server returns 401 error', async () => {
+    const localFile = path.join(tmpDir, 'test-err-upload.txt');
+    fs.writeFileSync(localFile, 'should fail gracefully');
+
+    await expect(
+      uploadLocalFile({
+        serverUrl,
+        apiKey: 'invalid-key',
+        hostId: 'host-100',
+        localPath: localFile,
+        remotePath: '/remote/dir/test-err-upload.txt',
+      })
+    ).rejects.toThrow(/Upload failed/i);
   });
 });

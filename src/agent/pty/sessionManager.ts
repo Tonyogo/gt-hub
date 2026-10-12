@@ -65,6 +65,7 @@ export class StreamSessionManager {
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
       LANG: process.env.LANG || 'en_US.UTF-8',
+      PROMPT_EOL_MARK: '',
     };
 
     let driver: any = null;

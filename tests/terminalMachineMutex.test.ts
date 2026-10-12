@@ -1,8 +1,8 @@
 import http from 'http';
 import WebSocket from 'ws';
 import express from 'express';
-import { TerminalHostManager } from '../src/server/modules/terminal/services/hostManager';
-import { setupTerminalWebSocket } from '../src/server/modules/terminal/ws/terminalWs';
+import { TerminalHostManager } from '../src/terminal/services/terminalHostManager';
+import { setupTerminalWebSocket } from '../src/terminal/routes/terminalWs';
 
 describe('Server-side Single Agent per Machine Enforcement', () => {
   let server: http.Server;

@@ -624,6 +624,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       COLORTERM: 'truecolor',
       LANG: process.env.LANG || 'en_US.UTF-8',
       TERM_PROGRAM: 'gemini-proxy-agent',
+      PROMPT_EOL_MARK: '',
       CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: process.env.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN || '1',
     };
     delete env.TMUX;
@@ -864,6 +865,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
           if (control.type === 'rejected') {
             isExiting = true;
             console.error(`\x1b[31m[Error] Registration rejected by server: ${control.reason || 'Registration conflict'}\x1b[0m`);
+            console.error('Please choose a different name using --name=<unique-name>.');
             if (ws) {
               try { ws.close(); } catch {}
             }
@@ -936,15 +938,6 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
           if (control.type === 'registered') {
             console.log(`[Agent] Registered confirmed: hostId=${control.hostId}, status=${control.status}`);
             return;
-          }
-          if (control.type === 'rejected') {
-            isExiting = true;
-            console.error(`\x1b[31m[Error] Registration rejected by server: ${control.reason || 'Name conflict'}\x1b[0m`);
-            console.error('Please choose a different name using --name=<unique-name>.');
-            if (ws) {
-              try { ws.close(); } catch {}
-            }
-            process.exit(1);
           }
           return;
         }
