@@ -31,9 +31,12 @@ describe('Version Metadata Resolver', () => {
     expect(typeof data.gitCommit).toBe('string');
     expect(typeof data.buildTime).toBe('string');
     // If on a tagged release, version should not contain + suffix; otherwise semver+hash
-    if (data.gitDescribe && /^v?[0-9]+\.[0-9]+$/.test(data.gitDescribe)) {
+    if (data.gitDescribe && /^v?[0-9]+\.[0-9]+(\.[0-9]+)?$/.test(data.gitDescribe)) {
       expect(data.version.includes('+')).toBe(false);
       expect(data.version).toBe(data.gitDescribe.replace(/^v/, ''));
+    } else if (data.gitCommit && data.gitCommit !== 'unknown') {
+      expect(data.version).toBe(`${pkg.version}+${data.gitCommit}`);
+      expect(data.version.includes('+')).toBe(true);
     }
   });
 });
