@@ -1,4 +1,10 @@
-const esbuild = require('esbuild');
+let _esbuild = null;
+function getEsbuild() {
+  if (!_esbuild) {
+    _esbuild = require('esbuild');
+  }
+  return _esbuild;
+}
 const path = require('path');
 const fs = require('fs');
 const { execSync } = require('child_process');
@@ -102,7 +108,7 @@ function buildGt(options = {}) {
     ...(esbuildOptions.define || {}),
   };
 
-  const buildResult = esbuild.buildSync({
+  const buildResult = getEsbuild().buildSync({
     entryPoints: [path.join(rootDir, 'src/bin/gt.ts')],
     bundle: true,
     platform: 'node',
@@ -133,6 +139,7 @@ if (require.main === module) {
 Options:
   --version-only  Only generate version metadata (src/shared/version.json)
   --silent        Suppress standard build log output
+  --root <path>   Specify repository root directory (default: current project root)
   --help, -h      Show this help message
 `);
     process.exit(0);
@@ -140,14 +147,19 @@ Options:
 
   const isSilent = args.includes('--silent');
   const isVersionOnly = args.includes('--version-only');
+  let customRootDir = process.env.GT_ROOT_DIR || null;
+  const rootIndex = args.indexOf('--root');
+  if (rootIndex !== -1 && args[rootIndex + 1]) {
+    customRootDir = path.resolve(args[rootIndex + 1]);
+  }
 
   if (isVersionOnly) {
-    const data = generateVersionData();
+    const data = generateVersionData(customRootDir ? { rootDir: customRootDir } : {});
     if (!isSilent) {
       console.log(`[version] Generated src/shared/version.json: ${data.version} (${data.gitCommit}) built at ${data.buildTime}`);
     }
   } else {
-    buildGt({ silent: isSilent });
+    buildGt({ rootDir: customRootDir || undefined, silent: isSilent });
   }
 }
 

@@ -17,17 +17,20 @@ echo "===> [1/5] Pulling latest code and tags from origin/main..."
 git fetch origin main --tags -f
 git reset --hard origin/main
 
-# Inspect current git commit, package version, and derive version from git describe --tags --always
+# Inspect current git commit, package version, and derive version using unified build-gt.js
 GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 COMMIT_TITLE=$(git log -1 --pretty=%B 2>/dev/null | head -n 1 || echo "")
-BASE_VERSION=$(node -p "require('./package.json').version" 2>/dev/null || echo "1.0.0")
 GIT_DESCRIBE=$(git describe --tags --always 2>/dev/null || echo "${GIT_COMMIT}")
 
-# Generate deployment version based on git describe --tags --always
-if [[ "$GIT_DESCRIBE" =~ ^v?[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
-  [[ "$GIT_DESCRIBE" != v* ]] && TARGET_VERSION="v${GIT_DESCRIBE}" || TARGET_VERSION="${GIT_DESCRIBE}"
-else
-  TARGET_VERSION="v${BASE_VERSION}+${GIT_COMMIT}"
+# Generate deployment version unified with build-gt.js (Single Source of Truth)
+TARGET_VERSION=$(node scripts/build-gt.js --version-only --silent 2>/dev/null && node -p "require('./src/shared/version.json').version" 2>/dev/null || true)
+if [ -z "$TARGET_VERSION" ]; then
+  BASE_VERSION=$(node -p "require('./package.json').version" 2>/dev/null || echo "1.0.0")
+  if [[ "$GIT_DESCRIBE" =~ ^v?[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+    TARGET_VERSION="${GIT_DESCRIBE#v}"
+  else
+    TARGET_VERSION="${BASE_VERSION}+${GIT_COMMIT}"
+  fi
 fi
 
 echo "------------------------------------------"

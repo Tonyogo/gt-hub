@@ -13,8 +13,9 @@ describe('Deploy Script & Git Describe Version Derivation', () => {
     execSync('git config user.name "Test"', { cwd: tmpRepoDir, stdio: 'ignore' });
     execSync('git config user.email "test@example.com"', { cwd: tmpRepoDir, stdio: 'ignore' });
     execSync('git config commit.gpgsign false', { cwd: tmpRepoDir, stdio: 'ignore' });
+    fs.writeFileSync(path.join(tmpRepoDir, 'package.json'), JSON.stringify({ version: '1.0.0' }, null, 2));
     fs.writeFileSync(path.join(tmpRepoDir, 'init.txt'), 'initial');
-    execSync('git add init.txt', { cwd: tmpRepoDir, stdio: 'ignore' });
+    execSync('git add .', { cwd: tmpRepoDir, stdio: 'ignore' });
     execSync('git commit -m "initial commit"', { cwd: tmpRepoDir, stdio: 'ignore' });
     initialCommit = execSync('git rev-parse HEAD', { cwd: tmpRepoDir }).toString().trim();
   });
@@ -40,16 +41,21 @@ describe('Deploy Script & Git Describe Version Derivation', () => {
     }
   });
 
+  const buildGtPath = path.resolve(__dirname, '../scripts/build-gt.js');
+
   // Executes the exact bash version derivation snippet used in scripts/deploy.sh
   function runDeployScriptVersionSnippet(cwd: string, baseVersion = '1.0.0'): string {
     const script = `
       GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-      BASE_VERSION="${baseVersion}"
       GIT_DESCRIBE=$(git describe --tags --always 2>/dev/null || echo "\${GIT_COMMIT}")
-      if [[ "$GIT_DESCRIBE" =~ ^v?[0-9]+\\.[0-9]+(\\.[0-9]+)?$ ]]; then
-        [[ "$GIT_DESCRIBE" != v* ]] && TARGET_VERSION="v\${GIT_DESCRIBE}" || TARGET_VERSION="\${GIT_DESCRIBE}"
-      else
-        TARGET_VERSION="v\${BASE_VERSION}+\${GIT_COMMIT}"
+      TARGET_VERSION=$(node "${buildGtPath}" --version-only --silent --root . 2>/dev/null && node -p "require('./src/shared/version.json').version" 2>/dev/null || true)
+      if [ -z "$TARGET_VERSION" ]; then
+        BASE_VERSION="${baseVersion}"
+        if [[ "$GIT_DESCRIBE" =~ ^v?[0-9]+\\.[0-9]+(\\.[0-9]+)?$ ]]; then
+          TARGET_VERSION="\${GIT_DESCRIBE#v}"
+        else
+          TARGET_VERSION="\${BASE_VERSION}+\${GIT_COMMIT}"
+        fi
       fi
       echo "$TARGET_VERSION"
     `;
@@ -59,9 +65,9 @@ describe('Deploy Script & Git Describe Version Derivation', () => {
   // TypeScript equivalent of the version derivation logic
   function resolveDeployVersion(describeOut: string, commitHash: string, baseVersion = '1.0.0'): string {
     if (/^v?[0-9]+\.[0-9]+(\.[0-9]+)?$/.test(describeOut)) {
-      return describeOut.startsWith('v') ? describeOut : `v${describeOut}`;
+      return describeOut.replace(/^v/, '');
     } else {
-      return `v${baseVersion}+${commitHash}`;
+      return `${baseVersion}+${commitHash}`;
     }
   }
 
@@ -77,11 +83,11 @@ describe('Deploy Script & Git Describe Version Derivation', () => {
     expect(describeOut).toBe('v1.0.1');
 
     const targetVersion = resolveDeployVersion(describeOut, commitHash);
-    expect(targetVersion).toBe('v1.0.1');
+    expect(targetVersion).toBe('1.0.1');
     expect(targetVersion.includes('+')).toBe(false);
 
     const scriptVersion = runDeployScriptVersionSnippet(tmpRepoDir);
-    expect(scriptVersion).toBe('v1.0.1');
+    expect(scriptVersion).toBe('1.0.1');
   });
 
   it('derives clean version without suffix on tagged commit without leading v (1.0.1)', () => {
@@ -96,11 +102,11 @@ describe('Deploy Script & Git Describe Version Derivation', () => {
     expect(describeOut).toBe('1.0.1');
 
     const targetVersion = resolveDeployVersion(describeOut, commitHash);
-    expect(targetVersion).toBe('v1.0.1');
+    expect(targetVersion).toBe('1.0.1');
     expect(targetVersion.includes('+')).toBe(false);
 
     const scriptVersion = runDeployScriptVersionSnippet(tmpRepoDir);
-    expect(scriptVersion).toBe('v1.0.1');
+    expect(scriptVersion).toBe('1.0.1');
   });
 
   it('derives clean version without suffix on 2-segment tagged commit (v1.0)', () => {
@@ -115,11 +121,11 @@ describe('Deploy Script & Git Describe Version Derivation', () => {
     expect(describeOut).toBe('v1.0');
 
     const targetVersion = resolveDeployVersion(describeOut, commitHash);
-    expect(targetVersion).toBe('v1.0');
+    expect(targetVersion).toBe('1.0');
     expect(targetVersion.includes('+')).toBe(false);
 
     const scriptVersion = runDeployScriptVersionSnippet(tmpRepoDir);
-    expect(scriptVersion).toBe('v1.0');
+    expect(scriptVersion).toBe('1.0');
   });
 
   it('derives version with commit suffix on untagged commit', () => {
@@ -133,11 +139,11 @@ describe('Deploy Script & Git Describe Version Derivation', () => {
     expect(describeOut).toBe(commitHash);
 
     const targetVersion = resolveDeployVersion(describeOut, commitHash);
-    expect(targetVersion).toBe(`v1.0.0+${commitHash}`);
+    expect(targetVersion).toBe(`1.0.0+${commitHash}`);
     expect(targetVersion.includes('+')).toBe(true);
 
     const scriptVersion = runDeployScriptVersionSnippet(tmpRepoDir);
-    expect(scriptVersion).toBe(`v1.0.0+${commitHash}`);
+    expect(scriptVersion).toBe(`1.0.0+${commitHash}`);
   });
 
   it('derives version with commit suffix when commits exist after tag (e.g. v1.0.1-1-g...)', () => {
@@ -155,17 +161,17 @@ describe('Deploy Script & Git Describe Version Derivation', () => {
 
     expect(describeOut).toMatch(/^v1\.0\.1-\d+-g[0-9a-f]+$/);
 
-    // scripts/deploy.sh uses v${BASE_VERSION}+${GIT_COMMIT} when not directly on a clean tag
+    // scripts/deploy.sh uses ${BASE_VERSION}+${GIT_COMMIT} when not directly on a clean tag
     const targetVersion = resolveDeployVersion(describeOut, commitHash);
-    expect(targetVersion).toBe(`v1.0.0+${commitHash}`);
+    expect(targetVersion).toBe(`1.0.0+${commitHash}`);
     expect(targetVersion.includes('+')).toBe(true);
 
     const scriptVersion = runDeployScriptVersionSnippet(tmpRepoDir);
-    expect(scriptVersion).toBe(`v1.0.0+${commitHash}`);
+    expect(scriptVersion).toBe(`1.0.0+${commitHash}`);
   });
 
   it('handles fallback when git describe output is invalid or empty', () => {
-    expect(resolveDeployVersion('', 'abc1234')).toBe('v1.0.0+abc1234');
-    expect(resolveDeployVersion('unknown', 'unknown')).toBe('v1.0.0+unknown');
+    expect(resolveDeployVersion('', 'abc1234')).toBe('1.0.0+abc1234');
+    expect(resolveDeployVersion('unknown', 'unknown')).toBe('1.0.0+unknown');
   });
 });
