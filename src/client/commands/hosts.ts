@@ -1,6 +1,7 @@
 import { makeRequest, formatTemplate } from '../utils/terminalUI';
 import { formatRelativeTime } from '../../shared/utils/timeHelpers';
 import { AgentDaemonManager } from '../../agent/daemon';
+import { ConfigStore } from '../config/configStore';
 
 export async function handleRemotePs({
   server,
@@ -56,46 +57,71 @@ export async function handleRemotePs({
 
       if (hosts.length === 0) {
         console.log(showAll ? 'No terminal agent hosts recorded.' : 'No online terminal agent hosts found. (Use -a to show offline)');
-        if (!jsonOutput && !formatTemplateStr) {
-          const runningAgents = AgentDaemonManager.getAllAgents().filter(a => a.running);
-          if (runningAgents.length > 0) {
-            console.log(`\n(Tip: ${runningAgents.length} local agent daemon(s) active. Run 'gt ps -l' to view)`);
-          }
-        }
         process.exit(0);
       }
 
-      console.log(
-        'NODE ID'.padEnd(20) +
-        'NAME'.padEnd(25) +
-        'STATUS'.padEnd(12) +
-        'VERSION'.padEnd(12) +
-        'PLATFORM'.padEnd(12) +
-        'IP'.padEnd(18) +
-        'LAST SEEN'
-      );
-      console.log('-'.repeat(107));
+      let localMachineId = '';
+      try {
+        localMachineId = ConfigStore.getMachineId();
+      } catch {}
 
-      for (const h of hosts) {
+      let localStatus: any = null;
+      try {
+        localStatus = AgentDaemonManager.getStatus();
+      } catch {}
+
+      const headers = ['NODE ID', 'NAME', 'STATUS', 'VERSION', 'PLATFORM', 'IP', 'LAST SEEN'];
+      const minColWidths = [18, 20, 10, 10, 10, 16, 10];
+
+      const rows = hosts.map(h => {
+        const isLocal = !!(
+          (localMachineId && h.machineId && h.machineId === localMachineId) ||
+          (localMachineId && h.id && h.id === localMachineId) ||
+          (localStatus && localStatus.running && (
+            (localStatus.id && h.id === localStatus.id) ||
+            (localStatus.name && (h.name === localStatus.name || h.hostname === localStatus.name))
+          ))
+        );
+        const baseName = h.name || h.hostname || '';
+        const nameStr = isLocal && !baseName.endsWith('(local)') ? `${baseName} (local)` : baseName;
         const statusStr = h.status === 'online' ? 'online' : 'offline';
         const verStr = h.version || '-';
-        console.log(
-          (h.id || '').padEnd(20) +
-          (h.name || h.hostname || '').padEnd(25) +
-          statusStr.padEnd(12) +
-          verStr.padEnd(12) +
-          (h.platform || '').padEnd(12) +
-          (h.ip || '').padEnd(18) +
-          formatRelativeTime(h.lastSeen)
-        );
+        const lastSeenStr = formatRelativeTime(h.lastSeen);
+
+        return [
+          h.id || '',
+          nameStr,
+          statusStr,
+          verStr,
+          h.platform || '',
+          h.ip || '',
+          lastSeenStr,
+        ];
+      });
+
+      const colWidths = headers.map((header, colIdx) => {
+        let max = Math.max(header.length, minColWidths[colIdx] || 0);
+        for (const row of rows) {
+          const len = (row[colIdx] || '').length;
+          if (len > max) max = len;
+        }
+        return max;
+      });
+
+      const headerLine = headers.map((h, i) => {
+        return i === headers.length - 1 ? h : h.padEnd(colWidths[i] + 3);
+      }).join('');
+
+      console.log(headerLine);
+      console.log('-'.repeat(headerLine.length));
+
+      for (const row of rows) {
+        const line = row.map((cell, i) => {
+          return i === row.length - 1 ? cell : cell.padEnd(colWidths[i] + 3);
+        }).join('');
+        console.log(line);
       }
 
-      if (!jsonOutput && !formatTemplateStr) {
-        const runningAgents = AgentDaemonManager.getAllAgents().filter(a => a.running);
-        if (runningAgents.length > 0) {
-          console.log(`\n(Tip: ${runningAgents.length} local agent daemon(s) active. Run 'gt ps -l' to view)`);
-        }
-      }
       process.exit(0);
     } else {
       console.error(`Error: ${res.data?.error || `HTTP ${res.status}`}`);
