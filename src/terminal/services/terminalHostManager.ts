@@ -580,7 +580,7 @@ export class TerminalHostManager {
     metadata?: { name?: string; hostname?: string; ip?: string; platform?: string; version?: string }
   ): void {
     const canonicalId = this.resolveCanonicalHostId(hostId) || hostId;
-    let host = this.hosts.get(canonicalId);
+    const host = this.hosts.get(canonicalId);
     if (!host) {
       if (ws) {
         this.registerAgent({

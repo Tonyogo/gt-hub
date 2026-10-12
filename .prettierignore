@@ -1,0 +1,8 @@
+dist/
+frontend/dist/
+node_modules/
+frontend/node_modules/
+coverage/
+src/shared/version.json
+package-lock.json
+frontend/package-lock.json

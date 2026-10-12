@@ -54,7 +54,7 @@ async function parseAndUploadMultipart(
       const chunkBuf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       buffer = Buffer.concat([buffer, chunkBuf]);
 
-      let keepProcessing = true;
+      const keepProcessing = true;
       while (keepProcessing) {
         if (saveError) {
           currentFileStream?.destroy();

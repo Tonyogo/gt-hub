@@ -324,29 +324,23 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
     return result.filter(f => f.name.toLowerCase().includes(query));
   }, [files, showHiddenFiles, searchQuery]);
 
-  // Native Download
+  // Direct Stream Download (bypasses memory buffer / res.blob() to avoid browser tab OOM crashes on large files)
   const handleDownload = useCallback((file: TerminalFileItem) => {
-    const url = `/api/terminal/files/download?hostId=${encodeURIComponent(activeHostId)}&path=${encodeURIComponent(file.path)}`;
-    apiFetch(url, { headers: { 'x-admin-key': adminKey } })
-      .then(async (res) => {
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || 'Failed to download file');
-        }
-        return res.blob();
-      })
-      .then((blob) => {
-        const blobUrl = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = blobUrl;
-        a.download = file.name;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(blobUrl);
-      })
-      .catch((err) => showToast(err.message, 'error'));
-  }, [activeHostId, adminKey, showToast]);
+    const params = new URLSearchParams({
+      hostId: activeHostId,
+      path: file.path,
+    });
+    if (adminKey) {
+      params.set('x-admin-key', adminKey);
+    }
+    const downloadUrl = `/api/terminal/files/download?${params.toString()}`;
+    const a = document.createElement('a');
+    a.href = downloadUrl;
+    a.download = file.name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }, [activeHostId, adminKey]);
 
   // Open Preview / Edit
   const handleOpenFile = useCallback(async (file: TerminalFileItem) => {

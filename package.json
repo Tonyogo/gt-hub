@@ -21,6 +21,9 @@
     "dev": "npm run version:gen && ts-node-dev --respawn --transpile-only src/index.ts",
     "pretest": "npm run build:gt",
     "test": "jest --detectOpenHandles --forceExit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,md}\"",
     "clean": "rm -rf dist",
     "version": "npm --prefix frontend version $npm_package_version --no-git-tag-version && git add frontend/package.json frontend/package-lock.json"
   },
@@ -32,17 +35,22 @@
     "ws": "^8.21.3"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/express": "^5.0.6",
     "@types/jest": "^30.0.0",
     "@types/node": "^26.1.1",
     "@types/supertest": "^7.2.0",
     "@types/ws": "^8.18.1",
     "esbuild": "^0.28.2",
+    "eslint": "^10.12.0",
+    "eslint-config-prettier": "^10.1.8",
     "jest": "^29.7.0",
+    "prettier": "^3.9.10",
     "supertest": "^7.0.0",
     "ts-jest": "^29.4.11",
     "ts-node-dev": "^2.0.0",
-    "typescript": "^5.4.5"
+    "typescript": "^5.4.5",
+    "typescript-eslint": "^8.71.1"
   },
   "allowScripts": {
     "node-pty@1.1.0": true

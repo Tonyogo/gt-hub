@@ -1,6 +1,6 @@
 import { createWebSocketAdapter } from '../../shared/utils/wsAdapter';
 
-function getWebSocketCtor(): any {
+export function getWebSocketCtor(): any {
   let wsImpl: any = null;
   try {
     wsImpl = require('ws');
