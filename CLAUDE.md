@@ -67,5 +67,4 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **Build & Versioning Pipeline (`scripts/`, `src/shared/`)**:
   - `package.json` is the single source of truth for the base version.
-  - `scripts/generate-version.js` calculates git commit, tag descriptions, and build timestamps, writing `src/shared/version.json`.
-  - `scripts/build-gt.js` compiles `src/bin/gt.ts` into `dist/gt.js` while injecting compile-time defines (`__GT_VERSION__`, `__GT_GIT_COMMIT__`, `__GT_BUILD_TIME__`).
+  - `scripts/build-gt.js` generates version metadata (writing `src/shared/version.json`) and compiles `src/bin/gt.ts` into `dist/gt.js` while injecting compile-time defines (`__GT_VERSION__`, `__GT_GIT_COMMIT__`, `__GT_BUILD_TIME__`). Supports `--version-only` to only generate version metadata.

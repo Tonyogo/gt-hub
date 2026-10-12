@@ -8,7 +8,7 @@
   },
   "scripts": {
     "gt": "node scripts/gt.js",
-    "version:gen": "node scripts/generate-version.js",
+    "version:gen": "node scripts/build-gt.js --version-only",
     "build:gt": "node scripts/build-gt.js",
     "postinstall": "cd frontend && ( [ -d node_modules ] || npm install )",
     "build:frontend": "cd frontend && ( [ -d node_modules ] || npm install ) && npm run build",
