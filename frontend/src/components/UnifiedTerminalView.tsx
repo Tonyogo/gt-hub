@@ -24,6 +24,11 @@ import { useTranslation } from '../i18n/LanguageContext';
 import { useTheme } from '../theme/ThemeContext';
 import { calculateKeyboardTranslateY } from '../utils/mobileViewportHelper';
 import { onUnauthorized } from '../utils/apiClient';
+import {
+  isFullscreenActive,
+  toggleBrowserFullscreen,
+  onFullscreenChange,
+} from '../utils/browserFullscreenHelper';
 
 export interface UnifiedTerminalViewProps {
   adminKey?: string;
@@ -74,6 +79,16 @@ export default function UnifiedTerminalView({
   });
   const [isSelectMode, setIsSelectMode] = useState<boolean>(false);
   const [isAddNodeModalOpen, setIsAddNodeModalOpen] = useState<boolean>(false);
+  const [isBrowserFullscreen, setIsBrowserFullscreen] = useState<boolean>(() => isFullscreenActive());
+
+  useEffect(() => {
+    return onFullscreenChange((active) => {
+      setIsBrowserFullscreen(active);
+      setTimeout(() => {
+        terminalRef.current?.fit(true);
+      }, 150);
+    });
+  }, []);
 
   const headerRef = useRef<HTMLDivElement>(null);
   // Mobile Visual Viewport tracking for virtual keyboard positioning in standalone mode
@@ -216,13 +231,9 @@ export default function UnifiedTerminalView({
     }
   }, []);
 
-  const handleFullscreenToggle = () => {
-    if (isStandalone) {
-      onExitStandalone?.();
-    } else {
-      onEnterStandalone?.();
-    }
-  };
+  const handleFullscreenToggle = useCallback(() => {
+    toggleBrowserFullscreen(isMobile).catch(() => {});
+  }, [isMobile]);
 
   const handleResetSession = useCallback(() => {
     if (window.confirm(t('webTerminal.resetConfirm'))) {
@@ -434,21 +445,20 @@ export default function UnifiedTerminalView({
             </button>
           )}
 
-          {/* Fullscreen / Standalone Toggle (Desktop only) */}
-          {!isMobile && (
-            <button
-              type="button"
-              onClick={handleFullscreenToggle}
-              className={`p-1 sm:p-1.5 rounded-lg border transition-all ${
-                isStandalone
-                  ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
-                  : 'bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border border-white/[0.06]'
-              }`}
-              title={isStandalone ? t('webTerminal.exitFullscreen') : t('webTerminal.fullscreen')}
-            >
-              {isStandalone ? <Minimize2 className="w-3.5 h-3.5 text-indigo-400" /> : <Maximize2 className="w-3.5 h-3.5" />}
-            </button>
-          )}
+          {/* Fullscreen Toggle (All devices, landscape mode on mobile) */}
+          <button
+            type="button"
+            data-testid="fullscreen-toggle-btn"
+            onClick={handleFullscreenToggle}
+            className={`p-1 sm:p-1.5 rounded-lg border transition-all ${
+              isBrowserFullscreen
+                ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                : 'bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border border-white/[0.06]'
+            }`}
+            title={isBrowserFullscreen ? t('webTerminal.exitFullscreen') : t('webTerminal.fullscreen')}
+          >
+            {isBrowserFullscreen ? <Minimize2 className="w-3.5 h-3.5 text-indigo-400" /> : <Maximize2 className="w-3.5 h-3.5" />}
+          </button>
 
           {/* Global Settings Separator */}
           <div className="h-3.5 w-px bg-[var(--border-subtle)] mx-0.5 sm:mx-1 hidden sm:block" />

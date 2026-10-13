@@ -34,4 +34,17 @@ describe('UnifiedTerminalView Micro Top Bar Integrated Controls', () => {
     expect(content).toContain('openScriptDrawer');
     expect(content).toContain('scripts.title');
   });
+
+  it('UnifiedTerminalView imports and uses browserFullscreenHelper for universal fullscreen', () => {
+    expect(content).toMatch(/import\s*\{[^}]*\btoggleBrowserFullscreen\b[^}]*\}\s*from\s*'\.\.\/utils\/browserFullscreenHelper'/);
+    expect(content).toMatch(/import\s*\{[^}]*\bisFullscreenActive\b[^}]*\}\s*from\s*'\.\.\/utils\/browserFullscreenHelper'/);
+    expect(content).toMatch(/import\s*\{[^}]*\bonFullscreenChange\b[^}]*\}\s*from\s*'\.\.\/utils\/browserFullscreenHelper'/);
+  });
+
+  it('UnifiedTerminalView renders browser fullscreen button for both mobile and desktop', () => {
+    expect(content).toContain('data-testid="fullscreen-toggle-btn"');
+    expect(content).toContain('handleFullscreenToggle');
+    expect(content).toMatch(/isBrowserFullscreen\s*\?\s*<Minimize2[^>]*\/>\s*:\s*<Maximize2[^>]*\/>/);
+    expect(content).not.toMatch(/\{!isMobile\s*&&\s*\(\s*<button[^>]*data-testid="fullscreen-toggle-btn"/);
+  });
 });

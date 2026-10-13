@@ -39,6 +39,6 @@ describe('Terminal Fullscreen Connection Reuse & Lifecycle', () => {
     const unifiedPath = path.resolve(__dirname, '../frontend/src/components/UnifiedTerminalView.tsx');
     const unifiedContent = fs.readFileSync(unifiedPath, 'utf-8');
     expect(unifiedContent).toContain('handleFullscreenToggle');
-    expect(unifiedContent).toMatch(/isStandalone\s*\?\s*<Minimize2[^>]*\/>\s*:\s*<Maximize2[^>]*\/>/);
+    expect(unifiedContent).toMatch(/isBrowserFullscreen\s*\?\s*<Minimize2[^>]*\/>\s*:\s*<Maximize2[^>]*\/>/);
   });
 });
