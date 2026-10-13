@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import downloadRoutes from './modules/download/downloadRoutes';
 import authRoutes from './modules/auth/authRoutes';
 import terminalRoutes from '../terminal/routes/terminalRoutes';
+import scriptRoutes from './modules/scripts/scriptRoutes';
 import staticMiddleware from './modules/static/staticMiddleware';
 import errorHandlerMiddleware from './middlewares/errorHandler';
 import { getVersionInfo } from '../shared/version';
@@ -19,6 +20,10 @@ app.use('/api/auth', authRoutes);
 // Terminal API endpoints
 app.use('/api/terminal', terminalRoutes);
 app.use('/api/admin/terminal', terminalRoutes); // Compatibility alias
+
+// Script API endpoints
+app.use('/api/admin/scripts', scriptRoutes);
+app.use('/api/scripts', scriptRoutes);
 
 // Server Health check
 app.get('/health', (req: Request, res: Response) => {
