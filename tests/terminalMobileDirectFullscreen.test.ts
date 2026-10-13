@@ -9,8 +9,9 @@ describe('Terminal Mobile Direct Fullscreen Routing & Logic', () => {
     unifiedContent = fs.readFileSync(unifiedPath, 'utf-8');
   });
 
-  it('UnifiedTerminalView hides Fullscreen toggle button completely on mobile', () => {
-    expect(unifiedContent).toContain('{!isMobile && (');
-    expect(unifiedContent).toMatch(/\{!isMobile\s*&&\s*\([\s\S]*?<Maximize2/);
+  it('UnifiedTerminalView renders Fullscreen toggle button universally on both mobile and desktop', () => {
+    expect(unifiedContent).not.toMatch(/\{!isMobile\s*&&\s*\([\s\S]*?<button[^>]*data-testid="fullscreen-toggle-btn"/);
+    expect(unifiedContent).toContain('data-testid="fullscreen-toggle-btn"');
+    expect(unifiedContent).toContain('handleFullscreenToggle');
   });
 });
