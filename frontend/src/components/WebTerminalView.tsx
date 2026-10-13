@@ -18,7 +18,8 @@ import {
   Check,
   X,
   TextSelect,
-  Plus
+  Plus,
+  ScrollText
 } from 'lucide-react';
 import { useTranslation } from '../i18n/LanguageContext';
 import { useTheme } from '../theme/ThemeContext';
@@ -53,6 +54,7 @@ import { useTerminalIme } from './terminal/hooks/useTerminalIme';
 import { TerminalMagnifierBubble } from './terminal/components/TerminalMagnifierBubble';
 import { TerminalSelectionToolbar } from './terminal/components/TerminalSelectionToolbar';
 import { TerminalEmptyState } from './terminal/components/TerminalEmptyState';
+import { TerminalScriptDrawer } from './terminal/TerminalScriptDrawer';
 
 
 const DARK_TERMINAL_THEME = {
@@ -166,6 +168,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
   const [hasSelection, setHasSelection] = useState<boolean>(false);
   const [selectedCharCount, setSelectedCharCount] = useState<number>(0);
   const [isSelectMode, setIsSelectMode] = useState<boolean>(false);
+  const [isScriptDrawerOpen, setIsScriptDrawerOpen] = useState<boolean>(false);
   const [magnifier, setMagnifier] = useState<{
     visible: boolean;
     x: number;
@@ -1596,6 +1599,11 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     scrollToBottomSafe(xtermRef.current);
   };
 
+  const handleExecuteScript = useCallback((command: string) => {
+    handleSendInput(command + '\r', true);
+    xtermRef.current?.focus();
+  }, []);
+
   const handleToggleKeyboard = () => {
     const textarea = terminalContainerRef.current?.querySelector('textarea');
     if (isKeyboardOpen) {
@@ -2187,6 +2195,18 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
             <Trash2 className="w-3.5 h-3.5" />
           </button>
 
+          {/* Script Library Drawer Toggle */}
+          <button
+            type="button"
+            data-testid="open-scripts-btn"
+            onClick={() => setIsScriptDrawerOpen(true)}
+            className="p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border border-white/[0.06] transition-all flex items-center space-x-1 text-xs"
+            title={t('scripts.title', '常用脚本库')}
+          >
+            <ScrollText className="w-3.5 h-3.5 text-indigo-400" />
+            <span className="hidden md:inline font-sans text-[11px]">{t('scripts.title', '常用脚本库')}</span>
+          </button>
+
           {/* Select / Copy Mode Toggle (Desktop & Mobile unified) */}
           <button
             type="button"
@@ -2386,6 +2406,15 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         onToggleSelectMode={handleToggleSelectMode}
       />
       )}
+      {/* Script Management & Dispatch Drawer */}
+      <TerminalScriptDrawer
+        isOpen={isScriptDrawerOpen}
+        onClose={() => setIsScriptDrawerOpen(false)}
+        onExecute={handleExecuteScript}
+        isConnected={isConnected}
+        activeHostTitle={activeHostId}
+        adminKey={adminKey}
+      />
       </div>
     </div>
   );
