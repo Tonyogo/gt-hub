@@ -8,6 +8,7 @@ describe('Terminal Component Handles and Props Verification', () => {
   it('WebTerminalView exports WebTerminalHandle and supports hideHeader and handle callbacks', () => {
     const content = fs.readFileSync(webTerminalPath, 'utf-8');
     expect(content).toContain('export interface WebTerminalHandle');
+    expect(content).toContain('openScriptDrawer');
     expect(content).toContain('hideHeader');
     expect(content).toContain('onConnectionChange');
     expect(content).toContain('onSelectModeChange');

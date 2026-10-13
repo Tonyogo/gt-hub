@@ -111,6 +111,7 @@ export interface WebTerminalHandle {
   reconnect: () => void;
   resetSession: () => void;
   toggleSelectMode: () => void;
+  openScriptDrawer: () => void;
   fit: (force?: boolean) => void;
   scrollToBottomSafe?: () => void;
   isAtBottom?: () => boolean;
@@ -1985,6 +1986,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     reconnect: handleManualReconnect,
     resetSession: executeReset,
     toggleSelectMode: handleToggleSelectMode,
+    openScriptDrawer: () => setIsScriptDrawerOpen(true),
     fit: (force: boolean = false) => safeFit(force),
     scrollToBottomSafe: () => {
       handleScrollToBottom();

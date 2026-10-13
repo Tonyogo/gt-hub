@@ -28,4 +28,10 @@ describe('UnifiedTerminalView Micro Top Bar Integrated Controls', () => {
   it('UnifiedTerminalView provides default isStandalone=true prop', () => {
     expect(content).toMatch(/isStandalone\s*=\s*true/);
   });
+
+  it('UnifiedTerminalView includes script library button when in interactive subTab', () => {
+    expect(content).toMatch(/import\s*\{[^}]*\bScrollText\b[^}]*\}\s*from\s*'lucide-react'/);
+    expect(content).toContain('openScriptDrawer');
+    expect(content).toContain('scripts.title');
+  });
 });

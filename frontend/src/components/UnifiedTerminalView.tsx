@@ -18,6 +18,7 @@ import {
   Sun,
   Moon,
   LogOut,
+  ScrollText,
 } from 'lucide-react';
 import { useTranslation } from '../i18n/LanguageContext';
 import { useTheme } from '../theme/ThemeContext';
@@ -389,6 +390,18 @@ export default function UnifiedTerminalView({
                 title={t('webTerminal.resetSession')}
               >
                 <Trash2 className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Script Library Drawer Toggle */}
+              <button
+                type="button"
+                data-testid="unified-open-scripts-btn"
+                onClick={() => terminalRef.current?.openScriptDrawer()}
+                className="p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border border-white/[0.06] transition-all flex items-center space-x-1 text-xs"
+                title={t('scripts.title', '常用脚本库')}
+              >
+                <ScrollText className="w-3.5 h-3.5 text-indigo-400" />
+                <span className="hidden md:inline font-sans text-[11px]">{t('scripts.title', '常用脚本库')}</span>
               </button>
 
               {/* Select / Copy Mode Toggle */}
