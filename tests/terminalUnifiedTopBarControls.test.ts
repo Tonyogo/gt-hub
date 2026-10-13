@@ -47,4 +47,25 @@ describe('UnifiedTerminalView Micro Top Bar Integrated Controls', () => {
     expect(content).toMatch(/isBrowserFullscreen\s*\?\s*<Minimize2[^>]*\/>\s*:\s*<Maximize2[^>]*\/>/);
     expect(content).not.toMatch(/\{!isMobile\s*&&\s*\(\s*<button[^>]*data-testid="fullscreen-toggle-btn"/);
   });
+
+  it('UnifiedTerminalView imports MoreVertical icon for mobile overflow menu', () => {
+    expect(content).toMatch(/import\s*\{[^}]*\bMoreVertical\b[^}]*\}\s*from\s*'lucide-react'/);
+  });
+
+  it('UnifiedTerminalView manages isMoreMenuOpen state and closes on click-outside', () => {
+    expect(content).toContain('isMoreMenuOpen');
+    expect(content).toContain('setIsMoreMenuOpen');
+  });
+
+  it('UnifiedTerminalView pins Select Mode and Fullscreen on mobile while collapsing secondary desktop buttons', () => {
+    // Desktop secondary buttons have hidden sm:inline-flex or hidden sm:flex
+    expect(content).toMatch(/data-testid="unified-open-scripts-btn"[^>]*hidden\s+sm:inline-flex/);
+    expect(content).toContain('data-testid="mobile-more-btn"');
+    expect(content).toContain('sm:hidden');
+  });
+
+  it('UnifiedTerminalView renders mobile more menu popover containing Script Library, Reconnect, Settings', () => {
+    expect(content).toContain('data-testid="mobile-more-menu"');
+    expect(content).toContain('openScriptDrawer');
+  });
 });

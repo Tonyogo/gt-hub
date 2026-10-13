@@ -19,6 +19,7 @@ import {
   Moon,
   LogOut,
   ScrollText,
+  MoreVertical,
 } from 'lucide-react';
 import { useTranslation } from '../i18n/LanguageContext';
 import { useTheme } from '../theme/ThemeContext';
@@ -80,6 +81,23 @@ export default function UnifiedTerminalView({
   const [isSelectMode, setIsSelectMode] = useState<boolean>(false);
   const [isAddNodeModalOpen, setIsAddNodeModalOpen] = useState<boolean>(false);
   const [isBrowserFullscreen, setIsBrowserFullscreen] = useState<boolean>(() => isFullscreenActive());
+  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState<boolean>(false);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isMoreMenuOpen) return;
+    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
+        setIsMoreMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside as EventListener);
+    document.addEventListener('touchstart', handleClickOutside as EventListener);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside as EventListener);
+      document.removeEventListener('touchstart', handleClickOutside as EventListener);
+    };
+  }, [isMoreMenuOpen]);
 
   useEffect(() => {
     return onFullscreenChange((active) => {
@@ -387,7 +405,7 @@ export default function UnifiedTerminalView({
               <button
                 type="button"
                 onClick={() => terminalRef.current?.reconnect()}
-                className="p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border border-white/[0.06] transition-all"
+                className="hidden sm:inline-flex p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border border-white/[0.06] transition-all"
                 title={t('webTerminal.reconnect')}
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${connectionStatus.isConnecting ? 'animate-spin text-indigo-400' : ''}`} />
@@ -397,7 +415,7 @@ export default function UnifiedTerminalView({
               <button
                 type="button"
                 onClick={handleResetSession}
-                className="p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 border border-white/[0.06] hover:border-rose-500/30 transition-all"
+                className="hidden sm:inline-flex p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 border border-white/[0.06] hover:border-rose-500/30 transition-all"
                 title={t('webTerminal.resetSession')}
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -407,8 +425,8 @@ export default function UnifiedTerminalView({
               <button
                 type="button"
                 data-testid="unified-open-scripts-btn"
+                className="hidden sm:inline-flex p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border border-white/[0.06] transition-all items-center space-x-1 text-xs"
                 onClick={() => terminalRef.current?.openScriptDrawer()}
-                className="p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border border-white/[0.06] transition-all flex items-center space-x-1 text-xs"
                 title={t('scripts.title', '常用脚本库')}
               >
                 <ScrollText className="w-3.5 h-3.5 text-indigo-400" />
@@ -460,6 +478,123 @@ export default function UnifiedTerminalView({
             {isBrowserFullscreen ? <Minimize2 className="w-3.5 h-3.5 text-indigo-400" /> : <Maximize2 className="w-3.5 h-3.5" />}
           </button>
 
+          {/* Mobile More Actions Menu */}
+          <div className="relative sm:hidden" ref={moreMenuRef}>
+            <button
+              type="button"
+              data-testid="mobile-more-btn"
+              onClick={() => setIsMoreMenuOpen((prev) => !prev)}
+              className={`p-1 rounded-lg border transition-all ${
+                isMoreMenuOpen
+                  ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                  : 'bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border border-white/[0.06]'
+              }`}
+              title="更多操作"
+            >
+              <MoreVertical className="w-3.5 h-3.5" />
+            </button>
+
+            {isMoreMenuOpen && (
+              <div
+                data-testid="mobile-more-menu"
+                className="absolute right-0 top-full mt-1.5 w-48 bg-[#18181b] border border-[#27272a] rounded-xl shadow-2xl py-1 z-50 divide-y divide-white/[0.06] text-xs text-slate-300 animate-in fade-in zoom-in-95 duration-100"
+              >
+                {subTab === 'interactive' && (
+                  <div className="py-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        terminalRef.current?.openScriptDrawer();
+                        setIsMoreMenuOpen(false);
+                      }}
+                      className="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-white/[0.06] text-left transition-colors"
+                    >
+                      <ScrollText className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>{t('scripts.title', '常用脚本库')}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        terminalRef.current?.reconnect();
+                        setIsMoreMenuOpen(false);
+                      }}
+                      className="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-white/[0.06] text-left transition-colors"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>{t('webTerminal.reconnect', '重新连接')}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleResetSession();
+                        setIsMoreMenuOpen(false);
+                      }}
+                      className="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-rose-500/10 text-rose-300 text-left transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>{t('webTerminal.resetSession', '重置会话')}</span>
+                    </button>
+                  </div>
+                )}
+
+                <div className="py-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setLanguage(language === 'zh' ? 'en' : 'zh');
+                      setIsMoreMenuOpen(false);
+                    }}
+                    className="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-white/[0.06] text-left transition-colors"
+                  >
+                    <Languages className="w-3.5 h-3.5 text-slate-400" />
+                    <span>{language === 'zh' ? 'English' : '简体中文'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTheme(resolvedTheme === 'dark' ? 'light' : 'dark');
+                      setIsMoreMenuOpen(false);
+                    }}
+                    className="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-white/[0.06] text-left transition-colors"
+                  >
+                    {resolvedTheme === 'dark' ? <Sun className="w-3.5 h-3.5 text-amber-400" /> : <Moon className="w-3.5 h-3.5 text-indigo-400" />}
+                    <span>{resolvedTheme === 'dark' ? '亮色主题' : '暗色主题'}</span>
+                  </button>
+
+                  <a
+                    href="https://github.com/Tonyogo/gt-hub"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setIsMoreMenuOpen(false)}
+                    className="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-white/[0.06] text-left transition-colors"
+                  >
+                    <Github className="w-3.5 h-3.5 text-slate-400" />
+                    <span>GitHub</span>
+                  </a>
+                </div>
+
+                {onLogout && (
+                  <div className="py-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onLogout();
+                        setIsMoreMenuOpen(false);
+                      }}
+                      className="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-rose-500/10 text-rose-400 text-left transition-colors"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>{t('nav.logout', '退出登录')}</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Global Settings Separator */}
           <div className="h-3.5 w-px bg-[var(--border-subtle)] mx-0.5 sm:mx-1 hidden sm:block" />
 
@@ -468,7 +603,7 @@ export default function UnifiedTerminalView({
             href="https://github.com/Tonyogo/gt-hub"
             target="_blank"
             rel="noopener noreferrer"
-            className="p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border border-white/[0.06] transition-all flex items-center justify-center"
+            className="hidden sm:flex p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border border-white/[0.06] transition-all items-center justify-center"
             title={t('nav.github', 'GitHub 仓库')}
           >
             <Github className="w-3.5 h-3.5" />
@@ -478,7 +613,7 @@ export default function UnifiedTerminalView({
           <button
             type="button"
             onClick={() => setLanguage(language === 'zh' ? 'en' : 'zh')}
-            className="p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border border-white/[0.06] transition-all"
+            className="hidden sm:inline-flex p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border border-white/[0.06] transition-all"
             title="Toggle Language"
           >
             <Languages className="w-3.5 h-3.5" />
@@ -488,7 +623,7 @@ export default function UnifiedTerminalView({
           <button
             type="button"
             onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
-            className="p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border border-white/[0.06] transition-all"
+            className="hidden sm:inline-flex p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border border-white/[0.06] transition-all"
             title="Toggle Theme"
           >
             {resolvedTheme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
@@ -499,7 +634,7 @@ export default function UnifiedTerminalView({
             <button
               type="button"
               onClick={onLogout}
-              className="p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 border border-white/[0.06] hover:border-rose-500/30 transition-all"
+              className="hidden sm:inline-flex p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 border border-white/[0.06] hover:border-rose-500/30 transition-all"
               title={t('nav.logout', '退出登录')}
             >
               <LogOut className="w-3.5 h-3.5" />
