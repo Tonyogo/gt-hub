@@ -3,6 +3,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { isSyntheticTerminalReport, isUnsolicitedShellDeviceReport } from '../../../utils/terminalFilter';
 import { shouldScrollToBottom, scrollToBottomSafe } from '../../../utils/terminalScrollHelper';
+import { requestAuthTicket } from '../../../utils/apiClient';
 
 export interface UseTerminalWebSocketOptions {
   adminKey: string;
@@ -107,7 +108,7 @@ export function useTerminalWebSocket({
     [isMobileRef]
   );
 
-  const initWebSocket = useCallback(() => {
+  const initWebSocket = useCallback(async () => {
     clearReconnectTimers();
     isProcessExitedRef.current = false;
     isReplayingRef.current = true;
@@ -136,9 +137,13 @@ export function useTerminalWebSocket({
     setIsConnecting(true);
     setIsConnected(false);
 
+    const ticket = adminKey ? await requestAuthTicket(adminKey) : null;
+    if (!isMountedRef.current) return;
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
-    const wsUrl = `${protocol}//${host}/api/terminal/ws?x-admin-key=${encodeURIComponent(adminKey)}&hostId=${encodeURIComponent(activeHostId)}`;
+    const ticketParam = ticket ? `ticket=${encodeURIComponent(ticket)}` : (adminKey ? `x-admin-key=${encodeURIComponent(adminKey)}` : '');
+    const wsUrl = `${protocol}//${host}/api/terminal/ws?${ticketParam ? ticketParam + '&' : ''}hostId=${encodeURIComponent(activeHostId)}`;
 
     const ws = new WebSocket(wsUrl);
     ws.binaryType = 'arraybuffer';

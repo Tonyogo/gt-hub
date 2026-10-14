@@ -30,7 +30,7 @@ import { useTranslation } from '../../i18n/LanguageContext';
 import { useTheme } from '../../theme/ThemeContext';
 import { defineGeminiProxyTheme } from '../../utils/monacoTheme';
 import { TerminalImagePreviewModal } from './TerminalImagePreviewModal';
-import { apiFetch } from '../../utils/apiClient';
+import { apiFetch, requestAuthTicket } from '../../utils/apiClient';
 
 export interface ToastMessage {
   id: string;
@@ -325,12 +325,15 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
   }, [files, showHiddenFiles, searchQuery]);
 
   // Direct Stream Download (bypasses memory buffer / res.blob() to avoid browser tab OOM crashes on large files)
-  const handleDownload = useCallback((file: TerminalFileItem) => {
+  const handleDownload = useCallback(async (file: TerminalFileItem) => {
     const params = new URLSearchParams({
       hostId: activeHostId,
       path: file.path,
     });
-    if (adminKey) {
+    const ticket = adminKey ? await requestAuthTicket(adminKey) : null;
+    if (ticket) {
+      params.set('ticket', ticket);
+    } else if (adminKey) {
       params.set('x-admin-key', adminKey);
     }
     const downloadUrl = `/api/terminal/files/download?${params.toString()}`;

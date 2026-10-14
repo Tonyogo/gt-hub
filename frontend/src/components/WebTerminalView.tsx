@@ -48,6 +48,7 @@ import {
   TerminalImeController,
 } from '../utils/terminalImeHelper';
 import { useTerminalWebSocket } from './terminal/hooks/useTerminalWebSocket';
+import { requestAuthTicket } from '../utils/apiClient';
 import { useMobileKeyboard } from './terminal/hooks/useMobileKeyboard';
 import { useTerminalSelection } from './terminal/hooks/useTerminalSelection';
 import { useTerminalIme } from './terminal/hooks/useTerminalIme';
@@ -518,7 +519,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     setReconnectCountdown(0);
   }, [clearPingInterval]);
 
-  const initWebSocket = useCallback(() => {
+  const initWebSocket = useCallback(async () => {
     clearReconnectTimers();
     isProcessExitedRef.current = false;
     isReplayingRef.current = true;
@@ -547,9 +548,13 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     setIsConnecting(true);
     setIsConnected(false);
 
+    const ticket = adminKey ? await requestAuthTicket(adminKey) : null;
+    if (!isMountedRef.current) return;
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
-    const wsUrl = `${protocol}//${host}/api/terminal/ws?x-admin-key=${encodeURIComponent(adminKey)}&hostId=${encodeURIComponent(activeHostIdRef.current)}`;
+    const ticketParam = ticket ? `ticket=${encodeURIComponent(ticket)}` : (adminKey ? `x-admin-key=${encodeURIComponent(adminKey)}` : '');
+    const wsUrl = `${protocol}//${host}/api/terminal/ws?${ticketParam ? ticketParam + '&' : ''}hostId=${encodeURIComponent(activeHostIdRef.current)}`;
 
     const ws = new WebSocket(wsUrl);
     ws.binaryType = 'arraybuffer';

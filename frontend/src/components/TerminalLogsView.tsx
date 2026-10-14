@@ -14,6 +14,7 @@ import {
   FileText
 } from 'lucide-react';
 import { useTranslation } from '../i18n/LanguageContext';
+import { requestAuthTicket } from '../utils/apiClient';
 
 interface LogEntry {
   id?: string;
@@ -47,34 +48,45 @@ export default function TerminalLogsView({
 
   useEffect(() => {
     let eventSource: EventSource | null = null;
-    const streamUrl = `/api/terminal/logs?stream=true${adminKey ? `&x-admin-key=${encodeURIComponent(adminKey)}` : ''}`;
+    let isCancelled = false;
 
-    try {
-      eventSource = new EventSource(streamUrl);
+    const connectStream = async () => {
+      const ticket = adminKey ? await requestAuthTicket(adminKey) : null;
+      if (isCancelled) return;
 
-      eventSource.onopen = () => setIsConnected(true);
-      eventSource.onerror = () => setIsConnected(false);
+      const ticketParam = ticket ? `&ticket=${encodeURIComponent(ticket)}` : (adminKey ? `&x-admin-key=${encodeURIComponent(adminKey)}` : '');
+      const streamUrl = `/api/terminal/logs?stream=true${ticketParam}`;
 
-      eventSource.onmessage = (e) => {
-        try {
-          const payload = JSON.parse(e.data);
-          if (payload.type === 'history') {
-            setLogs(payload.logs || []);
-          } else if (payload.type === 'log') {
-            const entry = payload.entry || payload.log;
-            if (entry) {
-              setLogs(prev => [...prev.slice(-499), entry]);
+      try {
+        eventSource = new EventSource(streamUrl);
+
+        eventSource.onopen = () => setIsConnected(true);
+        eventSource.onerror = () => setIsConnected(false);
+
+        eventSource.onmessage = (e) => {
+          try {
+            const payload = JSON.parse(e.data);
+            if (payload.type === 'history') {
+              setLogs(payload.logs || []);
+            } else if (payload.type === 'log') {
+              const entry = payload.entry || payload.log;
+              if (entry) {
+                setLogs(prev => [...prev.slice(-499), entry]);
+              }
             }
+          } catch {
+            // ignore parse error
           }
-        } catch {
-          // ignore parse error
-        }
-      };
-    } catch {
-      setIsConnected(false);
-    }
+        };
+      } catch {
+        setIsConnected(false);
+      }
+    };
+
+    connectStream();
 
     return () => {
+      isCancelled = true;
       if (eventSource) {
         eventSource.close();
       }
