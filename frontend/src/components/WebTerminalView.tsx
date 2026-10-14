@@ -519,7 +519,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     setReconnectCountdown(0);
   }, [clearPingInterval]);
 
-  const initWebSocket = useCallback(async () => {
+  const initWebSocket = useCallback(() => {
     clearReconnectTimers();
     isProcessExitedRef.current = false;
     isReplayingRef.current = true;
@@ -548,7 +548,8 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     setIsConnecting(true);
     setIsConnected(false);
 
-    const ticket = adminKey ? await requestAuthTicket(adminKey) : null;
+    (async () => {
+      const ticket = adminKey ? await requestAuthTicket(adminKey) : null;
     if (!isMountedRef.current) return;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -706,6 +707,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       clearPingInterval();
       console.debug('[WebTerminal] WebSocket encountered error:', err);
     };
+    })();
   }, [adminKey, clearReconnectTimers, sendResize, clearPingInterval]);
 
   // Lock body scroll and set overscroll-behavior when standalone is active

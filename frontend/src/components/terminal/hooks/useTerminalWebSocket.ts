@@ -108,7 +108,7 @@ export function useTerminalWebSocket({
     [isMobileRef]
   );
 
-  const initWebSocket = useCallback(async () => {
+  const initWebSocket = useCallback(() => {
     clearReconnectTimers();
     isProcessExitedRef.current = false;
     isReplayingRef.current = true;
@@ -137,7 +137,8 @@ export function useTerminalWebSocket({
     setIsConnecting(true);
     setIsConnected(false);
 
-    const ticket = adminKey ? await requestAuthTicket(adminKey) : null;
+    (async () => {
+      const ticket = adminKey ? await requestAuthTicket(adminKey) : null;
     if (!isMountedRef.current) return;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -298,6 +299,7 @@ export function useTerminalWebSocket({
     ws.onerror = (_err) => {
       clearPingInterval();
     };
+    })();
   }, [activeHostId, adminKey, clearReconnectTimers, clearPingInterval, safeFit, sendResize, xtermRef, fitAddonRef, isMountedRef, isAtBottomRef, isRefittingRef]);
 
   const handleManualReconnect = useCallback(() => {
