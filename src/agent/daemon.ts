@@ -307,6 +307,18 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       options.context = agentArgs[++i];
     } else if (arg.startsWith('--context=')) {
       options.context = arg.slice(10);
+    } else if (arg === '-p' || arg === '--permission-mode') {
+      options.permissionMode = agentArgs[++i];
+    } else if (arg.startsWith('--permission-mode=')) {
+      options.permissionMode = arg.slice(18);
+    } else if (arg.startsWith('-p=')) {
+      options.permissionMode = arg.slice(3);
+    } else if (arg === '-w' || arg === '--workspace') {
+      options.workspace = agentArgs[++i];
+    } else if (arg.startsWith('--workspace=')) {
+      options.workspace = arg.slice(12);
+    } else if (arg.startsWith('-w=')) {
+      options.workspace = arg.slice(3);
     } else if (arg.startsWith('--')) {
       const eqIdx = arg.indexOf('=');
       if (eqIdx !== -1) {
@@ -533,12 +545,27 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     console.log('[Agent] Loaded .env configuration');
   }
 
+  const permissionMode = (
+    options.permissionMode ||
+    options['permission-mode'] ||
+    options.p ||
+    process.env.GT_PERMISSION_MODE ||
+    'default'
+  ) as 'default' | 'bypass';
+
+  const workspace = options.workspace || options.w || process.env.GT_AGENT_WORKSPACE;
+
+  if (permissionMode === 'bypass') {
+    console.warn('[AgentSecurity] WARNING: Running with --permission-mode bypass. Path restrictions and workspace boundaries are disabled.');
+  }
+
   console.log('---------------------------------------------------------');
   console.log(' Gemini Proxy Terminal Reverse Agent (gt agent)');
   console.log(` Host ID   : ${hostId}`);
   console.log(` Host Name : ${hostName} (${hostname})`);
   console.log(` IP / OS   : ${localIp} / ${platform}`);
   console.log(` Target Hub: ${serverArg}`);
+  console.log(` Perm Mode : ${permissionMode}${workspace ? ` (Workspace: ${workspace})` : ''}`);
   console.log('---------------------------------------------------------');
 
   let ptyProcess: any = null;
@@ -872,7 +899,11 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
             process.exit(1);
           }
           if (control.type === 'file_rpc') {
-            handleFileRpc(control, ws);
+            handleFileRpc({
+              ...control,
+              permissionMode: control.permissionMode || permissionMode,
+              workspace: control.workspace || workspace,
+            }, ws);
             return;
           }
           if (control.type === 'cmd_exec') {

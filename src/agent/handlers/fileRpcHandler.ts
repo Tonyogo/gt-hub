@@ -1,9 +1,10 @@
 import fs from 'fs';
 import path from 'path';
 import { resolveWorkingDir } from '../tasks/taskManager';
+import { checkPathPermission, PermissionMode } from '../security/pathGuard';
 
 export async function handleFileRpc(control: any, targetWs: any): Promise<void> {
-  const { reqId, action, path: targetPath, params = {} } = control;
+  const { reqId, action, path: targetPath, params = {}, permissionMode, workspace } = control;
   const reply = (success: boolean, data: any = null, error: string | null = null) => {
     const isOpen = targetWs && (targetWs.readyState === 1 || targetWs.readyState === (targetWs.constructor?.OPEN ?? 1));
     if (isOpen) {
@@ -19,6 +20,41 @@ export async function handleFileRpc(control: any, targetWs: any): Promise<void> 
 
   try {
     const resolvedPath = resolveWorkingDir(targetPath);
+    const mode: PermissionMode = permissionMode || (process.env.GT_PERMISSION_MODE as PermissionMode) || 'default';
+    const effectiveWorkspace = workspace || process.env.GT_AGENT_WORKSPACE;
+
+    const permCheck = checkPathPermission(resolvedPath, mode, effectiveWorkspace);
+    if (!permCheck.allowed) {
+      console.warn(`[SECURITY_AUDIT] BLOCKED file_rpc ${action} on path: "${targetPath}" (mode: ${mode})`);
+      return reply(false, null, `SecurityException: ${permCheck.reason}`);
+    }
+
+    if (action === 'rename' && params.newPath) {
+      const newResolved = resolveWorkingDir(params.newPath);
+      const newCheck = checkPathPermission(newResolved, mode, effectiveWorkspace);
+      if (!newCheck.allowed) {
+        console.warn(`[SECURITY_AUDIT] BLOCKED file_rpc rename target on path: "${params.newPath}" (mode: ${mode})`);
+        return reply(false, null, `SecurityException: ${newCheck.reason}`);
+      }
+    }
+
+    if (action === 'mkdir' && params.dirName) {
+      const newDir = path.join(resolvedPath, params.dirName);
+      const dirCheck = checkPathPermission(newDir, mode, effectiveWorkspace);
+      if (!dirCheck.allowed) {
+        console.warn(`[SECURITY_AUDIT] BLOCKED file_rpc mkdir on path: "${newDir}" (mode: ${mode})`);
+        return reply(false, null, `SecurityException: ${dirCheck.reason}`);
+      }
+    }
+
+    if (action === 'upload_chunk' && params.filename) {
+      const uploadFile = path.join(resolvedPath, params.filename);
+      const fileCheck = checkPathPermission(uploadFile, mode, effectiveWorkspace);
+      if (!fileCheck.allowed) {
+        console.warn(`[SECURITY_AUDIT] BLOCKED file_rpc upload_chunk on path: "${uploadFile}" (mode: ${mode})`);
+        return reply(false, null, `SecurityException: ${fileCheck.reason}`);
+      }
+    }
 
     if (action === 'list') {
       let stat: fs.Stats;
