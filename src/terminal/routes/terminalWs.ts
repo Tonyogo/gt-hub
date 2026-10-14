@@ -134,6 +134,10 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
 
     let lastTouch = 0;
 
+    ws.on('ping', () => {
+      hostMgr.touchAgent(hostId, ws, agentMeta);
+    });
+
     ws.on('message', (message: RawData, isBinary: boolean) => {
       try {
         const now = Date.now();

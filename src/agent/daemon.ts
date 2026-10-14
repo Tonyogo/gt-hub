@@ -580,6 +580,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
   let connectTimeoutTimer: NodeJS.Timeout | null = null;
   let heartbeatTimer: NodeJS.Timeout | null = null;
   let heartbeatTimeoutTimer: NodeJS.Timeout | null = null;
+  let lastPongReceived = Date.now();
   const pendingOutputQueue: Buffer[] = [];
   const maxPendingQueueBytes = 256 * 1024; // 256KB early buffer
   let pendingQueueBytes = 0;
@@ -614,26 +615,30 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
 
   function startHeartbeat() {
     stopHeartbeat();
+    lastPongReceived = Date.now();
     heartbeatTimer = setInterval(() => {
-      if (ws && (ws.readyState === 1 || ws.readyState === WebSocket.OPEN)) {
-        try {
-          ws.send(`JSON:${JSON.stringify({ type: 'ping' })}`);
-        } catch {}
-
-        if (heartbeatTimeoutTimer) clearTimeout(heartbeatTimeoutTimer);
-        heartbeatTimeoutTimer = setTimeout(() => {
-          console.warn(
-            `[Agent] Heartbeat timeout (${HEARTBEAT_TIMEOUT_MS / 1000}s) on ${serverArg}. Terminating dead connection...`
-          );
-          if (ws) {
-            try { ws.terminate(); } catch {}
-          }
-        }, HEARTBEAT_TIMEOUT_MS);
+      if (!ws || (ws.readyState !== 1 && ws.readyState !== WebSocket.OPEN)) return;
+      if (Date.now() - lastPongReceived > HEARTBEAT_TIMEOUT_MS) {
+        console.warn(
+          `[Agent] Heartbeat pong timeout (>20s) on ${serverArg}. Terminating stale connection...`
+        );
+        if (ws) {
+          try { ws.terminate(); } catch {}
+        }
+        return;
       }
+      try {
+        if (typeof ws.ping === 'function') {
+          ws.ping();
+        } else {
+          ws.send(`JSON:${JSON.stringify({ type: 'ping' })}`);
+        }
+      } catch {}
     }, HEARTBEAT_INTERVAL_MS);
   }
 
   function onHeartbeatActivity() {
+    lastPongReceived = Date.now();
     if (heartbeatTimeoutTimer) {
       clearTimeout(heartbeatTimeoutTimer);
       heartbeatTimeoutTimer = null;
@@ -863,6 +868,11 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       headers: { 'x-admin-key': adminKey },
     });
 
+    ws.on('pong', () => {
+      lastPongReceived = Date.now();
+      onHeartbeatActivity();
+    });
+
     ws.on('upgrade', (response: any) => {
       if (ws && ws._socket && typeof ws._socket.setKeepAlive === 'function') {
         ws._socket.setKeepAlive(true, 10000);
@@ -998,6 +1008,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
             return;
           }
           if (control.type === 'pong') {
+            lastPongReceived = Date.now();
             return;
           }
           if (control.type === 'registered') {
