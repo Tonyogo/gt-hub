@@ -23,6 +23,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Run all test suites: `npm test` (pretest builds `dist/gt.js`; runs Jest with `--detectOpenHandles --forceExit`)
 - Run a single test file: `npm test -- tests/<test-file-name>.test.ts`
 - Run specific tests matching a pattern: `npm test -- -t "<pattern>"`
+- **Rules for AI Agents**:
+  - Always prefer running targeted test files (`npm test -- tests/<file>.test.ts`) during iterative development rather than full test suites.
+  - Jest configuration (`jest.config.js`) enforces `forceExit: true`, `detectOpenHandles: true`, and `testTimeout: 30000` to prevent unhandled asynchronous socket/server handle hangs.
+  - If invoking `jest` or `npx jest` directly, always ensure `--detectOpenHandles --forceExit` flags are supplied.
 
 ## High-Level Architecture
 
