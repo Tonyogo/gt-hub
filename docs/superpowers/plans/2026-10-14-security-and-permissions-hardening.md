@@ -43,7 +43,7 @@
 - Consumes: `config.adminSecretKey`, `process.env.NODE_ENV`, `process.env.GT_ALLOW_INSECURE_NO_AUTH`
 - Produces: `validateSecurityConfig(options?: { nodeEnv?: string; secretKey?: string; allowInsecure?: boolean; exitHandler?: (code: number) => void }): { valid: boolean; warning?: string; error?: string }`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/securityConfig.test.ts`:
 ```typescript
@@ -106,12 +106,12 @@ describe('validateSecurityConfig', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm test -- tests/securityConfig.test.ts`
 Expected: FAIL with "Cannot find module '../src/server/config/securityValidator'"
 
-- [ ] **Step 3: Write minimal implementation**
+- [x] **Step 3: Write minimal implementation**
 
 Create `src/server/config/securityValidator.ts`:
 ```typescript
@@ -184,12 +184,12 @@ export { server, app };
 export default server;
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npm test -- tests/securityConfig.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/server/config/securityValidator.ts src/server/index.ts tests/securityConfig.test.ts
@@ -215,7 +215,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
   - `ticketManager.reset(): void`
   - `POST /api/auth/ticket` returning `{ success: boolean, ticket: string, expiresIn: number }`
 
-- [ ] **Step 1: Write the failing unit tests**
+- [x] **Step 1: Write the failing unit tests**
 
 Create `tests/ticketManager.test.ts`:
 ```typescript
@@ -321,12 +321,12 @@ describe('POST /api/auth/ticket', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npm test -- tests/ticketManager.test.ts tests/authTicketRoutes.test.ts`
 Expected: FAIL with missing modules/methods.
 
-- [ ] **Step 3: Write implementation**
+- [x] **Step 3: Write implementation**
 
 Create `src/server/modules/auth/ticketManager.ts`:
 ```typescript
@@ -484,12 +484,12 @@ router.post('/ticket', adminAuthMiddleware, AuthController.createTicket);
 export default router;
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npm test -- tests/ticketManager.test.ts tests/authTicketRoutes.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/server/modules/auth/ticketManager.ts src/server/modules/auth/authController.ts src/server/modules/auth/authRoutes.ts tests/ticketManager.test.ts tests/authTicketRoutes.test.ts
@@ -511,7 +511,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 - Consumes: `ticketManager.consumeTicket(ticket)`, `safeCompareSecret()`
 - Produces: Support for `?ticket=<ticket>` during upgrade and SSE requests; backward compatibility with headers and query keys.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/terminalWsTicketAuth.test.ts`:
 ```typescript
@@ -631,12 +631,12 @@ describe('GET /api/terminal/logs Ticket Auth', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npm test -- tests/terminalWsTicketAuth.test.ts tests/terminalLogTicketAuth.test.ts`
 Expected: FAIL
 
-- [ ] **Step 3: Write implementation**
+- [x] **Step 3: Write implementation**
 
 Update `src/terminal/routes/terminalWs.ts`:
 Lines 26-42:
@@ -746,12 +746,12 @@ export const terminalLogController = new TerminalLogController();
 export default terminalLogController;
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npm test -- tests/terminalWsTicketAuth.test.ts tests/terminalLogTicketAuth.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/terminal/routes/terminalWs.ts src/terminal/controllers/terminalLogController.ts tests/terminalWsTicketAuth.test.ts tests/terminalLogTicketAuth.test.ts
@@ -777,7 +777,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
   - `checkPathPermission(targetPath: string, mode?: 'default' | 'bypass', workspace?: string): { allowed: boolean; reason?: string }`
   - `--permission-mode <default | bypass>` in `gt agent start`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/agentPathGuard.test.ts`:
 ```typescript
@@ -901,12 +901,12 @@ describe('handleFileRpc Security Integration', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npm test -- tests/agentPathGuard.test.ts tests/agentFileRpcSecurity.test.ts`
 Expected: FAIL
 
-- [ ] **Step 3: Write implementation**
+- [x] **Step 3: Write implementation**
 
 Create `src/agent/security/pathGuard.ts`:
 ```typescript
@@ -1084,12 +1084,12 @@ In `src/client/index.ts`:
 ```
 In `src/agent/daemon.ts`, pass `permissionMode` and `workspace` into options when parsing and into `handleFileRpc`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npm test -- tests/agentPathGuard.test.ts tests/agentFileRpcSecurity.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/agent/security/pathGuard.ts src/agent/handlers/fileRpcHandler.ts src/agent/daemon.ts src/client/index.ts tests/agentPathGuard.test.ts tests/agentFileRpcSecurity.test.ts
@@ -1114,7 +1114,7 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 - Consumes: `POST /api/auth/ticket`, `apiFetch`
 - Produces: `requestAuthTicket(): Promise<string | null>`; WebSocket and SSE queries using `ticket=` instead of `x-admin-key=`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `tests/frontendTicketAuth.test.ts`:
 ```typescript
@@ -1160,12 +1160,12 @@ describe('Frontend Auth Ticket Utility', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm test -- tests/frontendTicketAuth.test.ts`
 Expected: FAIL with "requestAuthTicket is not exported"
 
-- [ ] **Step 3: Write implementation**
+- [x] **Step 3: Write implementation**
 
 Update `frontend/src/utils/apiClient.ts`:
 Add `requestAuthTicket`:
@@ -1224,12 +1224,12 @@ For file downloads:
     }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npm test -- tests/frontendTicketAuth.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/utils/apiClient.ts frontend/src/components/terminal/hooks/useTerminalWebSocket.ts frontend/src/components/WebTerminalView.tsx frontend/src/components/TerminalLogsView.tsx frontend/src/components/terminal/TerminalFileManagerView.tsx tests/frontendTicketAuth.test.ts
@@ -1246,12 +1246,12 @@ Co-Authored-By: Claude Code <noreply@anthropic.com>"
 - Verify: all test suites
 - Build: frontend, backend, CLI bundle
 
-- [ ] **Step 1: Run complete test suite**
+- [x] **Step 1: Run complete test suite**
 
 Run: `npm test`
 Expected: PASS with 116+ passed test suites, 0 failed.
 
-- [ ] **Step 2: Run complete production build**
+- [x] **Step 2: Run complete production build**
 
 Run: `npm run build`
 Expected:
@@ -1260,7 +1260,7 @@ Expected:
 3. `build:backend` succeeds via tsc.
 4. `build:gt` bundles `dist/gt.js`.
 
-- [ ] **Step 3: Commit build verification**
+- [x] **Step 3: Commit build verification**
 
 ```bash
 git commit --allow-empty -m "chore: verify test suites and production build for security hardening
