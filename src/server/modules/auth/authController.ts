@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import config from '../../config/default';
 import { safeCompareSecret } from '../../../shared/utils/security';
+import { ticketManager } from './ticketManager';
 
 export class AuthController {
   static getStatus(req: Request, res: Response): void {
@@ -33,5 +34,14 @@ export class AuthController {
     } else {
       res.status(401).json({ error: 'Unauthorized: Invalid secret key' });
     }
+  }
+
+  static createTicket(req: Request, res: Response): void {
+    const ticket = ticketManager.createTicket();
+    res.status(200).json({
+      success: true,
+      ticket,
+      expiresIn: 30,
+    });
   }
 }
