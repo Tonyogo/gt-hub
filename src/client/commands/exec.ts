@@ -29,6 +29,7 @@ export function parseExecArgs(args: string[]): ExecParsedArgs {
   let host = '';
   const commandParts: string[] = [];
 
+  const hasDoubleDash = args.includes('--');
   let i = 0;
   // Phase 1: parse gt exec options until host is found or -- is encountered
   while (i < args.length) {
@@ -79,8 +80,14 @@ export function parseExecArgs(args: string[]): ExecParsedArgs {
       if (eq !== -1) envVars[pair.slice(0, eq).trim()] = pair.slice(eq + 1).trim();
     } else if (a.startsWith('-')) {
       throw new Error(`Unknown option before host: ${a}`);
-    } else {
+    } else if (!host) {
       host = a;
+      if (!hasDoubleDash) {
+        i++;
+        break;
+      }
+    } else {
+      commandParts.push(a);
       i++;
       break;
     }

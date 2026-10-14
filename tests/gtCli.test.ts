@@ -314,5 +314,13 @@ describe('gt agent embedded runtime exports', () => {
     expect(parsed.options.timeoutMs).toBe(60000);
     expect(parsed.fullCommand).toBe("grep 'error msg' server.log");
   });
+
+  it('supports options after host when using double dash separator', () => {
+    const parsed = parseExecArgs(['gt-hub', '-w', '/root/gitlab/cloud/app-gw', '--', 'make', 'deploy']);
+    expect(parsed.host).toBe('gt-hub');
+    expect(parsed.options.workdir).toBe('/root/gitlab/cloud/app-gw');
+    expect(parsed.commandParts).toEqual(['make', 'deploy']);
+    expect(parsed.fullCommand).toBe('make deploy');
+  });
 });
 
