@@ -2,6 +2,7 @@ export const BIN_MSG_TYPE = {
   STREAM_INPUT: 0x01,
   STREAM_OUTPUT: 0x02,
   TERMINAL_RAW: 0x03,
+  HISTORY_SYNC: 0x04,
 } as const;
 
 export interface DecodedBinaryPacket {

@@ -25,32 +25,22 @@ export interface ITerminalSession {
   destroy(): void;
 }
 
-/**
- * Strips terminal query escape sequences from historical replayed streams
- * (such as OSC 10/11 color queries, DA device attribute queries, CPR cursor requests)
- * to prevent attached xterm.js clients from generating synthetic response reports back into the shell.
- */
-export function stripTerminalQuerySequences(stream: string): string {
-  if (!stream || typeof stream !== 'string') return '';
-  const stripped = stream.replace(
-    /\x1b(?:\](?:4|10|11|12);\?(?:\x1b\\|\x07)|\[[>?=]?(?:0)?c|\[\??6n|\[\??\d+\$p|\[>0?q|\[(?:14|18|19|20|21)t)/g,
-    ''
-  );
-  if (!stripped) return '';
-  // Prepend soft style reset and show cursor to ensure pristine state after replay
-  return '\x1b[0m\x1b[?25h' + stripped;
-}
+export { stripTerminalQuerySequences } from '../../shared/utils/terminalSanitizer';
+import { stripTerminalQuerySequences } from '../../shared/utils/terminalSanitizer';
 
 export class RemoteAgentTerminalSession implements ITerminalSession {
   public hostId: string;
   private agentWs: any = null;
   private activeSockets: Set<any> = new Set();
+  private replayedSockets: WeakSet<any> = new WeakSet();
   private historyBuffer: string[] = [];
   private totalBufferSize: number = 0;
   private readonly maxBufferSize: number = 2 * 1024 * 1024; // 2MB scrollback
   private currentCols: number = 0;
   private currentRows: number = 0;
   private broadcastBatcher: StreamBatcher;
+  private idleEvictionTimer: NodeJS.Timeout | null = null;
+  private static readonly IDLE_EVICTION_MS = 10 * 60 * 1000; // 10 minutes
 
   constructor(hostId: string, agentWs?: any) {
     this.hostId = hostId;
@@ -96,6 +86,8 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
       }
     }
     this.activeSockets.add(ws);
+    this.cancelIdleEviction();
+
     // Replay history buffer atomically as a single combined stream with query sequences stripped to prevent echo storms
     if (this.historyBuffer.length > 0 && ws.readyState === 1) {
       try {
@@ -103,15 +95,26 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
         const sanitized = stripTerminalQuerySequences(fullStream);
         if (sanitized.length > 0) {
           ws.send(sanitized);
+          this.replayedSockets.add(ws);
         }
       } catch {
         // Ignore socket write errors during replay
+      }
+    } else if (this.historyBuffer.length === 0 && this.agentWs && this.agentWs.readyState === 1) {
+      // Hub has no cached history (e.g. Hub restarted or cache was pruned) -> request from Agent on demand
+      try {
+        this.agentWs.send(`JSON:${JSON.stringify({ type: 'history_req' })}`);
+      } catch (err: any) {
+        logger.warn(`[RemoteAgentTerminal:${this.hostId}] Failed to request history from agent: ${err.message}`);
       }
     }
   }
 
   public detach(ws: any): void {
     this.activeSockets.delete(ws);
+    if (this.activeSockets.size === 0) {
+      this.scheduleIdleEviction();
+    }
   }
 
   public write(data: string): void {
@@ -141,7 +144,52 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
     }
   }
 
+  public handleHistorySync(history: Buffer | string): void {
+    const raw = Buffer.isBuffer(history)
+      ? history.toString('utf-8')
+      : (typeof history === 'string' ? history : String(history));
+    if (!raw) return;
+    const sanitized = stripTerminalQuerySequences(raw);
+    this.historyBuffer = [sanitized];
+    this.totalBufferSize = sanitized.length;
+
+    // Immediately push to any active clients that haven't received history replay
+    for (const ws of this.activeSockets) {
+      if (ws.readyState === 1 && !this.replayedSockets.has(ws)) {
+        try {
+          ws.send(sanitized);
+          this.replayedSockets.add(ws);
+        } catch {
+          // Ignore socket write errors during replay
+        }
+      }
+    }
+  }
+
+  private scheduleIdleEviction(): void {
+    if (this.idleEvictionTimer) return;
+    this.idleEvictionTimer = setTimeout(() => {
+      this.idleEvictionTimer = null;
+      if (this.activeSockets.size === 0 && this.historyBuffer.length > 0) {
+        logger.debug(`[RemoteAgentTerminal:${this.hostId}] Evicted idle history buffer from Hub memory`);
+        this.historyBuffer = [];
+        this.totalBufferSize = 0;
+      }
+    }, RemoteAgentTerminalSession.IDLE_EVICTION_MS);
+    if (this.idleEvictionTimer && typeof this.idleEvictionTimer.unref === 'function') {
+      this.idleEvictionTimer.unref();
+    }
+  }
+
+  private cancelIdleEviction(): void {
+    if (this.idleEvictionTimer) {
+      clearTimeout(this.idleEvictionTimer);
+      this.idleEvictionTimer = null;
+    }
+  }
+
   public reset(notifyClients: boolean = true, resetAgentPty: boolean = false): void {
+    this.cancelIdleEviction();
     if (this.broadcastBatcher) {
       this.broadcastBatcher.flush();
     }
@@ -171,6 +219,7 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
   }
 
   public destroy(): void {
+    this.cancelIdleEviction();
     if (this.broadcastBatcher) {
       this.broadcastBatcher.flush();
     }
@@ -649,6 +698,20 @@ export class TerminalHostManager {
     const session = this.sessions.get(canonicalId);
     if (session) {
       session.handleData(data);
+    }
+
+    const host = this.hosts.get(canonicalId);
+    if (host) {
+      host.lastSeen = Date.now();
+      host.status = 'online';
+    }
+  }
+
+  public handleAgentHistorySync(hostId: string, history: Buffer | string): void {
+    const canonicalId = this.resolveCanonicalHostId(hostId) || hostId;
+    const session = this.sessions.get(canonicalId);
+    if (session) {
+      session.handleHistorySync(history);
     }
 
     const host = this.hosts.get(canonicalId);

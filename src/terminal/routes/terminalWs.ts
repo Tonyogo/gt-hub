@@ -153,6 +153,10 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
             terminalExecBridge.handleAgentStreamMessage(hostId, buf);
             return;
           }
+          if (decoded && decoded.msgType === BIN_MSG_TYPE.HISTORY_SYNC) {
+            hostMgr.handleAgentHistorySync(hostId, decoded.payload);
+            return;
+          }
           hostMgr.handleAgentData(hostId, message);
           return;
         }
@@ -196,6 +200,10 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
           }
           if (control.type === 'cmd_stream_data' || control.type === 'cmd_stream_exit') {
             terminalExecBridge.handleAgentStreamMessage(hostId, control);
+            return;
+          }
+          if (control.type === 'history_sync') {
+            hostMgr.handleAgentHistorySync(hostId, control.history);
             return;
           }
           if (control.type === 'reset') {

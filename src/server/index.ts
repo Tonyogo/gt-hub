@@ -9,6 +9,14 @@ const server = http.createServer(app);
 setupTerminalWebSocket(server);
 
 if (process.env.NODE_ENV !== 'test') {
+  process.on('unhandledRejection', (reason) => {
+    logger.error(`[UnhandledRejection] Server caught unhandled rejection: ${reason}`);
+  });
+
+  process.on('uncaughtException', (err) => {
+    logger.error(`[UncaughtException] Server caught uncaught exception: ${err.message}`, { stack: err.stack });
+  });
+
   validateSecurityConfig({
     secretKey: String(config.adminSecretKey || ''),
   });

@@ -8,11 +8,12 @@ import { createWebSocketAdapter } from '../shared/utils/wsAdapter';
 import { taskManager, killProcessTree, killProcessTreeSync, getDefaultShell } from './tasks/taskManager';
 import { tryRequirePty, hasSystemPython3, PosixPtyDriver, InteractivePipeDriver } from './pty/drivers';
 import { StreamSessionManager } from './pty/sessionManager';
+import { TerminalHistoryBuffer } from './pty/terminalHistoryBuffer';
 import { handleFileRpc } from './handlers/fileRpcHandler';
 import { handleCmdExec } from './handlers/cmdExecHandler';
 import { getVersionInfo } from '../shared/version';
 import { StreamBatcher } from '../shared/utils/streamBatcher';
-import { BIN_MSG_TYPE, decodeBinaryPacket } from '../shared/protocol/binaryProtocol';
+import { BIN_MSG_TYPE, decodeBinaryPacket, encodeBinaryPacket } from '../shared/protocol/binaryProtocol';
 
 export const HANDSHAKE_TIMEOUT_MS = 4000;
 export const HEARTBEAT_INTERVAL_MS = 15000;
@@ -588,6 +589,23 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
   const WebSocket = getWebSocketCtor();
   const pty = tryRequirePty();
 
+  const maxScrollbackBytes = options.scrollback
+    ? Math.max(1024, parseInt(String(options.scrollback), 10) || (2 * 1024 * 1024))
+    : (2 * 1024 * 1024);
+  const terminalHistory = new TerminalHistoryBuffer(maxScrollbackBytes);
+
+  function sendHistorySync() {
+    if (!ws || (ws.readyState !== 1 && ws.readyState !== WebSocket.OPEN)) return;
+    const histBuf = terminalHistory.getBuffer();
+    if (histBuf.length === 0) return;
+    try {
+      const syncPacket = encodeBinaryPacket(BIN_MSG_TYPE.HISTORY_SYNC, hostId, histBuf);
+      ws.send(syncPacket);
+    } catch (err: any) {
+      console.warn(`[Agent] Failed to send history sync: ${err.message}`);
+    }
+  }
+
   function flushPendingOutput() {
     if (ws && (ws.readyState === 1 || ws.readyState === WebSocket.OPEN) && pendingOutputQueue.length > 0) {
       while (pendingOutputQueue.length > 0) {
@@ -654,6 +672,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       try { ptyProcess.kill(); } catch {}
       ptyProcess = null;
     }
+    terminalHistory.clear();
 
     const shell = getDefaultShell(options);
     const cwd = process.env.HOME || process.cwd();
@@ -677,6 +696,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
 
     const sendToWs = (data: any) => {
       const buf = Buffer.isBuffer(data) ? data : Buffer.from(data, 'utf-8');
+      terminalHistory.push(buf);
       if (ws && (ws.readyState === 1 || ws.readyState === WebSocket.OPEN) && pendingOutputQueue.length === 0) {
         try {
           ws.send(buf);
@@ -722,6 +742,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
           getPtyBatcher().flush();
           console.log(`[PTY] Shell exited with code: ${exitCode}`);
           ptyProcess = null;
+          terminalHistory.clear();
           if (!isExiting) {
             setTimeout(spawnPty, 500);
           }
@@ -753,6 +774,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
             getPtyBatcher().flush();
             console.log(`[PTY] Shell (PosixPty) exited with code: ${code}`);
             ptyProcess = null;
+            terminalHistory.clear();
             if (!isExiting) {
               setTimeout(spawnPty, 500);
             }
@@ -797,6 +819,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
             getPtyBatcher().flush();
             console.log(`[PTY] Shell (InteractivePipe) exited with code: ${code}`);
             ptyProcess = null;
+            terminalHistory.clear();
             if (!isExiting) {
               setTimeout(spawnPty, 500);
             }
@@ -829,6 +852,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
 
   function connect() {
     if (isExiting) return;
+    const isReconnection = Boolean(ptyProcess);
 
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
@@ -908,6 +932,8 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
 
         if (isFirstSpawn) {
           ws.send(`JSON:${JSON.stringify({ type: 'reset' })}`);
+        } else if (terminalHistory.getSize() > 0) {
+          sendHistorySync();
         }
         if (ptyProcess) {
           ws.send(`JSON:${JSON.stringify({ type: 'resize', cols: ptyProcess.cols, rows: ptyProcess.rows })}`);
@@ -1011,8 +1037,15 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
             lastPongReceived = Date.now();
             return;
           }
+          if (control.type === 'history_req') {
+            sendHistorySync();
+            return;
+          }
           if (control.type === 'registered') {
             console.log(`[Agent] Registered confirmed: hostId=${control.hostId}, status=${control.status}`);
+            if (isReconnection && terminalHistory.getSize() > 0) {
+              sendHistorySync();
+            }
             return;
           }
           return;
