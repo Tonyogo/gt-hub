@@ -67,11 +67,13 @@ describe('TerminalHostManager (Pure Dynamic Agent)', () => {
 
     // Incoming output from agent
     manager.handleAgentData('agent-02', 'terminal-prompt $ ');
+    (session as any)?.flush();
     expect(mockClientWs.send).toHaveBeenCalledWith('terminal-prompt $ ');
 
     // Detach client
     session?.detach(mockClientWs);
     manager.handleAgentData('agent-02', 'new line');
+    (session as any)?.flush();
     expect(mockClientWs.send).not.toHaveBeenCalledWith('new line');
   });
 
