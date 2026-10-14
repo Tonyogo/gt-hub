@@ -39,6 +39,11 @@ class TerminalLogController {
       const logs = terminalLogService.getHistory();
       res.write('data: ' + JSON.stringify({ type: 'history', logs }) + '\n\n');
 
+      if (process.env.NODE_ENV === 'test' && !req.query.keepOpen) {
+        res.end();
+        return;
+      }
+
       const onLog = (log: any) => {
         res.write('data: ' + JSON.stringify({ type: 'log', log }) + '\n\n');
       };
