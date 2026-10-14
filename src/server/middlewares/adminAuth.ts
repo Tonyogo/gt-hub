@@ -1,11 +1,18 @@
 import { Request, Response, NextFunction } from 'express';
 import config from '../config/default';
 import { safeCompareSecret } from '../../shared/utils/security';
+import { ticketManager } from '../modules/auth/ticketManager';
 
 export function adminAuthMiddleware(req: Request, res: Response, next: NextFunction): void {
   const secretKey = config.adminSecretKey;
 
   if (!secretKey) {
+    return next();
+  }
+
+  const ticketParam = req.query.ticket;
+  if (typeof ticketParam === 'string' && ticketParam && ticketManager.consumeTicket(ticketParam)) {
+    (req as any).ticketAuthenticated = true;
     return next();
   }
 

@@ -1,8 +1,32 @@
 import { Request, Response } from 'express';
 import terminalLogService from '../services/terminalLogService';
+import config from '../../server/config/default';
+import { safeCompareSecret } from '../../shared/utils/security';
+import { ticketManager } from '../../server/modules/auth/ticketManager';
 
 class TerminalLogController {
   public async getTerminalLogs(req: Request, res: Response): Promise<void> {
+    const secretKey = config.adminSecretKey;
+    if (secretKey) {
+      const ticketParam = req.query.ticket as string | undefined;
+      let authorized = false;
+
+      if ((req as any).ticketAuthenticated || (ticketParam && ticketManager.consumeTicket(ticketParam))) {
+        authorized = true;
+      } else {
+        const rawProvidedKey = req.headers['x-admin-key'] || req.query['x-admin-key'] || req.query.key;
+        const providedKey = Array.isArray(rawProvidedKey) ? rawProvidedKey[0] : rawProvidedKey;
+        if (safeCompareSecret(providedKey, secretKey)) {
+          authorized = true;
+        }
+      }
+
+      if (!authorized) {
+        res.status(401).json({ error: 'Unauthorized: Invalid credentials or ticket' });
+        return;
+      }
+    }
+
     const isStream = req.query.stream === 'true' || req.headers.accept === 'text/event-stream';
 
     if (isStream) {

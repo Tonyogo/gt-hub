@@ -6,6 +6,7 @@ import logger from '../../utils/logger';
 import { safeCompareSecret } from '../../shared/utils/security';
 import { terminalHostManager } from '../services/terminalHostManager';
 import { terminalExecBridge } from '../services/terminalExecBridge';
+import { ticketManager } from '../../server/modules/auth/ticketManager';
 
 export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?: any): WebSocketServer {
   const hostMgr = hostManagerInstance || terminalHostManager;
@@ -26,13 +27,33 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
     const secretKey = config.adminSecretKey;
     if (secretKey) {
       const parsedUrl = new URL(reqUrl, `http://${req.headers.host || 'localhost'}`);
-      const rawProvidedKey =
-        req.headers['x-admin-key'] ||
-        parsedUrl.searchParams.get('x-admin-key') ||
-        parsedUrl.searchParams.get('key');
-      const providedKey = Array.isArray(rawProvidedKey) ? rawProvidedKey[0] : rawProvidedKey;
+      const ticketParam = parsedUrl.searchParams.get('ticket');
+      let isAuthorized = false;
 
-      if (!safeCompareSecret(providedKey, secretKey)) {
+      // 1. Ticket validation (preferred for browser connections)
+      if (ticketParam && ticketManager.consumeTicket(ticketParam)) {
+        isAuthorized = true;
+      }
+
+      // 2. Header validation (standard for CLI & non-browser clients)
+      if (!isAuthorized && req.headers['x-admin-key']) {
+        const headerKey = Array.isArray(req.headers['x-admin-key'])
+          ? req.headers['x-admin-key'][0]
+          : req.headers['x-admin-key'];
+        if (safeCompareSecret(headerKey, secretKey)) {
+          isAuthorized = true;
+        }
+      }
+
+      // 3. Fallback query parameter validation (backward compatibility)
+      if (!isAuthorized) {
+        const queryKey = parsedUrl.searchParams.get('x-admin-key') || parsedUrl.searchParams.get('key');
+        if (queryKey && safeCompareSecret(queryKey, secretKey)) {
+          isAuthorized = true;
+        }
+      }
+
+      if (!isAuthorized) {
         logger.warn(`[TerminalWS] Unauthorized WebSocket connection attempt rejected (${reqUrl})`);
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
         socket.destroy();
