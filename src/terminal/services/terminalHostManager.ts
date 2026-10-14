@@ -1,5 +1,6 @@
 import logger from '../../utils/logger';
 import { rpcDispatcher, RpcDispatcher } from './rpcDispatcher';
+import { StreamBatcher } from '../../shared/utils/streamBatcher';
 
 export interface ManagedHost {
   id: string;
@@ -49,10 +50,28 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
   private readonly maxBufferSize: number = 2 * 1024 * 1024; // 2MB scrollback
   private currentCols: number = 0;
   private currentRows: number = 0;
+  private broadcastBatcher: StreamBatcher;
 
   constructor(hostId: string, agentWs?: any) {
     this.hostId = hostId;
     this.agentWs = agentWs;
+    this.broadcastBatcher = new StreamBatcher((batchedText) => {
+      const deadSockets: any[] = [];
+      for (const ws of this.activeSockets) {
+        try {
+          if (ws.readyState === 1) {
+            ws.send(batchedText);
+          } else {
+            deadSockets.push(ws);
+          }
+        } catch {
+          deadSockets.push(ws);
+        }
+      }
+      for (const dead of deadSockets) {
+        this.activeSockets.delete(dead);
+      }
+    }, 16);
   }
 
   public updateAgentWs(agentWs: any): void {
@@ -123,6 +142,9 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
   }
 
   public reset(notifyClients: boolean = true, resetAgentPty: boolean = false): void {
+    if (this.broadcastBatcher) {
+      this.broadcastBatcher.flush();
+    }
     this.historyBuffer = [];
     this.totalBufferSize = 0;
     this.currentCols = 0;
@@ -149,12 +171,21 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
   }
 
   public destroy(): void {
+    if (this.broadcastBatcher) {
+      this.broadcastBatcher.flush();
+    }
     this.activeSockets.clear();
     this.historyBuffer = [];
     this.totalBufferSize = 0;
     this.agentWs = null;
     this.currentCols = 0;
     this.currentRows = 0;
+  }
+
+  public flush(): void {
+    if (this.broadcastBatcher) {
+      this.broadcastBatcher.flush();
+    }
   }
 
   public handleData(data: string | Buffer): void {
@@ -204,21 +235,7 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
       this.historyBuffer = [this.historyBuffer.join('')];
     }
 
-    const deadSockets: any[] = [];
-    for (const ws of this.activeSockets) {
-      try {
-        if (ws.readyState === 1) {
-          ws.send(data);
-        } else {
-          deadSockets.push(ws);
-        }
-      } catch {
-        deadSockets.push(ws);
-      }
-    }
-    for (const dead of deadSockets) {
-      this.activeSockets.delete(dead);
-    }
+    this.broadcastBatcher.push(text);
   }
 
   public getHistory(): string {

@@ -63,6 +63,7 @@ describe('Terminal Reconnect Replay Mute', () => {
 
     // Send output through session
     session.handleData('HELLO_REPLAY_TEST');
+    session.flush();
 
     expect(mockSocket.received.length).toBeGreaterThan(0);
     const combined = mockSocket.received.join('');

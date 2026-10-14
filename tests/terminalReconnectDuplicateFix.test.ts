@@ -125,6 +125,7 @@ describe('Terminal Reconnect Duplicate Information Fix Tests', () => {
 
       // Send data
       session.handleData('TEST_DATA_STREAM\r\n');
+      session.flush();
 
       expect(activeSocket1.send).toHaveBeenCalledWith('TEST_DATA_STREAM\r\n');
       expect(activeSocket2.send).toHaveBeenCalledWith('TEST_DATA_STREAM\r\n');

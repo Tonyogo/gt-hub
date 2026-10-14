@@ -11,6 +11,7 @@ import { StreamSessionManager } from './pty/sessionManager';
 import { handleFileRpc } from './handlers/fileRpcHandler';
 import { handleCmdExec } from './handlers/cmdExecHandler';
 import { getVersionInfo } from '../shared/version';
+import { StreamBatcher } from '../shared/utils/streamBatcher';
 
 export const HANDSHAKE_TIMEOUT_MS = 4000;
 export const HEARTBEAT_INTERVAL_MS = 15000;
@@ -569,6 +570,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
   console.log('---------------------------------------------------------');
 
   let ptyProcess: any = null;
+  let ptyBatcher: StreamBatcher | null = null;
   let ws: any = null;
   let streamSessionManager: StreamSessionManager | null = null;
   let reconnectAttempts = 0;
@@ -638,6 +640,10 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
   }
 
   function spawnPty() {
+    if (ptyBatcher) {
+      ptyBatcher.flush();
+      ptyBatcher = null;
+    }
     if (ptyProcess) {
       try { ptyProcess.kill(); } catch {}
       ptyProcess = null;
@@ -682,6 +688,15 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       }
     };
 
+    function getPtyBatcher(): StreamBatcher {
+      if (!ptyBatcher) {
+        ptyBatcher = new StreamBatcher((batched) => {
+          sendToWs(batched);
+        }, 16);
+      }
+      return ptyBatcher;
+    }
+
     // 1. Layer 1: node-pty (C++ native addon)
     if (pty) {
       try {
@@ -694,10 +709,11 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
         });
 
         proc.onData((data: any) => {
-          sendToWs(data);
+          getPtyBatcher().push(typeof data === 'string' ? data : data.toString('utf-8'));
         });
 
         proc.onExit(({ exitCode }: { exitCode: number }) => {
+          getPtyBatcher().flush();
           console.log(`[PTY] Shell exited with code: ${exitCode}`);
           ptyProcess = null;
           if (!isExiting) {
@@ -725,9 +741,10 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
           cols,
           rows,
           onData: (data: any) => {
-            sendToWs(data);
+            getPtyBatcher().push(typeof data === 'string' ? data : data.toString('utf-8'));
           },
           onExit: (code: any) => {
+            getPtyBatcher().flush();
             console.log(`[PTY] Shell (PosixPty) exited with code: ${code}`);
             ptyProcess = null;
             if (!isExiting) {
@@ -768,9 +785,10 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
           cols,
           rows,
           onData: (data: any) => {
-            sendToWs(data);
+            getPtyBatcher().push(typeof data === 'string' ? data : data.toString('utf-8'));
           },
           onExit: (code: any) => {
+            getPtyBatcher().flush();
             console.log(`[PTY] Shell (InteractivePipe) exited with code: ${code}`);
             ptyProcess = null;
             if (!isExiting) {
@@ -984,6 +1002,9 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     });
 
     ws.on('close', (code: number, reason: any) => {
+      if (ptyBatcher) {
+        ptyBatcher.flush();
+      }
       if (connectTimeoutTimer) clearTimeout(connectTimeoutTimer);
       stopHeartbeat();
       if (streamSessionManager) {
