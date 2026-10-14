@@ -7,6 +7,7 @@ import { safeCompareSecret } from '../../shared/utils/security';
 import { terminalHostManager } from '../services/terminalHostManager';
 import { terminalExecBridge } from '../services/terminalExecBridge';
 import { ticketManager } from '../../server/modules/auth/ticketManager';
+import { BIN_MSG_TYPE, decodeBinaryPacket } from '../../shared/protocol/binaryProtocol';
 
 export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?: any): WebSocketServer {
   const hostMgr = hostManagerInstance || terminalHostManager;
@@ -142,6 +143,12 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
         }
 
         if (isBinary) {
+          const buf = Buffer.isBuffer(message) ? message : Buffer.from(message as any);
+          const decoded = decodeBinaryPacket(buf);
+          if (decoded && decoded.msgType === BIN_MSG_TYPE.STREAM_OUTPUT) {
+            terminalExecBridge.handleAgentStreamMessage(hostId, buf);
+            return;
+          }
           hostMgr.handleAgentData(hostId, message);
           return;
         }

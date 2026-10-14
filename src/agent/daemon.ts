@@ -12,6 +12,7 @@ import { handleFileRpc } from './handlers/fileRpcHandler';
 import { handleCmdExec } from './handlers/cmdExecHandler';
 import { getVersionInfo } from '../shared/version';
 import { StreamBatcher } from '../shared/utils/streamBatcher';
+import { BIN_MSG_TYPE, decodeBinaryPacket } from '../shared/protocol/binaryProtocol';
 
 export const HANDSHAKE_TIMEOUT_MS = 4000;
 export const HEARTBEAT_INTERVAL_MS = 15000;
@@ -887,7 +888,11 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       try {
         streamSessionManager = new StreamSessionManager((data: any) => {
           if (ws && (ws.readyState === 1 || ws.readyState === WebSocket.OPEN)) {
-            ws.send('JSON:' + JSON.stringify(data));
+            if (Buffer.isBuffer(data)) {
+              ws.send(data);
+            } else {
+              ws.send('JSON:' + JSON.stringify(data));
+            }
           }
         });
 
@@ -901,9 +906,20 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       } catch {}
     });
 
-    ws.on('message', (data: any) => {
+    ws.on('message', (data: any, isBinary?: boolean) => {
       onHeartbeatActivity();
       try {
+        if (isBinary || (Buffer.isBuffer(data) && data.length > 0 && data[0] === BIN_MSG_TYPE.STREAM_INPUT)) {
+          const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as any);
+          const decoded = decodeBinaryPacket(buf);
+          if (decoded && decoded.msgType === BIN_MSG_TYPE.STREAM_INPUT) {
+            if (streamSessionManager) {
+              streamSessionManager.writeRawInput(decoded.id, decoded.payload);
+            }
+            return;
+          }
+        }
+
         const msgStr = data.toString();
         const control = parseControlMessage(msgStr);
         if (control) {

@@ -7,6 +7,7 @@ import {
   PosixPtyDriver,
   InteractivePipeDriver,
 } from './drivers';
+import { BIN_MSG_TYPE, encodeBinaryPacket } from '../../shared/protocol/binaryProtocol';
 
 export interface StreamSession {
   taskId: string;
@@ -75,11 +76,11 @@ export class StreamSessionManager {
 
     const onData = (chunk: any) => {
       const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, 'utf-8');
-      this.send({
-        type: 'cmd_stream_data',
-        taskId,
-        data: buf.toString('base64'),
-      });
+      const packet: any = encodeBinaryPacket(BIN_MSG_TYPE.STREAM_OUTPUT, taskId, buf);
+      packet.type = 'cmd_stream_data';
+      packet.taskId = taskId;
+      packet.data = buf.toString('base64');
+      this.send(packet);
     };
 
     const onExit = (code: number | null, signal: string | null) => {
@@ -152,6 +153,15 @@ export class StreamSessionManager {
     if (!session || !session.driver) return;
     try {
       const buf = Buffer.from(base64Data, 'base64');
+      session.driver.write(buf);
+    } catch {}
+  }
+
+  writeRawInput(taskId: string, rawBuf: Buffer | Uint8Array): void {
+    const session = this.sessions.get(taskId);
+    if (!session || !session.driver) return;
+    try {
+      const buf = Buffer.isBuffer(rawBuf) ? rawBuf : Buffer.from(rawBuf);
       session.driver.write(buf);
     } catch {}
   }

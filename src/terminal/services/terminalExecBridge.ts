@@ -3,6 +3,11 @@ import { URL } from 'url';
 import { RawData } from 'ws';
 import logger from '../../utils/logger';
 import { terminalHostManager } from './terminalHostManager';
+import {
+  BIN_MSG_TYPE,
+  encodeBinaryPacket,
+  decodeBinaryPacket,
+} from '../../shared/protocol/binaryProtocol';
 
 export interface ActiveExecSession {
   taskId: string;
@@ -38,11 +43,11 @@ export class TerminalExecBridge {
         if (isBinary) {
           if (assignedTaskId) {
             const buf = Buffer.isBuffer(message) ? message : Buffer.from(message as any);
-            this.sendToAgent(canonicalHostId, {
-              type: 'cmd_stream_input',
-              taskId: assignedTaskId,
-              data: buf.toString('base64'),
-            });
+            const packet = encodeBinaryPacket(BIN_MSG_TYPE.STREAM_INPUT, assignedTaskId, buf);
+            const session = terminalHostManager.getSession(canonicalHostId);
+            if (session) {
+              session.write(packet as any);
+            }
           }
           return;
         }
@@ -137,6 +142,17 @@ export class TerminalExecBridge {
   }
 
   public handleAgentStreamMessage(hostId: string, message: any): void {
+    if (Buffer.isBuffer(message)) {
+      const decoded = decodeBinaryPacket(message);
+      if (decoded && decoded.msgType === BIN_MSG_TYPE.STREAM_OUTPUT) {
+        const session = this.activeSessions.get(decoded.id);
+        if (session && session.cliWs && session.cliWs.readyState === 1) {
+          session.cliWs.send(decoded.payload);
+        }
+        return;
+      }
+    }
+
     const { taskId, type } = message;
     if (!taskId) return;
 

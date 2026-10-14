@@ -2,6 +2,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import http from 'http';
 import { spawn } from 'child_process';
 import path from 'path';
+import { decodeBinaryPacket, BIN_MSG_TYPE } from '../src/shared/protocol/binaryProtocol';
 
 const gtPath = path.resolve(__dirname, '../scripts/gt.js');
 
@@ -87,6 +88,13 @@ describe('Agent StreamSessionManager', () => {
     const taskId = 'test-stream-echo';
 
     agentWs!.on('message', (raw) => {
+      if (Buffer.isBuffer(raw)) {
+        const decoded = decodeBinaryPacket(raw);
+        if (decoded && decoded.msgType === BIN_MSG_TYPE.STREAM_OUTPUT && decoded.id === taskId) {
+          receivedData += decoded.payload.toString('utf-8');
+          return;
+        }
+      }
       const str = raw.toString();
       if (!str.startsWith('JSON:')) return;
       const msg = JSON.parse(str.slice(5));
