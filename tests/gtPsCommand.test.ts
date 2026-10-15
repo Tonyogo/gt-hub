@@ -176,4 +176,38 @@ describe('gt ps & gt prune remote node management', () => {
       mockHosts = orig;
     }
   });
+
+  it('displays agent uptime (startTime to now) under LAST SEEN for online nodes', async () => {
+    const twoHoursAgo = Date.now() - 7200000;
+    const justNow = Date.now() - 2000;
+    mockHosts = [
+      { id: 'node-uptime', name: 'worker-uptime', status: 'online', platform: 'linux', ip: '10.0.0.1', startTime: twoHoursAgo, lastSeen: justNow },
+    ];
+    const res = await run(['ps']);
+    expect(res.code).toBe(0);
+    expect(res.stdout).toContain('2h ago');
+    expect(res.stdout).not.toContain('Just now');
+  });
+
+  it('displays disconnect time (lastSeen) under LAST SEEN for offline nodes', async () => {
+    const fiveHoursAgo = Date.now() - 18000000;
+    const tenMinsAgo = Date.now() - 600000;
+    mockHosts = [
+      { id: 'node-offline', name: 'worker-down', status: 'offline', platform: 'linux', ip: '10.0.0.2', startTime: fiveHoursAgo, lastSeen: tenMinsAgo },
+    ];
+    const res = await run(['ps', '-a']);
+    expect(res.code).toBe(0);
+    expect(res.stdout).toContain('10m ago');
+    expect(res.stdout).not.toContain('5h ago');
+  });
+
+  it('falls back to lastSeen when startTime is not provided on online node', async () => {
+    const tenMinsAgo = Date.now() - 600000;
+    mockHosts = [
+      { id: 'node-legacy', name: 'worker-legacy', status: 'online', platform: 'linux', ip: '10.0.0.3', lastSeen: tenMinsAgo },
+    ];
+    const res = await run(['ps']);
+    expect(res.code).toBe(0);
+    expect(res.stdout).toContain('10m ago');
+  });
 });

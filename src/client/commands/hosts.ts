@@ -106,7 +106,10 @@ export async function handleRemotePs({
         const nameStr = isLocal && !baseName.endsWith('(local)') ? `${baseName} (local)` : baseName;
         const statusStr = h.status === 'online' ? 'online' : 'offline';
         const verStr = h.version || '-';
-        const lastSeenStr = formatRelativeTime(h.lastSeen);
+        const displayTime = (h.status === 'online' && typeof h.startTime === 'number' && !isNaN(h.startTime))
+          ? h.startTime
+          : h.lastSeen;
+        const lastSeenStr = formatRelativeTime(displayTime);
 
         return [
           h.id || '',
