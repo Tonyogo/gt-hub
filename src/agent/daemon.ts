@@ -542,6 +542,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
 
   const platform = os.platform();
   const localIp = getLocalIp();
+  const agentStartTime = Date.now();
 
   const envPath = path.join(process.cwd(), '.env');
   if (fs.existsSync(envPath)) {
@@ -877,6 +878,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       platform,
       machineId,
       version: clientVersion,
+      startTime: agentStartTime,
     });
     console.log(`[Agent] Connecting to ${targetWsUrl.split('?')[0]}...`);
 

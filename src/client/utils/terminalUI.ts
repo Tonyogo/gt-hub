@@ -159,6 +159,7 @@ export function resolveWebSocketUrl(
     platform?: string;
     machineId?: string;
     version?: string;
+    startTime?: number;
     [key: string]: any;
   } = {}
 ): string {
