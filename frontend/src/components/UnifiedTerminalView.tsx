@@ -1,10 +1,12 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import WebTerminalView, { WebTerminalHandle } from './WebTerminalView';
 import TerminalFileManagerView, { TerminalFileManagerHandle } from './terminal/TerminalFileManagerView';
+import TerminalCronView, { TerminalCronHandle } from './terminal/TerminalCronView';
 import { TerminalHostSelector } from './terminal/TerminalHostSelector';
 import {
   TerminalSquare,
   FolderOpen,
+  Clock,
   Maximize2,
   Minimize2,
   ZoomIn,
@@ -39,7 +41,7 @@ export interface UnifiedTerminalViewProps {
   onLogout?: () => void;
 }
 
-export type TerminalSubTab = 'interactive' | 'files';
+export type TerminalSubTab = 'interactive' | 'files' | 'cron';
 
 export default function UnifiedTerminalView({
   adminKey: propAdminKey,
@@ -73,6 +75,7 @@ export default function UnifiedTerminalView({
 
   const terminalRef = useRef<WebTerminalHandle>(null);
   const fileManagerRef = useRef<TerminalFileManagerHandle>(null);
+  const cronRef = useRef<TerminalCronHandle>(null);
 
   const [connectionStatus, setConnectionStatus] = useState<{ isConnected: boolean; isConnecting: boolean }>({
     isConnected: false,
@@ -348,6 +351,18 @@ export default function UnifiedTerminalView({
               <FolderOpen className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">{t('files.title', '文件管理')}</span>
             </button>
+            <button
+              type="button"
+              onClick={() => handleSubTabChange('cron')}
+              className={`flex items-center space-x-1.5 px-2 sm:px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                subTab === 'cron'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">{t('cron.title', '定时任务')}</span>
+            </button>
           </div>
 
           {/* Connection Status Badge (when in interactive tab, desktop only) */}
@@ -458,6 +473,17 @@ export default function UnifiedTerminalView({
               onClick={() => fileManagerRef.current?.refresh()}
               className="p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border border-white/[0.06] transition-all"
               title={t('files.refresh', '刷新')}
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+            </button>
+          )}
+
+          {subTab === 'cron' && (
+            <button
+              type="button"
+              onClick={() => cronRef.current?.refresh()}
+              className="p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border border-white/[0.06] transition-all"
+              title={t('cron.refresh', '刷新')}
             >
               <RefreshCw className="w-3.5 h-3.5" />
             </button>
@@ -677,6 +703,16 @@ export default function UnifiedTerminalView({
             ref={fileManagerRef}
             adminKey={adminKey}
             activeHostId={activeHostId}
+            onRequestAddNode={() => setIsAddNodeModalOpen(true)}
+          />
+        </div>
+
+        <div className={`flex-1 min-h-0 ${subTab === 'cron' ? 'flex' : 'hidden'} flex-col`}>
+          <TerminalCronView
+            ref={cronRef}
+            adminKey={adminKey}
+            activeHostId={activeHostId}
+            isConnected={connectionStatus.isConnected}
             onRequestAddNode={() => setIsAddNodeModalOpen(true)}
           />
         </div>
