@@ -77,6 +77,55 @@ describe('Hub Terminal Cron REST API & Service', () => {
         .set('x-admin-key', adminKey)
         .send({ name: 'no-cmd', cron: '*/5 * * * *', source: 'command' });
       expect(res3.status).toBe(400);
+
+      // Invalid timezone
+      const res4 = await request(app)
+        .post(`/api/terminal/cron/${nodeId}`)
+        .set('x-admin-key', adminKey)
+        .send({ name: 'bad-tz', cron: '0 2 * * *', command: 'echo 1', timezone: 'Invalid/Timezone' });
+      expect(res4.status).toBe(400);
+      expect(res4.body.error).toMatch(/timezone/i);
+    });
+
+    it('creates and returns job with valid custom timezone', async () => {
+      const res = await request(app)
+        .post(`/api/terminal/cron/${nodeId}`)
+        .set('x-admin-key', adminKey)
+        .send({
+          name: 'tz-job',
+          cron: '0 9 * * *',
+          command: 'echo "tz test"',
+          timezone: 'Asia/Shanghai',
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.timezone).toBe('Asia/Shanghai');
+
+      const jobId = res.body.data.id;
+
+      // Retrieve via GET
+      const getRes = await request(app)
+        .get(`/api/terminal/cron/${nodeId}`)
+        .set('x-admin-key', adminKey);
+      expect(getRes.status).toBe(200);
+      expect(getRes.body.data[0].timezone).toBe('Asia/Shanghai');
+      expect(getRes.body.data[0].nextRunTime).toBeGreaterThan(Date.now());
+
+      // Update with invalid timezone should fail
+      const badPatch = await request(app)
+        .patch(`/api/terminal/cron/${nodeId}/${jobId}`)
+        .set('x-admin-key', adminKey)
+        .send({ timezone: 'Not/A_Real_Zone' });
+      expect(badPatch.status).toBe(400);
+
+      // Update with valid timezone should succeed
+      const goodPatch = await request(app)
+        .patch(`/api/terminal/cron/${nodeId}/${jobId}`)
+        .set('x-admin-key', adminKey)
+        .send({ timezone: 'UTC' });
+      expect(goodPatch.status).toBe(200);
+      expect(goodPatch.body.data.timezone).toBe('UTC');
     });
 
     it('creates, retrieves, pauses, resumes, and deletes a cron job', async () => {

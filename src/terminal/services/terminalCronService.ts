@@ -3,7 +3,7 @@ import path from 'path';
 import os from 'os';
 import crypto from 'crypto';
 import { CronJobConfig, CronExecutionRecord, CronJobSummary } from '../../shared/types/cron';
-import { getNextCronTime, isValidCronExpression } from '../../shared/utils/cronParser';
+import { getNextCronTime, isValidCronExpression, isValidTimezone } from '../../shared/utils/cronParser';
 import { terminalHostManager } from './terminalHostManager';
 import logger from '../../utils/logger';
 
@@ -120,7 +120,7 @@ export class TerminalCronService {
       let nextRunTime: number | null = null;
       if (job.status === 'active') {
         try {
-          nextRunTime = getNextCronTime(job.cron).getTime();
+          nextRunTime = getNextCronTime(job.cron, undefined, job.timezone).getTime();
         } catch {
           nextRunTime = null;
         }
@@ -149,6 +149,11 @@ export class TerminalCronService {
     }
     const cron = jobData.cron.trim();
 
+    if (jobData.timezone !== undefined && !isValidTimezone(jobData.timezone)) {
+      throw new Error(`Invalid timezone: "${jobData.timezone}"`);
+    }
+    const timezone = jobData.timezone && jobData.timezone.trim() ? jobData.timezone.trim() : undefined;
+
     const source = jobData.source || (jobData.scriptName ? 'hub' : 'command');
     if (source === 'command' && (!jobData.command || typeof jobData.command !== 'string' || !jobData.command.trim())) {
       throw new Error('Command is required when source is "command"');
@@ -173,6 +178,7 @@ export class TerminalCronService {
       id,
       name,
       cron,
+      timezone,
       source,
       command: jobData.command?.trim(),
       scriptName: jobData.scriptName?.trim(),
@@ -231,6 +237,13 @@ export class TerminalCronService {
         throw new Error(`Invalid cron expression: "${updates.cron}"`);
       }
       job.cron = updates.cron.trim();
+    }
+
+    if (updates.timezone !== undefined) {
+      if (!isValidTimezone(updates.timezone)) {
+        throw new Error(`Invalid timezone: "${updates.timezone}"`);
+      }
+      job.timezone = updates.timezone && updates.timezone.trim() ? updates.timezone.trim() : undefined;
     }
 
     if (updates.source) {

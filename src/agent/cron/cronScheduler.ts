@@ -167,7 +167,7 @@ export class AgentCronScheduler {
       let nextRunTime: number | null = null;
       if (job.status === 'active') {
         try {
-          nextRunTime = getNextCronTime(job.cron).getTime();
+          nextRunTime = getNextCronTime(job.cron, undefined, job.timezone).getTime();
         } catch {
           nextRunTime = null;
         }
@@ -203,7 +203,7 @@ export class AgentCronScheduler {
 
     let nextDate: Date;
     try {
-      nextDate = getNextCronTime(job.cron);
+      nextDate = getNextCronTime(job.cron, undefined, job.timezone);
     } catch {
       return;
     }
