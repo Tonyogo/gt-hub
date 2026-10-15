@@ -31,11 +31,14 @@ export * from '../client/utils/terminalUI';
 export * from '../client/commands/cp';
 export * from '../client/commands/exec';
 export * from '../client/interactive/interactiveExec';
+export * from '../client/commands/cron';
 export * from '../agent/tasks/taskManager';
 export * from '../agent/pty/drivers';
 export * from '../agent/pty/sessionManager';
 export * from '../agent/handlers/fileRpcHandler';
 export * from '../agent/handlers/cmdExecHandler';
+export * from '../agent/handlers/cronHandler';
+export * from '../agent/cron/cronScheduler';
 export * from '../agent/daemon';
 export { runClient, runClient as main };
 

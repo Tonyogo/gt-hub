@@ -21,6 +21,15 @@ import { handleRemotePs } from './commands/hosts';
 import { handleNodesCommand, handleNodesPruneCommand } from './commands/nodes';
 import { handleTaskLs, handleTaskLogs, handleTaskKill } from './commands/task';
 import {
+  handleCronLs,
+  handleCronAdd,
+  handleCronRm,
+  handleCronPause,
+  handleCronResume,
+  handleCronRun,
+  handleCronLogs,
+} from './commands/cron';
+import {
   handleConfigGetContexts,
   handleConfigCurrentContext,
   handleConfigUseContext,
@@ -57,6 +66,13 @@ export {
   parseExecArgs,
   runInteractiveExec,
   handleVersionCommand,
+  handleCronLs,
+  handleCronAdd,
+  handleCronRm,
+  handleCronPause,
+  handleCronResume,
+  handleCronRun,
+  handleCronLogs,
 };
 
 export function createProgram(rawArgs: string[] = []): Command {
@@ -343,8 +359,150 @@ Command Shortcuts:
       });
     });
 
+  // --- Cron Management: gt cron ---
+  const cronCmd = program
+    .command('cron')
+    .description('Manage distributed agent cron scheduling jobs');
 
-  // --- Local Agent Management: gt agent ---
+  cronCmd
+    .command('ls <node>')
+    .alias('list')
+    .description('List scheduled cron jobs on a node')
+    .option('-s, --server <url>', 'Hub server URL')
+    .option('-k, --key <secret>', 'Admin secret key')
+    .option('-c, --context <name>', 'Target context')
+    .option('--json', 'Output in JSON format')
+    .option('--format <template>', 'Format output template')
+    .action(async (node: string, opts: Record<string, any>) => {
+      const eff = resolveEffective(opts);
+      await handleCronLs({
+        server: eff.server,
+        key: eff.key,
+        node,
+        json: resolveJson(opts),
+        format: resolveFormat(opts),
+      });
+    });
+
+  cronCmd
+    .command('add <node>')
+    .description('Add a new scheduled cron job to a node')
+    .requiredOption('-n, --name <name>', 'Job name')
+    .requiredOption('--cron <expression>', 'Standard 5-part cron expression (e.g. "0 2 * * *")')
+    .option('--cmd <command>', 'Shell command to execute')
+    .option('--script <scriptName>', 'Hub hosted script name to execute')
+    .option('--args <args...>', 'Script arguments')
+    .option('-w, --cwd <dir>', 'Working directory on remote host')
+    .option('--timeout <ms>', 'Execution timeout in ms')
+    .option('--concurrency <policy>', 'Concurrency policy: forbid or allow', 'forbid')
+    .option('--paused', 'Create job in paused status')
+    .option('-s, --server <url>', 'Hub server URL')
+    .option('-k, --key <secret>', 'Admin secret key')
+    .option('-c, --context <name>', 'Target context')
+    .action(async (node: string, opts: Record<string, any>) => {
+      const eff = resolveEffective(opts);
+      await handleCronAdd({
+        server: eff.server,
+        key: eff.key,
+        node,
+        name: opts.name,
+        cron: opts.cron,
+        cmd: opts.cmd,
+        script: opts.script,
+        args: opts.args,
+        cwd: opts.cwd,
+        timeout: opts.timeout,
+        concurrency: opts.concurrency,
+        paused: !!opts.paused,
+      });
+    });
+
+  cronCmd
+    .command('rm <node> <jobId>')
+    .alias('remove')
+    .alias('delete')
+    .description('Remove a scheduled cron job from a node')
+    .option('-s, --server <url>', 'Hub server URL')
+    .option('-k, --key <secret>', 'Admin secret key')
+    .option('-c, --context <name>', 'Target context')
+    .action(async (node: string, jobId: string, opts: Record<string, any>) => {
+      const eff = resolveEffective(opts);
+      await handleCronRm({
+        server: eff.server,
+        key: eff.key,
+        node,
+        jobId,
+      });
+    });
+
+  cronCmd
+    .command('pause <node> <jobId>')
+    .description('Pause a scheduled cron job on a node')
+    .option('-s, --server <url>', 'Hub server URL')
+    .option('-k, --key <secret>', 'Admin secret key')
+    .option('-c, --context <name>', 'Target context')
+    .action(async (node: string, jobId: string, opts: Record<string, any>) => {
+      const eff = resolveEffective(opts);
+      await handleCronPause({
+        server: eff.server,
+        key: eff.key,
+        node,
+        jobId,
+      });
+    });
+
+  cronCmd
+    .command('resume <node> <jobId>')
+    .description('Resume a paused cron job on a node')
+    .option('-s, --server <url>', 'Hub server URL')
+    .option('-k, --key <secret>', 'Admin secret key')
+    .option('-c, --context <name>', 'Target context')
+    .action(async (node: string, jobId: string, opts: Record<string, any>) => {
+      const eff = resolveEffective(opts);
+      await handleCronResume({
+        server: eff.server,
+        key: eff.key,
+        node,
+        jobId,
+      });
+    });
+
+  cronCmd
+    .command('run <node> <jobId>')
+    .description('Trigger immediate execution of a cron job on a node')
+    .option('-s, --server <url>', 'Hub server URL')
+    .option('-k, --key <secret>', 'Admin secret key')
+    .option('-c, --context <name>', 'Target context')
+    .action(async (node: string, jobId: string, opts: Record<string, any>) => {
+      const eff = resolveEffective(opts);
+      await handleCronRun({
+        server: eff.server,
+        key: eff.key,
+        node,
+        jobId,
+      });
+    });
+
+  cronCmd
+    .command('logs <node> <jobId>')
+    .description('View execution logs of a cron job on a node')
+    .option('-f, --follow', 'Follow logs')
+    .option('--poll-interval <ms>', 'Polling interval in ms')
+    .option('-s, --server <url>', 'Hub server URL')
+    .option('-k, --key <secret>', 'Admin secret key')
+    .option('-c, --context <name>', 'Target context')
+    .action(async (node: string, jobId: string, opts: Record<string, any>) => {
+      const eff = resolveEffective(opts);
+      await handleCronLogs({
+        server: eff.server,
+        key: eff.key,
+        node,
+        jobId,
+        follow: !!opts.follow,
+        pollInterval: opts.pollInterval ? parseInt(String(opts.pollInterval), 10) : 500,
+      });
+    });
+
   const agentCmd = program
     .command('agent')
     .description('Manage local machine reverse agent daemon lifecycle');

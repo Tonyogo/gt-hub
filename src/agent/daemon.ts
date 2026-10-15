@@ -600,13 +600,16 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
 
   const cronScheduler = new AgentCronScheduler({
     getScriptContent: async (name: string) => {
-      const res = await makeRequest(serverArg, `/api/scripts/${encodeURIComponent(name)}`, {
-        headers: { 'x-admin-key': adminKey },
+      const res = await makeRequest({
+        serverUrl: serverArg,
+        endpoint: `/api/scripts/${encodeURIComponent(name)}`,
+        method: 'GET',
+        apiKey: adminKey,
       });
-      if (res && res.data && res.data.content) {
-        return res.data.content;
+      if (res && res.data && res.data.data && res.data.data.content) {
+        return res.data.data.content;
       }
-      throw new Error(res?.error || `Failed to fetch script "${name}" from Hub`);
+      throw new Error(res?.data?.error || `Failed to fetch script "${name}" from Hub`);
     },
   });
   cronScheduler.start();
