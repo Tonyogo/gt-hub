@@ -333,7 +333,7 @@ export class TerminalCronService {
         offset,
       });
       if (res && res.success) {
-        return res;
+        return res.data || res;
       }
     } catch {}
 

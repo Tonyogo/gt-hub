@@ -423,13 +423,13 @@ export async function handleCronLogs({
         return { running: false, error: res.data?.error || `HTTP ${res.status}` };
       }
 
-      const data = res.data;
-      const text = data.output || data.stdout || '';
+      const data = (res.data && res.data.data) ? res.data.data : res.data;
+      const text = data?.output || data?.stdout || '';
       if (text) {
         process.stdout.write(text);
       }
-      currentOffset = data.offset || data.outputOffset || (currentOffset + Buffer.byteLength(text));
-      const isRunning = data.status === 'running';
+      currentOffset = data?.offset !== undefined ? data.offset : (data?.outputOffset !== undefined ? data.outputOffset : (currentOffset + Buffer.byteLength(text)));
+      const isRunning = data?.status === 'running';
       return { running: isRunning, error: null };
     } catch (err: any) {
       return { running: false, error: err.message };
