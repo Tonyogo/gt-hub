@@ -69,9 +69,13 @@ describe('Cron Parser Utility', () => {
       const next5 = getNextCronTime('*/5 * * * *', base);
       expect(next5.toISOString()).toBe('2026-10-15T10:05:00.000Z');
 
-      // Daily at 02:00 -> next is 2026-10-16 02:00:00
+      // Daily at 02:00 in local time
       const nextDaily = getNextCronTime('0 2 * * *', base);
-      expect(nextDaily.toISOString()).toBe('2026-10-16T02:00:00.000Z');
+      expect(nextDaily.getHours()).toBe(2);
+
+      // Daily at 02:00 with explicit UTC
+      const nextDailyUtc = getNextCronTime('0 2 * * *', base, 'UTC');
+      expect(nextDailyUtc.toISOString()).toBe('2026-10-16T02:00:00.000Z');
 
       // Even if seconds/ms are non-zero, next run rounds up properly
       const baseWithSec = new Date('2026-10-15T10:02:45.123Z');
@@ -96,7 +100,7 @@ describe('Cron Parser Utility', () => {
       const nextSun0 = getNextCronTime('0 10 * * 0', sat);
       const nextSun7 = getNextCronTime('0 10 * * 7', sat);
       expect(nextSun0.toISOString()).toBe(nextSun7.toISOString());
-      expect(nextSun0.getUTCDay()).toBe(0);
+      expect(nextSun0.getDay()).toBe(0);
     });
 
     it('throws when given an invalid cron expression', () => {

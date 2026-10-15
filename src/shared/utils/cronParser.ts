@@ -148,58 +148,301 @@ export function isValidCronExpression(expr: string): boolean {
   }
 }
 
-export function getNextCronTime(expr: string, fromDate?: Date): Date {
+export function isValidTimezone(tz?: string): boolean {
+  if (!tz || tz === 'local') return true;
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+interface ParsedDateParts {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+  weekday: number;
+}
+
+function getTimezoneParts(date: Date, dtf: Intl.DateTimeFormat): ParsedDateParts {
+  const parts = dtf.formatToParts(date);
+  let year = 0;
+  let month = 0;
+  let day = 0;
+  let hour = 0;
+  let minute = 0;
+  let second = 0;
+  let weekday = 0;
+
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+    switch (p.type) {
+      case 'year':
+        year = parseInt(p.value, 10);
+        break;
+      case 'month':
+        month = parseInt(p.value, 10);
+        break;
+      case 'day':
+        day = parseInt(p.value, 10);
+        break;
+      case 'hour': {
+        const val = parseInt(p.value, 10);
+        hour = val === 24 ? 0 : val;
+        break;
+      }
+      case 'minute':
+        minute = parseInt(p.value, 10);
+        break;
+      case 'second':
+        second = parseInt(p.value, 10);
+        break;
+      case 'weekday': {
+        const w = p.value;
+        if (w === 'Sun') weekday = 0;
+        else if (w === 'Mon') weekday = 1;
+        else if (w === 'Tue') weekday = 2;
+        else if (w === 'Wed') weekday = 3;
+        else if (w === 'Thu') weekday = 4;
+        else if (w === 'Fri') weekday = 5;
+        else if (w === 'Sat') weekday = 6;
+        break;
+      }
+    }
+  }
+
+  return { year, month, day, hour, minute, second, weekday };
+}
+
+function dateFromTimezone(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  dtf: Intl.DateTimeFormat,
+  minTime?: number
+): Date {
+  const utcGuess = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const parts = getTimezoneParts(new Date(utcGuess), dtf);
+  const asUtc = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, 0);
+  const offset = asUtc - utcGuess;
+  let result = new Date(utcGuess - offset);
+
+  // Check if offset changed across DST boundary
+  const resParts = getTimezoneParts(result, dtf);
+  const resAsUtc = Date.UTC(resParts.year, resParts.month - 1, resParts.day, resParts.hour, resParts.minute, 0);
+  const desiredUtc = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const diff = desiredUtc - resAsUtc;
+  if (diff !== 0) {
+    result = new Date(result.getTime() + diff);
+  }
+
+  if (minTime !== undefined && result.getTime() <= minTime) {
+    result = new Date(minTime + 60000);
+  }
+
+  return result;
+}
+
+export function getNextCronTime(expr: string, fromDate?: Date, timezone?: string): Date {
+  if (timezone && timezone !== 'local' && !isValidTimezone(timezone)) {
+    throw new Error(`Invalid timezone "${timezone}"`);
+  }
+
   const parsed = parseCronExpression(expr);
-  const current = new Date(fromDate ? fromDate.getTime() : Date.now());
+  const tz = (!timezone || timezone === 'local') ? 'local' : timezone;
 
-  // Truncate seconds and milliseconds, then advance by 1 minute
-  current.setUTCSeconds(0, 0);
-  current.setUTCMinutes(current.getUTCMinutes() + 1);
+  if (tz === 'local') {
+    const current = new Date(fromDate ? fromDate.getTime() : Date.now());
 
-  // Maximum search limit: 5 years (approx. 5 * 366 days)
-  const maxYear = current.getUTCFullYear() + 5;
+    // Truncate seconds and milliseconds, then advance by 1 minute
+    current.setSeconds(0, 0);
+    current.setMinutes(current.getMinutes() + 1);
 
-  while (current.getUTCFullYear() <= maxYear) {
+    const maxYear = current.getFullYear() + 5;
+
+    while (current.getFullYear() <= maxYear) {
+      // 1. Check Month
+      const month = current.getMonth() + 1; // 1-12
+      if (!parsed.months.has(month)) {
+        current.setMonth(current.getMonth() + 1, 1);
+        current.setHours(0, 0, 0, 0);
+        continue;
+      }
+
+      // 2. Check Day (dayOfMonth and dayOfWeek)
+      const dom = current.getDate();
+      const dow = current.getDay(); // 0-6
+
+      let dayMatches = false;
+      if (parsed.isDomWildcard && parsed.isDowWildcard) {
+        dayMatches = true;
+      } else if (parsed.isDomWildcard && !parsed.isDowWildcard) {
+        dayMatches = parsed.daysOfWeek.has(dow);
+      } else if (!parsed.isDomWildcard && parsed.isDowWildcard) {
+        dayMatches = parsed.daysOfMonth.has(dom);
+      } else {
+        dayMatches = parsed.daysOfMonth.has(dom) || parsed.daysOfWeek.has(dow);
+      }
+
+      if (!dayMatches) {
+        current.setDate(current.getDate() + 1);
+        current.setHours(0, 0, 0, 0);
+        continue;
+      }
+
+      // 3. Check Hour
+      const hour = current.getHours();
+      if (!parsed.hours.has(hour)) {
+        current.setHours(current.getHours() + 1, 0, 0, 0);
+        continue;
+      }
+
+      // 4. Check Minute
+      const minute = current.getMinutes();
+      if (!parsed.minutes.has(minute)) {
+        current.setMinutes(current.getMinutes() + 1, 0, 0);
+        continue;
+      }
+
+      // All match found!
+      return current;
+    }
+
+    throw new Error(`Unable to find next run time within 5 years for cron expression "${expr}"`);
+  }
+
+  if (tz === 'UTC') {
+    const current = new Date(fromDate ? fromDate.getTime() : Date.now());
+
+    // Truncate seconds and milliseconds, then advance by 1 minute
+    current.setUTCSeconds(0, 0);
+    current.setUTCMinutes(current.getUTCMinutes() + 1);
+
+    const maxYear = current.getUTCFullYear() + 5;
+
+    while (current.getUTCFullYear() <= maxYear) {
+      // 1. Check Month
+      const month = current.getUTCMonth() + 1; // 1-12
+      if (!parsed.months.has(month)) {
+        current.setUTCMonth(current.getUTCMonth() + 1, 1);
+        current.setUTCHours(0, 0, 0, 0);
+        continue;
+      }
+
+      // 2. Check Day (dayOfMonth and dayOfWeek)
+      const dom = current.getUTCDate();
+      const dow = current.getUTCDay(); // 0-6
+
+      let dayMatches = false;
+      if (parsed.isDomWildcard && parsed.isDowWildcard) {
+        dayMatches = true;
+      } else if (parsed.isDomWildcard && !parsed.isDowWildcard) {
+        dayMatches = parsed.daysOfWeek.has(dow);
+      } else if (!parsed.isDomWildcard && parsed.isDowWildcard) {
+        dayMatches = parsed.daysOfMonth.has(dom);
+      } else {
+        dayMatches = parsed.daysOfMonth.has(dom) || parsed.daysOfWeek.has(dow);
+      }
+
+      if (!dayMatches) {
+        current.setUTCDate(current.getUTCDate() + 1);
+        current.setUTCHours(0, 0, 0, 0);
+        continue;
+      }
+
+      // 3. Check Hour
+      const hour = current.getUTCHours();
+      if (!parsed.hours.has(hour)) {
+        current.setUTCHours(current.getUTCHours() + 1, 0, 0, 0);
+        continue;
+      }
+
+      // 4. Check Minute
+      const minute = current.getUTCMinutes();
+      if (!parsed.minutes.has(minute)) {
+        current.setUTCMinutes(current.getUTCMinutes() + 1, 0, 0);
+        continue;
+      }
+
+      // All match found!
+      return current;
+    }
+
+    throw new Error(`Unable to find next run time within 5 years for cron expression "${expr}"`);
+  }
+
+  // Arbitrary IANA timezone
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: 'numeric',
+    second: 'numeric',
+    hourCycle: 'h23',
+    weekday: 'short',
+  });
+
+  const baseDate = new Date(fromDate ? fromDate.getTime() : Date.now());
+  const initialParts = getTimezoneParts(baseDate, dtf);
+
+  let current = dateFromTimezone(
+    initialParts.year,
+    initialParts.month,
+    initialParts.day,
+    initialParts.hour,
+    initialParts.minute + 1,
+    dtf,
+    baseDate.getTime()
+  );
+
+  const maxYear = initialParts.year + 5;
+
+  while (true) {
+    const parts = getTimezoneParts(current, dtf);
+    if (parts.year > maxYear) {
+      break;
+    }
+
     // 1. Check Month
-    const month = current.getUTCMonth() + 1; // 1-12
-    if (!parsed.months.has(month)) {
-      current.setUTCMonth(current.getUTCMonth() + 1, 1);
-      current.setUTCHours(0, 0, 0, 0);
+    if (!parsed.months.has(parts.month)) {
+      current = dateFromTimezone(parts.year, parts.month + 1, 1, 0, 0, dtf, current.getTime());
       continue;
     }
 
-    // 2. Check Day (dayOfMonth and dayOfWeek)
-    const dom = current.getUTCDate();
-    const dow = current.getUTCDay(); // 0-6
-
+    // 2. Check Day
     let dayMatches = false;
     if (parsed.isDomWildcard && parsed.isDowWildcard) {
       dayMatches = true;
     } else if (parsed.isDomWildcard && !parsed.isDowWildcard) {
-      dayMatches = parsed.daysOfWeek.has(dow);
+      dayMatches = parsed.daysOfWeek.has(parts.weekday);
     } else if (!parsed.isDomWildcard && parsed.isDowWildcard) {
-      dayMatches = parsed.daysOfMonth.has(dom);
+      dayMatches = parsed.daysOfMonth.has(parts.day);
     } else {
-      dayMatches = parsed.daysOfMonth.has(dom) || parsed.daysOfWeek.has(dow);
+      dayMatches = parsed.daysOfMonth.has(parts.day) || parsed.daysOfWeek.has(parts.weekday);
     }
 
     if (!dayMatches) {
-      current.setUTCDate(current.getUTCDate() + 1);
-      current.setUTCHours(0, 0, 0, 0);
+      current = dateFromTimezone(parts.year, parts.month, parts.day + 1, 0, 0, dtf, current.getTime());
       continue;
     }
 
     // 3. Check Hour
-    const hour = current.getUTCHours();
-    if (!parsed.hours.has(hour)) {
-      current.setUTCHours(current.getUTCHours() + 1, 0, 0, 0);
+    if (!parsed.hours.has(parts.hour)) {
+      current = dateFromTimezone(parts.year, parts.month, parts.day, parts.hour + 1, 0, dtf, current.getTime());
       continue;
     }
 
     // 4. Check Minute
-    const minute = current.getUTCMinutes();
-    if (!parsed.minutes.has(minute)) {
-      current.setUTCMinutes(current.getUTCMinutes() + 1, 0, 0);
+    if (!parsed.minutes.has(parts.minute)) {
+      current = dateFromTimezone(parts.year, parts.month, parts.day, parts.hour, parts.minute + 1, dtf, current.getTime());
       continue;
     }
 
