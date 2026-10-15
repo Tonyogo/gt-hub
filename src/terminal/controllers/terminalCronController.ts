@@ -6,7 +6,8 @@ export class TerminalCronController {
     try {
       const nodeId = String(req.params.nodeId);
       const jobs = await terminalCronService.getJobs(nodeId);
-      res.json({ success: true, data: jobs });
+      const timezone = terminalCronService.getNodeTimezone(nodeId);
+      res.json({ success: true, data: jobs, timezone });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message || 'Failed to list cron jobs' });
     }

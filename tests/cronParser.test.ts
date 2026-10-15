@@ -84,14 +84,20 @@ describe('Cron Parser Utility', () => {
     });
 
     it('handles month end / year end rollover', () => {
-      const dec31 = new Date('2026-12-31T23:55:00.000Z');
-      const nextYear = getNextCronTime('0 0 1 1 *', dec31);
+      // Test rollover in local timezone
+      const dec31Local = new Date(2026, 11, 31, 23, 55, 0);
+      const nextYear = getNextCronTime('0 0 1 1 *', dec31Local);
       expect(nextYear.getFullYear()).toBe(2027);
       expect(nextYear.getMonth()).toBe(0);
       expect(nextYear.getDate()).toBe(1);
       expect(nextYear.getHours()).toBe(0);
       expect(nextYear.getMinutes()).toBe(0);
       expect(nextYear.getSeconds()).toBe(0);
+
+      // Test rollover in explicit UTC timezone
+      const dec31Utc = new Date('2026-12-31T23:55:00.000Z');
+      const nextYearUtc = getNextCronTime('0 0 1 1 *', dec31Utc, 'UTC');
+      expect(nextYearUtc.toISOString()).toBe('2027-01-01T00:00:00.000Z');
     });
 
     it('correctly handles day of week constraints (0 and 7 both Sunday)', () => {

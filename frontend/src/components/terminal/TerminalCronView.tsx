@@ -50,6 +50,7 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
     const isZh = language === 'zh';
 
     const [jobs, setJobs] = useState<CronJobSummary[]>([]);
+    const [nodeTimezone, setNodeTimezone] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [searchQuery, setSearchQuery] = useState<string>('');
     const [runningJobIds, setRunningJobIds] = useState<Set<string>>(new Set());
@@ -108,8 +109,14 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
         const data = await res.json();
         if (data && data.success && Array.isArray(data.data)) {
           setJobs(data.data);
+          if (data.timezone) {
+            setNodeTimezone(data.timezone);
+          } else {
+            setNodeTimezone(null);
+          }
         } else {
           setJobs([]);
+          setNodeTimezone(null);
         }
       } catch (err: any) {
         if (!silent) {
@@ -324,6 +331,15 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
                 <span className="text-indigo-300 font-mono text-[11px]">
                   {jobs.length} {isZh ? '个任务' : 'jobs'}
                 </span>
+                {nodeTimezone && (
+                  <>
+                    <span className="text-slate-500">•</span>
+                    <span className="text-slate-400 font-mono text-[11px] flex items-center space-x-1" title={`${t('cron.timezoneBadge', '时区')}: ${nodeTimezone}`}>
+                      <Globe className="w-3 h-3 text-indigo-400 inline" />
+                      <span>{nodeTimezone}</span>
+                    </span>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -691,6 +707,7 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
           initialData={editingJob}
           adminKey={adminKey}
           activeHostId={activeHostId}
+          nodeTimezone={nodeTimezone}
         />
 
         {/* Dark Terminal Execution Logs Modal */}

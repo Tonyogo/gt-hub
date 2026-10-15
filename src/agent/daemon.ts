@@ -365,6 +365,9 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     }
     console.log(`Agent Name : ${current.name}`);
     console.log(`Target Hub : ${current.server}`);
+    if (current.timezone) {
+      console.log(`Timezone   : ${current.timezone}`);
+    }
     if (current.startTime) {
       console.log(`Started    : ${current.startTime}`);
     }
@@ -436,6 +439,12 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
 
   const machineId = ConfigStore.getMachineId();
   const hostId = options.id || options.hostId || machineId;
+  let clientTimezone: string | undefined;
+  try {
+    clientTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {
+    clientTimezone = undefined;
+  }
 
   // Resolve effective credentials
   const effectiveConfig = ConfigStore.getEffectiveConfig({
@@ -501,6 +510,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       startTime: new Date().toISOString(),
       logFile: logFile,
       version: getVersionInfo().version,
+      timezone: clientTimezone,
     });
 
     child.unref();
@@ -521,6 +531,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       server: serverArg,
       startTime: new Date().toISOString(),
       logFile: AgentDaemonManager.getLogFile(),
+      timezone: clientTimezone,
     });
     const cleanupFg = () => {
       const s = AgentDaemonManager.getStatus();
@@ -571,6 +582,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
   console.log(` Host ID   : ${hostId}`);
   console.log(` Host Name : ${hostName} (${hostname})`);
   console.log(` IP / OS   : ${localIp} / ${platform}`);
+  console.log(` Timezone  : ${clientTimezone || 'local/unknown'}`);
   console.log(` Target Hub: ${serverArg}`);
   console.log(` Perm Mode : ${permissionMode}${workspace ? ` (Workspace: ${workspace})` : ''}`);
   console.log('---------------------------------------------------------');
@@ -908,6 +920,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       machineId,
       version: clientVersion,
       startTime: agentStartTime,
+      timezone: clientTimezone,
     });
     console.log(`[Agent] Connecting to ${targetWsUrl.split('?')[0]}...`);
 

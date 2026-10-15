@@ -12,6 +12,7 @@ export interface ManagedHost {
   type: 'agent';
   machineId?: string;
   version?: string;
+  timezone?: string;
 }
 
 export interface HostInfo {
@@ -25,4 +26,5 @@ export interface HostInfo {
   startTime?: number;
   machineId?: string;
   version?: string;
+  timezone?: string;
 }

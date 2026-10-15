@@ -160,6 +160,8 @@ export function resolveWebSocketUrl(
     machineId?: string;
     version?: string;
     startTime?: number;
+    timezone?: string;
+    timeZone?: string;
     [key: string]: any;
   } = {}
 ): string {

@@ -1,6 +1,7 @@
 import logger from '../../utils/logger';
 import { rpcDispatcher, RpcDispatcher } from './rpcDispatcher';
 import { StreamBatcher } from '../../shared/utils/streamBatcher';
+import { isValidTimezone } from '../../shared/utils/cronParser';
 
 export interface ManagedHost {
   id: string;
@@ -14,6 +15,7 @@ export interface ManagedHost {
   type: 'agent';
   machineId?: string;
   version?: string;
+  timezone?: string;
   agentWs?: any;
 }
 
@@ -472,7 +474,7 @@ export class TerminalHostManager {
     return null;
   }
 
-  public registerHost(metadata: { id: string; name?: string; hostname?: string; ip?: string; platform?: string; version?: string; startTime?: number; type?: string }, agentWs?: any) {
+  public registerHost(metadata: { id: string; name?: string; hostname?: string; ip?: string; platform?: string; version?: string; startTime?: number; timezone?: string; type?: string }, agentWs?: any) {
     return this.registerAgent({
       hostId: metadata.id,
       name: metadata.name,
@@ -481,6 +483,7 @@ export class TerminalHostManager {
       platform: metadata.platform,
       version: metadata.version,
       startTime: metadata.startTime,
+      timezone: metadata.timezone,
       agentWs,
     });
   }
@@ -498,6 +501,7 @@ export class TerminalHostManager {
     machineId?: string;
     version?: string;
     startTime?: number;
+    timezone?: string;
     agentWs?: any;
   }): { success: boolean; host?: ManagedHost; error?: string } {
     const id = metadata.hostId.trim();
@@ -556,6 +560,10 @@ export class TerminalHostManager {
     }
 
     // 3. Register or update host strictly under `id`
+    const validTz = (metadata.timezone && metadata.timezone.trim() && metadata.timezone !== 'local' && isValidTimezone(metadata.timezone.trim()))
+      ? metadata.timezone.trim()
+      : undefined;
+
     let host = this.hosts.get(id);
     if (!host) {
       host = {
@@ -570,6 +578,7 @@ export class TerminalHostManager {
         type: 'agent',
         machineId,
         version: metadata.version,
+        timezone: validTz,
         agentWs: metadata.agentWs,
       };
       this.hosts.set(id, host);
@@ -584,6 +593,7 @@ export class TerminalHostManager {
       if (metadata.ip) host.ip = metadata.ip;
       if (metadata.platform) host.platform = metadata.platform;
       if (metadata.version) host.version = metadata.version;
+      if (validTz) host.timezone = validTz;
     }
 
     let session = this.sessions.get(id);
@@ -648,7 +658,7 @@ export class TerminalHostManager {
   public touchAgent(
     hostId: string,
     ws?: any,
-    metadata?: { name?: string; hostname?: string; ip?: string; platform?: string; version?: string; startTime?: number }
+    metadata?: { name?: string; hostname?: string; ip?: string; platform?: string; version?: string; startTime?: number; timezone?: string }
   ): void {
     const canonicalId = this.resolveCanonicalHostId(hostId) || hostId;
     const host = this.hosts.get(canonicalId);
@@ -662,6 +672,7 @@ export class TerminalHostManager {
           platform: metadata?.platform,
           version: metadata?.version,
           startTime: metadata?.startTime,
+          timezone: metadata?.timezone,
           agentWs: ws,
         });
       }
@@ -692,6 +703,14 @@ export class TerminalHostManager {
     if (metadata?.version) {
       host.version = metadata.version;
     }
+    if (metadata?.timezone) {
+      const touchTz = (metadata.timezone.trim() && metadata.timezone !== 'local' && isValidTimezone(metadata.timezone.trim()))
+        ? metadata.timezone.trim()
+        : undefined;
+      if (touchTz) {
+        host.timezone = touchTz;
+      }
+    }
     if (host.status !== 'online') {
       host.status = 'online';
       logger.info(`[TerminalHostManager] Agent status restored to online via message: ${canonicalId}`);
@@ -700,6 +719,11 @@ export class TerminalHostManager {
     if (session && ws && currentWs !== ws) {
       session.updateAgentWs(ws);
     }
+  }
+
+  public getNodeTimezone(hostIdOrName: string): string | undefined {
+    const host = this.getHost(hostIdOrName);
+    return (host?.timezone && isValidTimezone(host.timezone)) ? host.timezone : undefined;
   }
 
   public handleAgentData(hostId: string, data: any): void {

@@ -8,6 +8,7 @@ import { terminalHostManager } from '../services/terminalHostManager';
 import { terminalExecBridge } from '../services/terminalExecBridge';
 import { ticketManager } from '../../server/modules/auth/ticketManager';
 import { terminalCronService } from '../services/terminalCronService';
+import { isValidTimezone } from '../../shared/utils/cronParser';
 import { BIN_MSG_TYPE, decodeBinaryPacket } from '../../shared/protocol/binaryProtocol';
 
 export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?: any): WebSocketServer {
@@ -108,8 +109,12 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
     const startTimeParam = parsedUrl.searchParams.get('startTime');
     const parsedStartTime = startTimeParam ? parseInt(startTimeParam, 10) : undefined;
     const startTime = (parsedStartTime && !isNaN(parsedStartTime)) ? parsedStartTime : undefined;
+    const rawTimezone = parsedUrl.searchParams.get('timezone') || parsedUrl.searchParams.get('timeZone') || undefined;
+    const timezone = (rawTimezone && rawTimezone.trim() && rawTimezone !== 'local' && isValidTimezone(rawTimezone.trim()))
+      ? rawTimezone.trim()
+      : undefined;
 
-    const agentMeta = { hostId, name, hostname, ip, platform, machineId, version, startTime };
+    const agentMeta = { hostId, name, hostname, ip, platform, machineId, version, startTime, timezone };
     (ws as any)._agentMeta = agentMeta;
 
     const regResult = hostMgr.registerAgent({
@@ -121,6 +126,7 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
       machineId,
       version,
       startTime,
+      timezone,
       agentWs: ws,
     });
 
@@ -177,6 +183,11 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
             return;
           }
           if (control.type === 'meta') {
+            const rawMetaTz = control.timezone || control.timeZone;
+            const metaTz = (rawMetaTz && typeof rawMetaTz === 'string' && rawMetaTz.trim() && rawMetaTz !== 'local' && isValidTimezone(rawMetaTz.trim()))
+              ? rawMetaTz.trim()
+              : undefined;
+            const effectiveTz = rawMetaTz !== undefined ? metaTz : (agentMeta as any).timezone;
             const metaRes = hostMgr.registerAgent({
               hostId,
               name: control.name,
@@ -185,8 +196,16 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
               platform: control.platform,
               machineId,
               version: control.version || version,
+              startTime: control.startTime || startTime,
+              timezone: effectiveTz,
               agentWs: ws,
             });
+            if (metaRes.success) {
+              if (effectiveTz !== undefined) {
+                (agentMeta as any).timezone = effectiveTz;
+              }
+              terminalCronService.syncOnConnect(hostId);
+            }
             if (!metaRes.success) {
               logger.warn(`[TerminalWS:Agent] Meta update rejected for ${hostId}: ${metaRes.error}`);
               try {

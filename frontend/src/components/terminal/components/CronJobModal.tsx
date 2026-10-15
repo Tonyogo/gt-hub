@@ -28,6 +28,7 @@ export interface CronJobModalProps {
   initialData?: CronJobSummary | null;
   adminKey?: string;
   activeHostId?: string;
+  nodeTimezone?: string | null;
 }
 
 const CRON_PRESETS = [
@@ -54,6 +55,7 @@ export const CronJobModal: React.FC<CronJobModalProps> = ({
   onSave,
   initialData,
   adminKey,
+  nodeTimezone,
 }) => {
   const { t } = useTranslation();
 
@@ -342,7 +344,9 @@ export const CronJobModal: React.FC<CronJobModalProps> = ({
                 {t('cron.modal.timezoneLabel', '执行时区')}
               </label>
               <span className="text-[11px] text-slate-400 font-mono">
-                {timezoneMode === 'local' ? t('cron.modal.timezoneLocal', '🖥️ 节点本地时区 (默认)') : timezoneMode}
+                {timezoneMode === 'local'
+                  ? `${t('cron.modal.timezoneLocal', '🖥️ 节点本地时区 (默认)')}${nodeTimezone ? ` [${nodeTimezone}]` : ''}`
+                  : timezoneMode}
               </span>
             </div>
             <select
@@ -356,7 +360,10 @@ export const CronJobModal: React.FC<CronJobModalProps> = ({
               }}
               className="w-full px-3 py-2 rounded-xl bg-black/40 border border-white/[0.08] text-white text-xs focus:outline-hidden focus:border-indigo-500 transition-all"
             >
-              <option value="local">{t('cron.modal.timezoneLocal', '🖥️ 节点本地时区 (默认)')}</option>
+              <option value="local">
+                {t('cron.modal.timezoneLocal', '🖥️ 节点本地时区 (默认)')}
+                {nodeTimezone ? ` (${nodeTimezone})` : ''}
+              </option>
               <option value="Asia/Shanghai">🇨🇳 中国标准时间 (Asia/Shanghai, UTC+8)</option>
               <option value="UTC">🌐 协调世界时 (UTC)</option>
               <option value="America/New_York">🇺🇸 美国东部时间 (America/New_York)</option>

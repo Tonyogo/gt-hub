@@ -26,6 +26,8 @@ export interface ManagedHostItem {
   status: 'online' | 'offline';
   lastSeen: number;
   type: 'agent';
+  version?: string;
+  timezone?: string;
 }
 
 export interface TerminalHostSelectorProps {
@@ -479,7 +481,9 @@ export function TerminalHostSelector({
                     />
                   </div>
                   <div className="text-[10px] text-[var(--text-muted)] truncate font-mono">
-                    {isOnline ? `${h.ip} · ${h.platform}` : `${h.ip} · ${formatRelativeTime(h.lastSeen, lang)}`}
+                    {isOnline
+                      ? `${h.ip} · ${h.platform}${h.timezone ? ` · ${h.timezone}` : ''}`
+                      : `${h.ip} · ${formatRelativeTime(h.lastSeen, lang)}${h.timezone ? ` · ${h.timezone}` : ''}`}
                   </div>
                 </div>
               </div>

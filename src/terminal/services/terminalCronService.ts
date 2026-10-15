@@ -9,6 +9,7 @@ import logger from '../../utils/logger';
 
 interface NodeCronData {
   nodeId: string;
+  timezone?: string;
   jobs: CronJobConfig[];
   executions: CronExecutionRecord[];
 }
@@ -63,6 +64,7 @@ export class TerminalCronService {
         const parsed = JSON.parse(raw);
         return {
           nodeId: parsed.nodeId || canonicalId,
+          timezone: typeof parsed.timezone === 'string' && isValidTimezone(parsed.timezone) && parsed.timezone !== 'local' ? parsed.timezone.trim() : undefined,
           jobs: Array.isArray(parsed.jobs) ? parsed.jobs : [],
           executions: Array.isArray(parsed.executions) ? parsed.executions : [],
         };
@@ -103,24 +105,63 @@ export class TerminalCronService {
 
   public syncOnConnect(nodeId: string): void {
     const canonicalId = this.resolveCanonicalNodeId(nodeId);
+    const host = terminalHostManager.getHost(canonicalId);
+    const hostTz = (host?.timezone && host.timezone !== 'local' && isValidTimezone(host.timezone)) ? host.timezone.trim() : undefined;
+
     const filePath = this.getNodeFilePath(canonicalId);
     if (fs.existsSync(filePath)) {
       const data = this.loadNodeData(canonicalId);
+      let updated = false;
+      if (hostTz && data.timezone !== hostTz) {
+        data.timezone = hostTz;
+        updated = true;
+      }
+      if (updated) {
+        this.saveNodeData(canonicalId, data);
+      }
       if (data.jobs && data.jobs.length > 0) {
         this.syncToAgent(canonicalId, data.jobs);
       }
+    } else if (hostTz) {
+      this.saveNodeData(canonicalId, {
+        nodeId: canonicalId,
+        timezone: hostTz,
+        jobs: [],
+        executions: [],
+      });
     }
+  }
+
+  public getNodeTimezone(nodeId: string): string | undefined {
+    const canonicalId = this.resolveCanonicalNodeId(nodeId);
+    const host = terminalHostManager.getHost(canonicalId);
+    if (host?.timezone && host.timezone !== 'local' && isValidTimezone(host.timezone)) {
+      return host.timezone.trim();
+    }
+    const data = this.loadNodeData(canonicalId);
+    if (data.timezone && data.timezone !== 'local' && isValidTimezone(data.timezone)) {
+      return data.timezone.trim();
+    }
+    return undefined;
   }
 
   public async getJobs(nodeId: string): Promise<CronJobSummary[]> {
     const canonicalId = this.resolveCanonicalNodeId(nodeId);
     const data = this.loadNodeData(canonicalId);
 
+    const host = terminalHostManager.getHost(canonicalId);
+    const hostTimezone = (host?.timezone && host.timezone !== 'local' && isValidTimezone(host.timezone))
+      ? host.timezone.trim()
+      : (data.timezone && data.timezone !== 'local' && isValidTimezone(data.timezone) ? data.timezone.trim() : undefined);
+
     return data.jobs.map((job) => {
       let nextRunTime: number | null = null;
       if (job.status === 'active') {
         try {
-          nextRunTime = getNextCronTime(job.cron, undefined, job.timezone).getTime();
+          const effectiveTimezone = (job.timezone && job.timezone !== 'local')
+            ? job.timezone
+            : hostTimezone;
+          nextRunTime = getNextCronTime(job.cron, undefined, effectiveTimezone).getTime();
         } catch {
           nextRunTime = null;
         }
@@ -163,6 +204,11 @@ export class TerminalCronService {
     }
 
     const data = this.loadNodeData(canonicalId);
+    const host = terminalHostManager.getHost(canonicalId);
+    const hostTz = (host?.timezone && host.timezone !== 'local' && isValidTimezone(host.timezone)) ? host.timezone.trim() : undefined;
+    if (hostTz && data.timezone !== hostTz) {
+      data.timezone = hostTz;
+    }
 
     // Check duplicate ID or name
     const existing = data.jobs.find(j => j.name === name || (jobData.id && j.id === jobData.id));
@@ -202,6 +248,11 @@ export class TerminalCronService {
   public async removeJob(nodeId: string, jobId: string): Promise<boolean> {
     const canonicalId = this.resolveCanonicalNodeId(nodeId);
     const data = this.loadNodeData(canonicalId);
+    const host = terminalHostManager.getHost(canonicalId);
+    const hostTz = (host?.timezone && host.timezone !== 'local' && isValidTimezone(host.timezone)) ? host.timezone.trim() : undefined;
+    if (hostTz && data.timezone !== hostTz) {
+      data.timezone = hostTz;
+    }
 
     const idx = data.jobs.findIndex(j => j.id === jobId || j.name === jobId);
     if (idx === -1) {
@@ -218,6 +269,11 @@ export class TerminalCronService {
   public async updateJob(nodeId: string, jobId: string, updates: Partial<CronJobConfig>): Promise<CronJobConfig> {
     const canonicalId = this.resolveCanonicalNodeId(nodeId);
     const data = this.loadNodeData(canonicalId);
+    const host = terminalHostManager.getHost(canonicalId);
+    const hostTz = (host?.timezone && host.timezone !== 'local' && isValidTimezone(host.timezone)) ? host.timezone.trim() : undefined;
+    if (hostTz && data.timezone !== hostTz) {
+      data.timezone = hostTz;
+    }
 
     const job = data.jobs.find(j => j.id === jobId || j.name === jobId);
     if (!job) {
