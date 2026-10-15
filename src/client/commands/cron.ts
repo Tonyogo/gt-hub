@@ -1,5 +1,5 @@
 import { makeRequest, resolveHost, formatTemplate } from '../utils/terminalUI';
-import { isValidCronExpression } from '../../shared/utils/cronParser';
+import { isValidCronExpression, isValidTimezone } from '../../shared/utils/cronParser';
 import { CronJobSummary } from '../../shared/types/cron';
 
 function formatFutureTime(timestamp?: number | null): string {
@@ -74,26 +74,35 @@ export async function handleCronLs({
       process.exit(0);
     }
 
+    const cronColWidth = Math.max(
+      16,
+      ...jobs.map((j) => {
+        const str = (j.timezone && j.timezone !== 'local') ? `${j.cron} (${j.timezone})` : j.cron;
+        return str.length;
+      })
+    );
+
     console.log(
       'ID'.padEnd(16) +
       'NAME'.padEnd(20) +
-      'CRON'.padEnd(16) +
+      'CRON'.padEnd(cronColWidth + 2) +
       'STATUS'.padEnd(10) +
       'NEXT RUN'.padEnd(18) +
       'LAST STATUS'.padEnd(14) +
       'LAST DURATION'
     );
-    console.log('-'.repeat(105));
+    console.log('-'.repeat(80 + cronColWidth + 2));
 
     for (const j of jobs) {
       const nextStr = formatFutureTime(j.nextRunTime);
       const lastStatus = j.lastExecution ? j.lastExecution.status : '-';
       const lastDuration = j.lastExecution ? formatDuration(j.lastExecution.durationMs) : '-';
+      const cronStr = (j.timezone && j.timezone !== 'local') ? `${j.cron} (${j.timezone})` : j.cron;
 
       console.log(
         j.id.padEnd(16) +
         j.name.padEnd(20) +
-        j.cron.padEnd(16) +
+        cronStr.padEnd(cronColWidth + 2) +
         j.status.padEnd(10) +
         nextStr.padEnd(18) +
         lastStatus.padEnd(14) +
@@ -113,6 +122,7 @@ export async function handleCronAdd({
   node,
   name,
   cron,
+  timezone,
   cmd,
   script,
   args,
@@ -126,6 +136,7 @@ export async function handleCronAdd({
   node: string;
   name?: string;
   cron?: string;
+  timezone?: string;
   cmd?: string;
   script?: string;
   args?: string | string[];
@@ -144,6 +155,10 @@ export async function handleCronAdd({
   }
   if (!isValidCronExpression(cron)) {
     console.error(`Error: Invalid cron expression: "${cron}". Must be standard 5-part cron.`);
+    process.exit(1);
+  }
+  if (timezone && timezone !== 'local' && !isValidTimezone(timezone)) {
+    console.error(`Error: Invalid timezone "${timezone}". Must be a valid IANA timezone (e.g. Asia/Shanghai, UTC) or "local".`);
     process.exit(1);
   }
   if (!cmd && !script) {
@@ -168,6 +183,7 @@ export async function handleCronAdd({
   const payload: any = {
     name: name.trim(),
     cron: cron.trim(),
+    timezone: (timezone && timezone.trim() && timezone !== 'local') ? timezone.trim() : undefined,
     source: script ? 'hub' : 'command',
     command: cmd?.trim(),
     scriptName: script?.trim(),
