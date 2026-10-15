@@ -59,4 +59,30 @@ describe('Native RFC 6455 Ping/Pong Control Frames', () => {
       done(err);
     });
   });
+
+  it('stores agent startTime passed in WebSocket query string', (done) => {
+    const customStartTime = Date.now() - 7200000; // 2 hours ago
+    const ws = new WebSocket(`ws://localhost:${port}/api/terminal/agent-ws?hostId=uptime-ws-test&name=uptime-ws-node&startTime=${customStartTime}`);
+
+    ws.on('open', () => {
+      setTimeout(() => {
+        try {
+          const host = terminalHostManager.getHost('uptime-ws-test');
+          expect(host).toBeDefined();
+          expect(host!.startTime).toBe(customStartTime);
+          ws.close();
+          terminalHostManager.unregisterAgent('uptime-ws-test');
+          done();
+        } catch (err) {
+          ws.close();
+          terminalHostManager.unregisterAgent('uptime-ws-test');
+          done(err);
+        }
+      }, 50);
+    });
+
+    ws.on('error', (err) => {
+      done(err);
+    });
+  });
 });

@@ -104,8 +104,11 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
     const platform = parsedUrl.searchParams.get('platform') || undefined;
     const machineId = parsedUrl.searchParams.get('machineId') || hostId;
     const version = parsedUrl.searchParams.get('version') || undefined;
+    const startTimeParam = parsedUrl.searchParams.get('startTime');
+    const parsedStartTime = startTimeParam ? parseInt(startTimeParam, 10) : undefined;
+    const startTime = (parsedStartTime && !isNaN(parsedStartTime)) ? parsedStartTime : undefined;
 
-    const agentMeta = { hostId, name, hostname, ip, platform, machineId, version };
+    const agentMeta = { hostId, name, hostname, ip, platform, machineId, version, startTime };
     (ws as any)._agentMeta = agentMeta;
 
     const regResult = hostMgr.registerAgent({
@@ -116,6 +119,7 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
       platform,
       machineId,
       version,
+      startTime,
       agentWs: ws,
     });
 
