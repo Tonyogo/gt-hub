@@ -8,6 +8,7 @@ export interface ManagedHost {
   platform: string;
   status: HostStatus;
   lastSeen: number;
+  startTime?: number;
   type: 'agent';
   machineId?: string;
   version?: string;
@@ -21,6 +22,7 @@ export interface HostInfo {
   platform?: string;
   status?: HostStatus;
   lastSeen?: number;
+  startTime?: number;
   machineId?: string;
   version?: string;
 }

@@ -135,4 +135,30 @@ describe('TerminalHostManager (Pure Dynamic Agent)', () => {
     expect(serviceHosts[0].id).toBe('id-2');
     expect(serviceHosts[0].status).toBe('online');
   });
+
+  test('records and updates agent startTime in ManagedHost', () => {
+    const mockWs = { readyState: 1, send: jest.fn() };
+    const agentStartTime = Date.now() - 3600000; // 1 hour ago
+    const res = manager.registerAgent({
+      hostId: 'agent-uptime-test',
+      name: 'Uptime-Node',
+      startTime: agentStartTime,
+      agentWs: mockWs,
+    });
+    const host = res.host!;
+    expect(host.startTime).toBe(agentStartTime);
+
+    const retrieved = manager.getHost('agent-uptime-test');
+    expect(retrieved?.startTime).toBe(agentStartTime);
+
+    // Reconnection with updated startTime (e.g. agent restarted)
+    const newStartTime = Date.now();
+    manager.registerAgent({
+      hostId: 'agent-uptime-test',
+      name: 'Uptime-Node',
+      startTime: newStartTime,
+      agentWs: mockWs,
+    });
+    expect(manager.getHost('agent-uptime-test')?.startTime).toBe(newStartTime);
+  });
 });

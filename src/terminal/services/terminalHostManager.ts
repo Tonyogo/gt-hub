@@ -10,6 +10,7 @@ export interface ManagedHost {
   platform: string;
   status: 'online' | 'offline';
   lastSeen: number;
+  startTime?: number;
   type: 'agent';
   machineId?: string;
   version?: string;
@@ -471,7 +472,7 @@ export class TerminalHostManager {
     return null;
   }
 
-  public registerHost(metadata: { id: string; name?: string; hostname?: string; ip?: string; platform?: string; version?: string; type?: string }, agentWs?: any) {
+  public registerHost(metadata: { id: string; name?: string; hostname?: string; ip?: string; platform?: string; version?: string; startTime?: number; type?: string }, agentWs?: any) {
     return this.registerAgent({
       hostId: metadata.id,
       name: metadata.name,
@@ -479,6 +480,7 @@ export class TerminalHostManager {
       ip: metadata.ip,
       platform: metadata.platform,
       version: metadata.version,
+      startTime: metadata.startTime,
       agentWs,
     });
   }
@@ -495,6 +497,7 @@ export class TerminalHostManager {
     platform?: string;
     machineId?: string;
     version?: string;
+    startTime?: number;
     agentWs?: any;
   }): { success: boolean; host?: ManagedHost; error?: string } {
     const id = metadata.hostId.trim();
@@ -563,6 +566,7 @@ export class TerminalHostManager {
         platform: metadata.platform || 'linux',
         status: 'online',
         lastSeen: Date.now(),
+        startTime: metadata.startTime,
         type: 'agent',
         machineId,
         version: metadata.version,
@@ -575,6 +579,7 @@ export class TerminalHostManager {
       host.name = targetName;
       host.machineId = machineId;
       host.agentWs = metadata.agentWs;
+      if (metadata.startTime !== undefined) host.startTime = metadata.startTime;
       if (metadata.hostname) host.hostname = metadata.hostname;
       if (metadata.ip) host.ip = metadata.ip;
       if (metadata.platform) host.platform = metadata.platform;
@@ -643,7 +648,7 @@ export class TerminalHostManager {
   public touchAgent(
     hostId: string,
     ws?: any,
-    metadata?: { name?: string; hostname?: string; ip?: string; platform?: string; version?: string }
+    metadata?: { name?: string; hostname?: string; ip?: string; platform?: string; version?: string; startTime?: number }
   ): void {
     const canonicalId = this.resolveCanonicalHostId(hostId) || hostId;
     const host = this.hosts.get(canonicalId);
@@ -656,6 +661,7 @@ export class TerminalHostManager {
           ip: metadata?.ip,
           platform: metadata?.platform,
           version: metadata?.version,
+          startTime: metadata?.startTime,
           agentWs: ws,
         });
       }
@@ -680,6 +686,9 @@ export class TerminalHostManager {
     }
 
     host.lastSeen = Date.now();
+    if (metadata?.startTime !== undefined) {
+      host.startTime = metadata.startTime;
+    }
     if (metadata?.version) {
       host.version = metadata.version;
     }
