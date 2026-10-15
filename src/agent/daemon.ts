@@ -11,6 +11,9 @@ import { StreamSessionManager } from './pty/sessionManager';
 import { TerminalHistoryBuffer } from './pty/terminalHistoryBuffer';
 import { handleFileRpc } from './handlers/fileRpcHandler';
 import { handleCmdExec } from './handlers/cmdExecHandler';
+import { AgentCronScheduler } from './cron/cronScheduler';
+import { handleCronControl } from './handlers/cronHandler';
+import { makeRequest } from '../client/utils/terminalUI';
 import { getVersionInfo } from '../shared/version';
 import { StreamBatcher } from '../shared/utils/streamBatcher';
 import { BIN_MSG_TYPE, decodeBinaryPacket, encodeBinaryPacket } from '../shared/protocol/binaryProtocol';
@@ -595,6 +598,29 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     : (2 * 1024 * 1024);
   const terminalHistory = new TerminalHistoryBuffer(maxScrollbackBytes);
 
+  const cronScheduler = new AgentCronScheduler({
+    getScriptContent: async (name: string) => {
+      const res = await makeRequest(serverArg, `/api/scripts/${encodeURIComponent(name)}`, {
+        headers: { 'x-admin-key': adminKey },
+      });
+      if (res && res.data && res.data.content) {
+        return res.data.content;
+      }
+      throw new Error(res?.error || `Failed to fetch script "${name}" from Hub`);
+    },
+  });
+  cronScheduler.start();
+
+  cronScheduler.onReport((record) => {
+    if (ws && (ws.readyState === 1 || ws.readyState === WebSocket.OPEN)) {
+      try {
+        ws.send(`JSON:${JSON.stringify({ type: 'cron_report', record })}`);
+      } catch (err: any) {
+        console.warn(`[Agent] Failed to send cron_report: ${err.message}`);
+      }
+    }
+  });
+
   function sendHistorySync() {
     if (!ws || (ws.readyState !== 1 && ws.readyState !== WebSocket.OPEN)) return;
     const histBuf = terminalHistory.getBuffer();
@@ -1006,6 +1032,15 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
             }
             return;
           }
+          if (
+            control.type === 'cron_sync' ||
+            control.type === 'cron_trigger' ||
+            control.type === 'cron_list' ||
+            control.type === 'cron_history'
+          ) {
+            handleCronControl(control, cronScheduler, ws);
+            return;
+          }
           if (control.type === 'resize') {
             const cols = Math.max(10, Math.min(500, Math.floor(control.cols || 80)));
             const rows = Math.max(5, Math.min(200, Math.floor(control.rows || 24)));
@@ -1115,6 +1150,9 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       reconnectTimer = null;
     }
     stopHeartbeat();
+    try {
+      cronScheduler.stop();
+    } catch {}
     console.log(`\n[Agent] Shutting down agent${signalName ? ` (${signalName})` : ''}...`);
     if (ws) {
       try { ws.close(); } catch {}

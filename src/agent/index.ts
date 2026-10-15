@@ -5,3 +5,4 @@ export * from './handlers/fileRpcHandler';
 export * from './handlers/cmdExecHandler';
 export * from './daemon';
 export * from './cron/cronScheduler';
+export * from './handlers/cronHandler';
