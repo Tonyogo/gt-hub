@@ -28,7 +28,6 @@ export interface CronJobModalProps {
   initialData?: CronJobSummary | null;
   adminKey?: string;
   activeHostId?: string;
-  nodeTimezone?: string | null;
 }
 
 const CRON_PRESETS = [
@@ -39,30 +38,17 @@ const CRON_PRESETS = [
   { labelKey: 'cron.modal.presets.workdays9am', expr: '0 9 * * 1-5', fallback: '工作日 9 点' },
 ];
 
-function isValidTimezone(tz?: string): boolean {
-  if (!tz || tz === 'local') return true;
-  try {
-    Intl.DateTimeFormat(undefined, { timeZone: tz });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export const CronJobModal: React.FC<CronJobModalProps> = ({
   isOpen,
   onClose,
   onSave,
   initialData,
   adminKey,
-  nodeTimezone,
 }) => {
   const { t } = useTranslation();
 
   const [name, setName] = useState('');
   const [cron, setCron] = useState('* * * * *');
-  const [timezoneMode, setTimezoneMode] = useState<string>('local');
-  const [customTimezone, setCustomTimezone] = useState<string>('');
   const [source, setSource] = useState<CronScriptSource>('command');
   const [command, setCommand] = useState('');
   const [scriptName, setScriptName] = useState('');
@@ -87,17 +73,6 @@ export const CronJobModal: React.FC<CronJobModalProps> = ({
     if (initialData) {
       setName(initialData.name || '');
       setCron(initialData.cron || '* * * * *');
-      const tz = initialData.timezone;
-      if (!tz || tz === 'local') {
-        setTimezoneMode('local');
-        setCustomTimezone('');
-      } else if (['Asia/Shanghai', 'UTC', 'America/New_York', 'Asia/Tokyo'].includes(tz)) {
-        setTimezoneMode(tz);
-        setCustomTimezone('');
-      } else {
-        setTimezoneMode('custom');
-        setCustomTimezone(tz);
-      }
       setSource(initialData.source || 'command');
       setCommand(initialData.command || '');
       setScriptName(initialData.scriptName || '');
@@ -108,8 +83,6 @@ export const CronJobModal: React.FC<CronJobModalProps> = ({
     } else {
       setName('');
       setCron('*/5 * * * *');
-      setTimezoneMode('local');
-      setCustomTimezone('');
       setSource('command');
       setCommand('');
       setScriptName('');
@@ -199,22 +172,9 @@ export const CronJobModal: React.FC<CronJobModalProps> = ({
       ? Number(timeoutSeconds) * 1000
       : undefined;
 
-    let finalTimezone: string | undefined = undefined;
-    if (timezoneMode === 'custom') {
-      const trimmedTz = customTimezone.trim();
-      if (!trimmedTz || !isValidTimezone(trimmedTz)) {
-        setErrorMessage(t('cron.modal.timezoneInvalid', '无效的 IANA 时区名称 (例如: Asia/Shanghai, UTC, America/New_York)'));
-        return;
-      }
-      finalTimezone = trimmedTz;
-    } else if (timezoneMode !== 'local') {
-      finalTimezone = timezoneMode;
-    }
-
     const payload: Partial<CronJobConfig> = {
       name: trimmedName,
       cron: trimmedCron,
-      timezone: finalTimezone,
       source,
       concurrency,
       command: source === 'command' ? command.trim() : undefined,
@@ -335,62 +295,6 @@ export const CronJobModal: React.FC<CronJobModalProps> = ({
                 })}
               </div>
             </div>
-          </div>
-
-          {/* Timezone Selection */}
-          <div className="space-y-1.5 pt-1">
-            <div className="flex items-center justify-between">
-              <label className="block text-xs font-medium text-slate-300">
-                {t('cron.modal.timezoneLabel', '执行时区')}
-              </label>
-              <span className="text-[11px] text-slate-400 font-mono">
-                {timezoneMode === 'local'
-                  ? `${t('cron.modal.timezoneLocal', '🖥️ 节点本地时区 (默认)')}${nodeTimezone ? ` [${nodeTimezone}]` : ''}`
-                  : timezoneMode}
-              </span>
-            </div>
-            <select
-              value={timezoneMode}
-              onChange={(e) => {
-                const val = e.target.value;
-                setTimezoneMode(val);
-                if (val !== 'custom') {
-                  setCustomTimezone('');
-                }
-              }}
-              className="w-full px-3 py-2 rounded-xl bg-black/40 border border-white/[0.08] text-white text-xs focus:outline-hidden focus:border-indigo-500 transition-all"
-            >
-              <option value="local">
-                {t('cron.modal.timezoneLocal', '🖥️ 节点本地时区 (默认)')}
-                {nodeTimezone ? ` (${nodeTimezone})` : ''}
-              </option>
-              <option value="Asia/Shanghai">🇨🇳 中国标准时间 (Asia/Shanghai, UTC+8)</option>
-              <option value="UTC">🌐 协调世界时 (UTC)</option>
-              <option value="America/New_York">🇺🇸 美国东部时间 (America/New_York)</option>
-              <option value="Asia/Tokyo">🇯🇵 日本标准时间 (Asia/Tokyo, UTC+9)</option>
-              <option value="custom">{t('cron.modal.timezoneCustom', '✏️ 自定义输入时区...')}</option>
-            </select>
-
-            {timezoneMode === 'custom' && (
-              <div className="space-y-1 pt-1 animate-in fade-in duration-100">
-                <input
-                  type="text"
-                  value={customTimezone}
-                  onChange={(e) => setCustomTimezone(e.target.value)}
-                  placeholder="e.g. Europe/London, Australia/Sydney"
-                  className={`w-full px-3 py-2 rounded-xl bg-white/[0.04] border text-xs focus:outline-hidden transition-all font-mono ${
-                    customTimezone.trim() && !isValidTimezone(customTimezone.trim())
-                      ? 'border-rose-500 text-rose-300'
-                      : 'border-white/[0.08] text-white focus:border-indigo-500'
-                  }`}
-                />
-                {customTimezone.trim() && !isValidTimezone(customTimezone.trim()) && (
-                  <p className="text-[11px] text-rose-400">
-                    {t('cron.modal.timezoneInvalid', '无效的 IANA 时区名称 (例如: Asia/Shanghai, UTC, America/New_York)')}
-                  </p>
-                )}
-              </div>
-            )}
           </div>
 
           {/* Execution Source Tabs */}

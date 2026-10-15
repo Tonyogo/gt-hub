@@ -18,7 +18,8 @@ export async function handleCronControl(
   try {
     if (control.type === 'cron_sync') {
       const jobs = Array.isArray(control.jobs) ? control.jobs : [];
-      scheduler.syncJobs(jobs);
+      const serverTimezone = typeof control.serverTimezone === 'string' ? control.serverTimezone : undefined;
+      scheduler.syncJobs(jobs, serverTimezone);
       send({
         type: 'cron_sync_res',
         success: true,

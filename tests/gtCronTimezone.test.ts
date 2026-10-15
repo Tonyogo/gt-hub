@@ -20,7 +20,7 @@ function runGt(args: string[]): Promise<{ status: number; stdout: string; stderr
   });
 }
 
-describe('gt cron CLI Timezone Support', () => {
+describe('gt cron CLI Server-Authoritative Timezone', () => {
   let server: http.Server;
   let baseUrl: string;
   const adminKey = 'test-cli-cron-key';
@@ -68,29 +68,14 @@ describe('gt cron CLI Timezone Support', () => {
     server.close(done);
   });
 
-  it('displays --tz, --timezone option in gt cron add --help', async () => {
+  it('does not display --tz or --timezone option in gt cron add --help', async () => {
     const res = await runGt(['cron', 'add', '--help']);
     expect(res.status).toBe(0);
-    expect(res.stdout).toMatch(/--tz,\s+--timezone/);
+    expect(res.stdout).not.toMatch(/--tz/);
+    expect(res.stdout).not.toMatch(/--timezone/);
   });
 
-  it('rejects invalid timezone in gt cron add immediately', async () => {
-    const res = await runGt([
-      'cron', 'add', nodeId,
-      '--name', 'invalid-tz-job',
-      '--cron', '0 2 * * *',
-      '--cmd', 'echo 1',
-      '--tz', 'Invalid/Timezone',
-      '--server', baseUrl,
-      '--key', adminKey,
-    ]);
-
-    expect(res.status).not.toBe(0);
-    const combined = res.stdout + res.stderr;
-    expect(combined).toMatch(/invalid timezone/i);
-  });
-
-  it('displays timezone tag in gt cron ls table output for jobs with custom timezone', async () => {
+  it('displays clean cron expression without confusing per-job timezones in gt cron ls', async () => {
     const res = await runGt([
       'cron', 'ls', nodeId,
       '--server', baseUrl,
@@ -98,8 +83,9 @@ describe('gt cron CLI Timezone Support', () => {
     ]);
 
     expect(res.status).toBe(0);
-    expect(res.stdout).toContain('0 9 * * * (Asia/Shanghai)');
+    expect(res.stdout).toContain('0 9 * * *');
     expect(res.stdout).toContain('0 2 * * *');
-    expect(res.stdout).not.toContain('0 2 * * * (');
+    expect(res.stdout).not.toContain('(Asia/Shanghai)');
+    expect(res.stdout).not.toContain('(');
   });
 });

@@ -389,7 +389,6 @@ Command Shortcuts:
     .description('Add a new scheduled cron job to a node')
     .requiredOption('-n, --name <name>', 'Job name')
     .requiredOption('--cron <expression>', 'Standard 5-part cron expression (e.g. "0 2 * * *")')
-    .option('--tz, --timezone <tz>', 'Timezone for cron schedule (e.g. Asia/Shanghai, UTC, default: local)')
     .option('--cmd <command>', 'Shell command to execute')
     .option('--script <scriptName>', 'Hub hosted script name to execute')
     .option('--args <args...>', 'Script arguments')
@@ -408,7 +407,6 @@ Command Shortcuts:
         node,
         name: opts.name,
         cron: opts.cron,
-        timezone: opts.tz || opts.timezone,
         cmd: opts.cmd,
         script: opts.script,
         args: opts.args,

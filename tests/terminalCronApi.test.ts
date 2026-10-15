@@ -87,7 +87,7 @@ describe('Hub Terminal Cron REST API & Service', () => {
       expect(res4.body.error).toMatch(/timezone/i);
     });
 
-    it('creates and returns job with valid custom timezone', async () => {
+    it('creates and returns job with server-authoritative timezone', async () => {
       const res = await request(app)
         .post(`/api/terminal/cron/${nodeId}`)
         .set('x-admin-key', adminKey)
@@ -100,7 +100,7 @@ describe('Hub Terminal Cron REST API & Service', () => {
 
       expect(res.status).toBe(201);
       expect(res.body.success).toBe(true);
-      expect(res.body.data.timezone).toBe('Asia/Shanghai');
+      expect(res.body.data.timezone).toBe(config.timeZone);
 
       const jobId = res.body.data.id;
 
@@ -109,7 +109,7 @@ describe('Hub Terminal Cron REST API & Service', () => {
         .get(`/api/terminal/cron/${nodeId}`)
         .set('x-admin-key', adminKey);
       expect(getRes.status).toBe(200);
-      expect(getRes.body.data[0].timezone).toBe('Asia/Shanghai');
+      expect(getRes.body.data[0].timezone).toBe(config.timeZone);
       expect(getRes.body.data[0].nextRunTime).toBeGreaterThan(Date.now());
 
       // Update with invalid timezone should fail
@@ -119,13 +119,13 @@ describe('Hub Terminal Cron REST API & Service', () => {
         .send({ timezone: 'Not/A_Real_Zone' });
       expect(badPatch.status).toBe(400);
 
-      // Update with valid timezone should succeed
+      // Update with valid timezone normalizes to config.timeZone
       const goodPatch = await request(app)
         .patch(`/api/terminal/cron/${nodeId}/${jobId}`)
         .set('x-admin-key', adminKey)
         .send({ timezone: 'UTC' });
       expect(goodPatch.status).toBe(200);
-      expect(goodPatch.body.data.timezone).toBe('UTC');
+      expect(goodPatch.body.data.timezone).toBe(config.timeZone);
     });
 
     it('creates, retrieves, pauses, resumes, and deletes a cron job', async () => {

@@ -2,13 +2,14 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { CronJobConfig, CronExecutionRecord, CronJobSummary } from '../../shared/types/cron';
-import { getNextCronTime, isValidCronExpression } from '../../shared/utils/cronParser';
+import { getNextCronTime, isValidCronExpression, isValidTimezone } from '../../shared/utils/cronParser';
 import { taskManager } from '../tasks/taskManager';
 
 export interface AgentCronSchedulerOptions {
   storageFile?: string;
   historyFile?: string;
   cacheDir?: string;
+  serverTimezone?: string;
   getScriptContent?: (name: string) => Promise<string>;
 }
 
@@ -26,6 +27,7 @@ export class AgentCronScheduler {
   private historyFile: string;
   private cacheDir: string;
   private getScriptContent?: (name: string) => Promise<string>;
+  public serverTimezone: string = 'Asia/Shanghai';
 
   private jobs: Map<string, CronJobConfig> = new Map();
   private activeTimers: Map<string, NodeJS.Timeout> = new Map();
@@ -41,6 +43,9 @@ export class AgentCronScheduler {
     this.historyFile = options?.historyFile || path.join(path.dirname(this.storageFile), 'schedule', 'history.json');
     this.cacheDir = options?.cacheDir || path.join(baseDir, 'scripts', 'cache');
     this.getScriptContent = options?.getScriptContent;
+    if (options?.serverTimezone && isValidTimezone(options.serverTimezone)) {
+      this.serverTimezone = options.serverTimezone;
+    }
 
     this.loadFromDisk();
   }
@@ -50,11 +55,23 @@ export class AgentCronScheduler {
       try {
         const raw = fs.readFileSync(this.storageFile, 'utf-8');
         const parsed = JSON.parse(raw);
+        let jobList: any[] = [];
         if (Array.isArray(parsed)) {
-          for (const job of parsed) {
-            if (job && job.id && isValidCronExpression(job.cron)) {
-              this.jobs.set(job.id, job);
-            }
+          jobList = parsed;
+        } else if (parsed && typeof parsed === 'object') {
+          if (parsed.serverTimezone && typeof parsed.serverTimezone === 'string' && isValidTimezone(parsed.serverTimezone)) {
+            this.serverTimezone = parsed.serverTimezone;
+          }
+          if (Array.isArray(parsed.jobs)) {
+            jobList = parsed.jobs;
+          }
+        }
+        for (const job of jobList) {
+          if (job && job.id && isValidCronExpression(job.cron)) {
+            this.jobs.set(job.id, {
+              ...job,
+              timezone: this.serverTimezone,
+            });
           }
         }
       } catch (err: any) {
@@ -79,7 +96,10 @@ export class AgentCronScheduler {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
       }
-      const data = JSON.stringify(Array.from(this.jobs.values()), null, 2);
+      const data = JSON.stringify({
+        serverTimezone: this.serverTimezone,
+        jobs: Array.from(this.jobs.values()),
+      }, null, 2);
       fs.writeFileSync(this.storageFile, data, { encoding: 'utf-8', mode: 0o600 });
     } catch {}
   }
@@ -132,7 +152,10 @@ export class AgentCronScheduler {
     this.activeTimers.clear();
   }
 
-  public syncJobs(jobs: CronJobConfig[]): void {
+  public syncJobs(jobs: CronJobConfig[], serverTimezone?: string): void {
+    if (serverTimezone && typeof serverTimezone === 'string' && isValidTimezone(serverTimezone)) {
+      this.serverTimezone = serverTimezone;
+    }
     // Clear all existing timers
     for (const timer of this.activeTimers.values()) {
       clearTimeout(timer);
@@ -142,7 +165,10 @@ export class AgentCronScheduler {
     this.jobs.clear();
     for (const job of jobs) {
       if (job && job.id && isValidCronExpression(job.cron)) {
-        this.jobs.set(job.id, job);
+        this.jobs.set(job.id, {
+          ...job,
+          timezone: this.serverTimezone,
+        });
       }
     }
 
@@ -167,7 +193,7 @@ export class AgentCronScheduler {
       let nextRunTime: number | null = null;
       if (job.status === 'active') {
         try {
-          nextRunTime = getNextCronTime(job.cron, undefined, job.timezone).getTime();
+          nextRunTime = getNextCronTime(job.cron, undefined, this.serverTimezone).getTime();
         } catch {
           nextRunTime = null;
         }
@@ -177,6 +203,7 @@ export class AgentCronScheduler {
 
       list.push({
         ...job,
+        timezone: this.serverTimezone,
         nextRunTime,
         lastExecution,
       });
@@ -203,7 +230,7 @@ export class AgentCronScheduler {
 
     let nextDate: Date;
     try {
-      nextDate = getNextCronTime(job.cron, undefined, job.timezone);
+      nextDate = getNextCronTime(job.cron, undefined, this.serverTimezone);
     } catch {
       return;
     }

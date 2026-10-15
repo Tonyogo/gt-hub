@@ -45,3 +45,39 @@ describe('Cron Parser Timezone Support', () => {
     expect(() => getNextCronTime('0 2 * * *', new Date(), 'Invalid/Zone')).toThrow('Invalid timezone');
   });
 });
+
+describe('resolveServerTimezone Priority & Fallback', () => {
+  const origTimeZone = process.env.TIME_ZONE;
+  const origTz = process.env.TZ;
+
+  afterEach(() => {
+    if (origTimeZone === undefined) delete process.env.TIME_ZONE;
+    else process.env.TIME_ZONE = origTimeZone;
+
+    if (origTz === undefined) delete process.env.TZ;
+    else process.env.TZ = origTz;
+  });
+
+  it('respects TIME_ZONE as highest priority when valid', () => {
+    const { resolveServerTimezone } = require('../config/default');
+    process.env.TIME_ZONE = 'America/Chicago';
+    process.env.TZ = 'Europe/London';
+    expect(resolveServerTimezone()).toBe('America/Chicago');
+  });
+
+  it('falls back to TZ when TIME_ZONE is invalid', () => {
+    const { resolveServerTimezone } = require('../config/default');
+    process.env.TIME_ZONE = 'Invalid/Zone';
+    process.env.TZ = 'Europe/Paris';
+    expect(resolveServerTimezone()).toBe('Europe/Paris');
+  });
+
+  it('falls back to fallback when both TIME_ZONE and TZ are invalid', () => {
+    const { resolveServerTimezone } = require('../config/default');
+    process.env.TIME_ZONE = 'Invalid/Zone1';
+    process.env.TZ = 'Invalid/Zone2';
+    const resolved = resolveServerTimezone();
+    expect(isValidTimezone(resolved)).toBe(true);
+    expect(['Asia/Shanghai', Intl.DateTimeFormat().resolvedOptions().timeZone]).toContain(resolved);
+  });
+});

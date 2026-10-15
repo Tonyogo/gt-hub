@@ -160,8 +160,6 @@ export function resolveWebSocketUrl(
     machineId?: string;
     version?: string;
     startTime?: number;
-    timezone?: string;
-    timeZone?: string;
     [key: string]: any;
   } = {}
 ): string {
@@ -172,7 +170,7 @@ export function resolveWebSocketUrl(
   wsUrl = wsUrl.replace(/\/+$/, '');
   const cleanMeta: Record<string, string> = {};
   for (const [k, v] of Object.entries(metadata)) {
-    if (k !== 'key' && k !== 'x-admin-key' && v !== undefined && v !== null && v !== '') {
+    if (k !== 'key' && k !== 'x-admin-key' && k !== 'timezone' && k !== 'timeZone' && v !== undefined && v !== null && v !== '') {
       cleanMeta[k] = String(v);
     }
   }

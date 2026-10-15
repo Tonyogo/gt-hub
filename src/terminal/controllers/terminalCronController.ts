@@ -1,13 +1,13 @@
 import { Request, Response } from 'express';
 import { terminalCronService } from '../services/terminalCronService';
+import config from '../../server/config/default';
 
 export class TerminalCronController {
   public async getJobs(req: Request, res: Response): Promise<void> {
     try {
       const nodeId = String(req.params.nodeId);
       const jobs = await terminalCronService.getJobs(nodeId);
-      const timezone = terminalCronService.getNodeTimezone(nodeId);
-      res.json({ success: true, data: jobs, timezone });
+      res.json({ success: true, data: jobs, timezone: config.timeZone });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message || 'Failed to list cron jobs' });
     }
