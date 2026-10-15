@@ -6,6 +6,7 @@ export interface CronJobConfig {
   id: string;
   name: string;
   cron: string;
+  timezone?: string;
   source: CronScriptSource;
   command?: string;
   scriptName?: string;
@@ -42,6 +43,7 @@ export type CronJobItem = CronJobSummary;
 export interface CronFormData {
   name: string;
   cron: string;
+  timezone?: string;
   source: CronScriptSource;
   command?: string;
   scriptName?: string;

@@ -17,6 +17,7 @@ import {
   Search,
   Terminal,
   FileCode,
+  Globe,
   X,
   Info
 } from 'lucide-react';
@@ -520,9 +521,20 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
 
                             {/* Cron Expression */}
                             <td className="py-3.5 px-4 align-top">
-                              <span className="font-mono text-xs px-2 py-0.5 rounded-md bg-black/40 text-indigo-300 border border-white/[0.04]">
-                                {job.cron}
-                              </span>
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="font-mono text-xs px-2 py-0.5 rounded-md bg-black/40 text-indigo-300 border border-white/[0.04]">
+                                  {job.cron}
+                                </span>
+                                {job.timezone && job.timezone !== 'local' && (
+                                  <span
+                                    className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-indigo-500/10 text-indigo-300 border border-indigo-500/20"
+                                    title={`${t('cron.timezoneBadge', '时区')}: ${job.timezone}`}
+                                  >
+                                    <Globe className="w-2.5 h-2.5 text-indigo-400" />
+                                    <span>{job.timezone}</span>
+                                  </span>
+                                )}
+                              </div>
                             </td>
 
                             {/* Next Run Countdown */}
