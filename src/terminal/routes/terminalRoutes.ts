@@ -3,6 +3,7 @@ import terminalHostController from '../controllers/terminalHostController';
 import terminalFileController from '../controllers/terminalFileController';
 import terminalExecController from '../controllers/terminalExecController';
 import terminalLogController from '../controllers/terminalLogController';
+import terminalCronController from '../controllers/terminalCronController';
 import adminAuthMiddleware from '../../admin/middlewares/adminAuth';
 
 const router = Router();
@@ -28,6 +29,14 @@ router.post('/exec/:hostId', (req, res) => terminalExecController.startExec(req,
 router.get('/exec/:hostId/:taskId', (req, res) => terminalExecController.getExecStatus(req, res));
 router.post('/exec/:hostId/:taskId/kill', (req, res) => terminalExecController.killExec(req, res));
 router.get('/exec/:hostId', (req, res) => terminalExecController.listExec(req, res));
+
+// Distributed Cron Scheduling
+router.get('/cron/:nodeId', (req, res) => terminalCronController.getJobs(req, res));
+router.post('/cron/:nodeId', (req, res) => terminalCronController.addJob(req, res));
+router.patch('/cron/:nodeId/:jobId', (req, res) => terminalCronController.updateJob(req, res));
+router.delete('/cron/:nodeId/:jobId', (req, res) => terminalCronController.deleteJob(req, res));
+router.post('/cron/:nodeId/:jobId/run', (req, res) => terminalCronController.triggerJob(req, res));
+router.get('/cron/:nodeId/:jobId/logs', (req, res) => terminalCronController.getJobLogs(req, res));
 
 // System Console Logs
 router.get('/logs', (req, res) => terminalLogController.getTerminalLogs(req, res));

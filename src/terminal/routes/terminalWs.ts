@@ -7,6 +7,7 @@ import { safeCompareSecret } from '../../shared/utils/security';
 import { terminalHostManager } from '../services/terminalHostManager';
 import { terminalExecBridge } from '../services/terminalExecBridge';
 import { ticketManager } from '../../server/modules/auth/ticketManager';
+import { terminalCronService } from '../services/terminalCronService';
 import { BIN_MSG_TYPE, decodeBinaryPacket } from '../../shared/protocol/binaryProtocol';
 
 export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?: any): WebSocketServer {
@@ -135,6 +136,7 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
     const host = regResult.host!;
     logger.info(`[TerminalWS:Agent] Agent connected: ${hostId} (${host.name}) from ${ip}`);
     ws.send(`JSON:${JSON.stringify({ type: 'registered', hostId, status: 'online' })}`);
+    terminalCronService.syncOnConnect(hostId);
 
     let lastTouch = 0;
 
@@ -208,6 +210,10 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
           }
           if (control.type === 'history_sync') {
             hostMgr.handleAgentHistorySync(hostId, control.history);
+            return;
+          }
+          if (control.type === 'cron_report' && control.record) {
+            terminalCronService.recordExecution(hostId, control.record);
             return;
           }
           if (control.type === 'reset') {
