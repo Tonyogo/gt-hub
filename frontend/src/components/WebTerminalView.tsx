@@ -49,7 +49,6 @@ import {
 } from '../utils/terminalImeHelper';
 import { useTerminalWebSocket } from './terminal/hooks/useTerminalWebSocket';
 import { requestAuthTicket } from '../utils/apiClient';
-import { useMobileKeyboard } from './terminal/hooks/useMobileKeyboard';
 import { useTerminalSelection } from './terminal/hooks/useTerminalSelection';
 import { useTerminalIme } from './terminal/hooks/useTerminalIme';
 import { TerminalMagnifierBubble } from './terminal/components/TerminalMagnifierBubble';
@@ -273,6 +272,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
   // Mobile Visual Viewport tracking for virtual keyboard positioning
   const headerRef = useRef<HTMLDivElement>(null);
+  const accessoryBarRef = useRef<HTMLDivElement>(null);
   const [viewportStyle, setViewportStyle] = useState<React.CSSProperties>({});
 
   const baseHeightRef = useRef<number>(typeof window !== 'undefined' ? window.innerHeight : 0);
@@ -375,17 +375,24 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
     const totalScreenHeight = screenEl?.clientHeight || (term.rows * cellHeight);
 
-    // Visible viewport height above the keyboard and accessory bar
-    let visibleHeight = container.parentElement?.clientHeight || container.clientHeight;
+    // Calculate visible terminal height directly from visual viewport geometry to avoid DOM measurement race conditions
+    let visibleHeight = 0;
     if (typeof window !== 'undefined' && window.visualViewport) {
-      // Header height ~44, Accessory bar ~44, container padding ~16
-      const estimatedVisible = Math.max(100, window.visualViewport.height - 44 - 44 - 16);
-      if (visibleHeight > estimatedVisible && isKeyboardActive) {
-        visibleHeight = estimatedVisible;
-      }
+      const vv = window.visualViewport;
+      const headerEl = (!hideHeader && headerRef.current)
+        ? headerRef.current
+        : (document.querySelector('.sticky.top-0') as HTMLElement | null);
+      const headerHeight = headerEl ? (headerEl.offsetHeight || 44) : (!hideHeader ? 44 : 0);
+      const accessoryBarHeight = (!hideAccessoryBar && activeHostId)
+        ? (accessoryBarRef.current?.offsetHeight || 44)
+        : 0;
+      const padding = 16;
+      visibleHeight = Math.max(100, Math.round(vv.height - headerHeight - accessoryBarHeight - padding));
+    } else {
+      visibleHeight = container.parentElement?.clientHeight || container.clientHeight || 300;
     }
 
-    if (visibleHeight <= 0 || totalScreenHeight <= visibleHeight) {
+    if (visibleHeight <= 0) {
       if (cursorShiftYRef.current !== 0) {
         cursorShiftYRef.current = 0;
         setCursorShiftY(0);
@@ -397,15 +404,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     const cursorY = term.buffer?.active?.cursorY ?? (term.rows - 1);
     const cursorBottom = (cursorY + 1) * cellHeight;
 
-    if (cursorBottom <= visibleHeight) {
-      if (cursorShiftYRef.current !== 0) {
-        cursorShiftYRef.current = 0;
-        setCursorShiftY(0);
-      }
-      return;
-    }
-
-    const maxShift = Math.max(0, totalScreenHeight - visibleHeight);
+    const maxShift = Math.max(0, Math.max(totalScreenHeight, term.rows * cellHeight) - visibleHeight);
     // Align cursor line with bottom of visible container, leaving 4px breathing room
     const targetShift = Math.max(0, cursorBottom - visibleHeight + 4);
     const shift = Math.min(maxShift, targetShift);
@@ -415,7 +414,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       cursorShiftYRef.current = roundedShift;
       setCursorShiftY(roundedShift);
     }
-  }, [isMobile, isKeyboardOpen]);
+  }, [isMobile, isKeyboardOpen, hideHeader, hideAccessoryBar, activeHostId]);
 
   useEffect(() => {
     updateCursorShiftRef.current = updateCursorShift;
@@ -843,11 +842,28 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
 
+    let cursorShiftRaf: number | null = null;
+    const scheduleCursorShift = () => {
+      if (cursorShiftRaf !== null) return;
+      if (typeof requestAnimationFrame !== 'undefined') {
+        cursorShiftRaf = requestAnimationFrame(() => {
+          cursorShiftRaf = null;
+          if (!isMountedRef.current) return;
+          updateCursorShiftRef.current?.();
+        });
+      } else {
+        updateCursorShiftRef.current?.();
+      }
+    };
+
     const cursorMoveDisposable = term.onCursorMove(() => {
-      updateCursorShiftRef.current?.();
+      scheduleCursorShift();
+    });
+    const lineFeedDisposable = term.onLineFeed(() => {
+      scheduleCursorShift();
     });
     const renderDisposable = term.onRender(() => {
-      updateCursorShiftRef.current?.();
+      scheduleCursorShift();
     });
     const scrollDisposable = term.onScroll(() => {
       if (!term || !isMountedRef.current) return;
@@ -1354,7 +1370,10 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       if (mobile && standalone) {
         if (isKeyboardShowing) {
           const headerHeight = !hideHeader ? (headerRef.current?.offsetHeight || 44) : 0;
-          const availableHeight = Math.max(120, (window.visualViewport?.height || baseHeightRef.current) - headerHeight);
+          const accessoryBarHeight = (!hideAccessoryBar && activeHostId)
+            ? (accessoryBarRef.current?.offsetHeight || 44)
+            : 0;
+          const availableHeight = Math.max(120, (window.visualViewport?.height || baseHeightRef.current) - headerHeight - accessoryBarHeight);
           setViewportStyle({
             height: `${availableHeight}px`,
             maxHeight: `${availableHeight}px`,
@@ -1469,9 +1488,16 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         container.removeEventListener('touchend', handleTouchEnd, { capture: true } as any);
         container.removeEventListener('mouseup', handleMouseUp);
       }
+      if (cursorShiftRaf !== null) {
+        if (typeof cancelAnimationFrame !== 'undefined') {
+          cancelAnimationFrame(cursorShiftRaf);
+        }
+        cursorShiftRaf = null;
+      }
       csiDisposable.dispose();
       selectionDisposable.dispose();
       cursorMoveDisposable.dispose();
+      lineFeedDisposable.dispose();
       renderDisposable.dispose();
       scrollDisposable.dispose();
       window.removeEventListener('resize', handleViewportChange);
@@ -2031,17 +2057,6 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     onConnectionChange,
   });
 
-  useMobileKeyboard({
-    terminalContainerRef,
-    xtermRef,
-    isMountedRef,
-    isMobile,
-    standalone,
-    hideHeader,
-    headerRef,
-    fontSize,
-    safeFit,
-  });
 
   useTerminalSelection({
     terminalContainerRef,
@@ -2380,40 +2395,42 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
             userSelect: isSelectMode ? 'none' : undefined,
             WebkitUserSelect: isSelectMode ? 'none' : undefined,
             transform: cursorShiftY > 0 ? `translateY(-${cursorShiftY}px)` : undefined,
-            transition: 'none',
+            transition: isMobile ? 'transform 0.2s cubic-bezier(0.16, 1, 0.3, 1)' : 'none',
           }}
         />
       </div>
 
       {/* Mobile Touch Accessory Bar */}
       {activeHostId && !hideAccessoryBar && (
-      <TerminalAccessoryBar
-        onSendInput={(data) => {
-          handleSendInput(data, false);
-          if (isCtrlActiveRef.current || isAltActiveRef.current || isShiftActiveRef.current) {
-            setIsCtrlActive(false);
-            setIsAltActive(false);
-            setIsShiftActive(false);
-            isCtrlActiveRef.current = false;
-            isAltActiveRef.current = false;
-            isShiftActiveRef.current = false;
-          }
-        }}
-        isCtrlActive={isCtrlActive}
-        onToggleCtrl={() => setIsCtrlActive(!isCtrlActive)}
-        isAltActive={isAltActive}
-        onToggleAlt={() => setIsAltActive(!isAltActive)}
-        isShiftActive={isShiftActive}
-        onToggleShift={() => setIsShiftActive(!isShiftActive)}
-        onToggleKeyboard={handleToggleKeyboard}
-        onHideKeyboard={handleHideKeyboard}
-        isKeyboardOpen={isKeyboardOpen}
-        hasSelection={hasSelection}
-        isSelectMode={isSelectMode}
-        onCopy={handleCopySelection}
-        onPaste={handlePasteClipboard}
-        onToggleSelectMode={handleToggleSelectMode}
-      />
+      <div ref={accessoryBarRef} className="terminal-accessory-bar shrink-0">
+        <TerminalAccessoryBar
+          onSendInput={(data) => {
+            handleSendInput(data, false);
+            if (isCtrlActiveRef.current || isAltActiveRef.current || isShiftActiveRef.current) {
+              setIsCtrlActive(false);
+              setIsAltActive(false);
+              setIsShiftActive(false);
+              isCtrlActiveRef.current = false;
+              isAltActiveRef.current = false;
+              isShiftActiveRef.current = false;
+            }
+          }}
+          isCtrlActive={isCtrlActive}
+          onToggleCtrl={() => setIsCtrlActive(!isCtrlActive)}
+          isAltActive={isAltActive}
+          onToggleAlt={() => setIsAltActive(!isAltActive)}
+          isShiftActive={isShiftActive}
+          onToggleShift={() => setIsShiftActive(!isShiftActive)}
+          onToggleKeyboard={handleToggleKeyboard}
+          onHideKeyboard={handleHideKeyboard}
+          isKeyboardOpen={isKeyboardOpen}
+          hasSelection={hasSelection}
+          isSelectMode={isSelectMode}
+          onCopy={handleCopySelection}
+          onPaste={handlePasteClipboard}
+          onToggleSelectMode={handleToggleSelectMode}
+        />
+      </div>
       )}
       {/* Script Management & Dispatch Drawer */}
       <TerminalScriptDrawer
@@ -2431,13 +2448,13 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
 export {
   useTerminalWebSocket,
-  useMobileKeyboard,
   useTerminalSelection,
   useTerminalIme,
   TerminalMagnifierBubble,
   TerminalSelectionToolbar,
   TerminalEmptyState,
 };
+export { useMobileKeyboard } from './terminal/hooks/useMobileKeyboard';
 
 export default WebTerminalView;
 

@@ -205,15 +205,23 @@ export function useMobileKeyboard({
 
     const totalScreenHeight = screenEl?.clientHeight || term.rows * cellHeight;
 
-    let visibleHeight = container.parentElement?.clientHeight || container.clientHeight;
+    // Calculate visible terminal height directly from visual viewport geometry to avoid DOM measurement race conditions
+    let visibleHeight = 0;
     if (typeof window !== 'undefined' && window.visualViewport) {
-      const estimatedVisible = Math.max(100, window.visualViewport.height - 44 - 44 - 16);
-      if (visibleHeight > estimatedVisible && isKeyboardActive) {
-        visibleHeight = estimatedVisible;
-      }
+      const vv = window.visualViewport;
+      const headerEl = (!hideHeader && headerRef?.current)
+        ? headerRef.current
+        : (document.querySelector('.sticky.top-0') as HTMLElement | null);
+      const headerHeight = headerEl ? (headerEl.offsetHeight || 44) : (!hideHeader ? 44 : 0);
+      const accessoryBarEl = document.querySelector('.terminal-accessory-bar') as HTMLElement | null;
+      const accessoryBarHeight = accessoryBarEl ? (accessoryBarEl.offsetHeight || 44) : 44;
+      const padding = 16;
+      visibleHeight = Math.max(100, Math.round(vv.height - headerHeight - accessoryBarHeight - padding));
+    } else {
+      visibleHeight = container.parentElement?.clientHeight || container.clientHeight || 300;
     }
 
-    if (visibleHeight <= 0 || totalScreenHeight <= visibleHeight) {
+    if (visibleHeight <= 0) {
       if (cursorShiftYRef.current !== 0) {
         cursorShiftYRef.current = 0;
         setCursorShiftY(0);
@@ -224,15 +232,7 @@ export function useMobileKeyboard({
     const cursorY = term.buffer?.active?.cursorY ?? term.rows - 1;
     const cursorBottom = (cursorY + 1) * cellHeight;
 
-    if (cursorBottom <= visibleHeight) {
-      if (cursorShiftYRef.current !== 0) {
-        cursorShiftYRef.current = 0;
-        setCursorShiftY(0);
-      }
-      return;
-    }
-
-    const maxShift = Math.max(0, totalScreenHeight - visibleHeight);
+    const maxShift = Math.max(0, Math.max(totalScreenHeight, term.rows * cellHeight) - visibleHeight);
     const targetShift = Math.max(0, cursorBottom - visibleHeight + 4);
     const shift = Math.min(maxShift, targetShift);
     const roundedShift = Math.round(shift);
@@ -241,7 +241,7 @@ export function useMobileKeyboard({
       cursorShiftYRef.current = roundedShift;
       setCursorShiftY(roundedShift);
     }
-  }, [isMobile, isKeyboardOpen, isMountedRef, terminalContainerRef, xtermRef]);
+  }, [isMobile, isKeyboardOpen, isMountedRef, terminalContainerRef, xtermRef, hideHeader, headerRef]);
 
   const handleToggleKeyboard = useCallback(() => {
     const textarea = terminalContainerRef.current?.querySelector('textarea');
