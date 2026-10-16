@@ -2,11 +2,13 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import WebTerminalView, { WebTerminalHandle } from './WebTerminalView';
 import TerminalFileManagerView, { TerminalFileManagerHandle } from './terminal/TerminalFileManagerView';
 import TerminalCronView, { TerminalCronHandle } from './terminal/TerminalCronView';
+import TerminalTaskView, { TerminalTaskHandle } from './terminal/TerminalTaskView';
 import { TerminalHostSelector } from './terminal/TerminalHostSelector';
 import {
   TerminalSquare,
   FolderOpen,
   Clock,
+  Activity,
   Maximize2,
   Minimize2,
   ZoomIn,
@@ -26,7 +28,7 @@ import {
 import { useTranslation } from '../i18n/LanguageContext';
 import { useTheme } from '../theme/ThemeContext';
 import { calculateKeyboardTranslateY } from '../utils/mobileViewportHelper';
-import { onUnauthorized } from '../utils/apiClient';
+import { apiFetch, onUnauthorized } from '../utils/apiClient';
 import {
   isFullscreenActive,
   toggleBrowserFullscreen,
@@ -41,7 +43,8 @@ export interface UnifiedTerminalViewProps {
   onLogout?: () => void;
 }
 
-export type TerminalSubTab = 'interactive' | 'files' | 'cron';
+export type TerminalSubTab = 'interactive' | 'files' | 'cron' | 'tasks';
+
 
 export default function UnifiedTerminalView({
   adminKey: propAdminKey,
@@ -76,6 +79,37 @@ export default function UnifiedTerminalView({
   const terminalRef = useRef<WebTerminalHandle>(null);
   const fileManagerRef = useRef<TerminalFileManagerHandle>(null);
   const cronRef = useRef<TerminalCronHandle>(null);
+  const taskRef = useRef<TerminalTaskHandle>(null);
+  const [serverTimezone, setServerTimezone] = useState<string>('');
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchServerTimezone = async () => {
+      try {
+        const headers: Record<string, string> = {};
+        const key =
+          adminKey ||
+          (typeof window !== 'undefined'
+            ? localStorage.getItem('gt_admin_key') || localStorage.getItem('admin_secret_key') || ''
+            : '');
+        if (key) headers['x-admin-key'] = key;
+        const res = await apiFetch('/api/terminal/hosts', { headers });
+        if (res.ok) {
+          const data = await res.json();
+          if (isMounted && data.timezone) {
+            setServerTimezone(data.timezone);
+          }
+        }
+      } catch {
+        // Silently ignore
+      }
+    };
+    fetchServerTimezone();
+    return () => {
+      isMounted = false;
+    };
+  }, [adminKey]);
+
 
   const [connectionStatus, setConnectionStatus] = useState<{ isConnected: boolean; isConnecting: boolean }>({
     isConnected: false,
@@ -363,6 +397,18 @@ export default function UnifiedTerminalView({
               <Clock className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">{t('cron.title', '定时任务')}</span>
             </button>
+            <button
+              type="button"
+              onClick={() => handleSubTabChange('tasks')}
+              className={`flex items-center space-x-1.5 px-2 sm:px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                subTab === 'tasks'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Activity className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">{t('tasks.tabName', '任务管理')}</span>
+            </button>
           </div>
 
           {/* Connection Status Badge (when in interactive tab, desktop only) */}
@@ -390,7 +436,19 @@ export default function UnifiedTerminalView({
               </span>
             </div>
           )}
+
+          {/* Global Server Timezone Badge */}
+          {serverTimezone && (
+            <div
+              className="hidden sm:flex items-center space-x-1 px-2 py-1 rounded-lg bg-black/30 border border-white/[0.06] text-slate-300 font-mono text-[11px] shrink-0"
+              title={`${t('common.serverTimezone', '服务器时区')}: ${serverTimezone}`}
+            >
+              <span className="text-xs">🌐</span>
+              <span>{serverTimezone}</span>
+            </div>
+          )}
         </div>
+
 
         {/* Action Buttons */}
         <div className="flex items-center space-x-0.5 sm:space-x-1.5 shrink-0">
@@ -488,6 +546,18 @@ export default function UnifiedTerminalView({
               <RefreshCw className="w-3.5 h-3.5" />
             </button>
           )}
+
+          {subTab === 'tasks' && (
+            <button
+              type="button"
+              onClick={() => taskRef.current?.refresh()}
+              className="p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border border-white/[0.06] transition-all"
+              title={t('tasks.refresh', '刷新')}
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+            </button>
+          )}
+
 
           {/* Fullscreen Toggle (All devices, landscape mode on mobile) */}
           <button
@@ -716,7 +786,18 @@ export default function UnifiedTerminalView({
             onRequestAddNode={() => setIsAddNodeModalOpen(true)}
           />
         </div>
+
+        <div className={`flex-1 min-h-0 ${subTab === 'tasks' ? 'flex' : 'hidden'} flex-col`}>
+          <TerminalTaskView
+            ref={taskRef}
+            adminKey={adminKey}
+            activeHostId={activeHostId}
+            isConnected={connectionStatus.isConnected}
+            onRequestAddNode={() => setIsAddNodeModalOpen(true)}
+          />
+        </div>
       </div>
+
     </div>
   );
 }
