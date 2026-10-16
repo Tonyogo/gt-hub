@@ -93,7 +93,7 @@ export default function UnifiedTerminalView({
             ? localStorage.getItem('gt_admin_key') || localStorage.getItem('admin_secret_key') || ''
             : '');
         if (key) headers['x-admin-key'] = key;
-        const res = await apiFetch('/api/terminal/hosts', { headers });
+        const res = await apiFetch('/api/terminal/version', { headers });
         if (res.ok) {
           const data = await res.json();
           if (isMounted && data.timezone) {
@@ -773,6 +773,7 @@ export default function UnifiedTerminalView({
             ref={fileManagerRef}
             adminKey={adminKey}
             activeHostId={activeHostId}
+            isActive={subTab === 'files'}
             onRequestAddNode={() => setIsAddNodeModalOpen(true)}
           />
         </div>
@@ -783,6 +784,7 @@ export default function UnifiedTerminalView({
             adminKey={adminKey}
             activeHostId={activeHostId}
             isConnected={connectionStatus.isConnected}
+            isActive={subTab === 'cron'}
             onRequestAddNode={() => setIsAddNodeModalOpen(true)}
           />
         </div>
@@ -793,6 +795,7 @@ export default function UnifiedTerminalView({
             adminKey={adminKey}
             activeHostId={activeHostId}
             isConnected={connectionStatus.isConnected}
+            isActive={subTab === 'tasks'}
             onRequestAddNode={() => setIsAddNodeModalOpen(true)}
           />
         </div>

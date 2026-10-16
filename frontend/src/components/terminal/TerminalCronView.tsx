@@ -41,10 +41,11 @@ export interface TerminalCronViewProps {
   activeHostId?: string;
   isConnected?: boolean;
   onRequestAddNode?: () => void;
+  isActive?: boolean;
 }
 
 export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCronViewProps>(
-  ({ adminKey, activeHostId, isConnected = true, onRequestAddNode }, ref) => {
+  ({ adminKey, activeHostId, isConnected = true, onRequestAddNode, isActive = false }, ref) => {
     const { t, language } = useTranslation();
     const isZh = language === 'zh';
 
@@ -86,12 +87,21 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
       return headers;
     }, [adminKey]);
 
+    const activeHostIdRef = useRef<string | undefined>(activeHostId);
+    activeHostIdRef.current = activeHostId;
+    const isActiveRef = useRef<boolean>(isActive);
+    isActiveRef.current = isActive;
+
     // Fetch jobs list
     const fetchJobs = useCallback(async (silent = false) => {
       if (!activeHostId) {
         setJobs([]);
         return;
       }
+
+      if (silent && !isActiveRef.current) return;
+
+      const requestHostId = activeHostId;
 
       if (!silent) {
         setIsLoading(true);
@@ -105,17 +115,22 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
           throw new Error(`HTTP ${res.status}: ${res.statusText}`);
         }
         const data = await res.json();
+        if (activeHostIdRef.current !== requestHostId) {
+          return;
+        }
+
         if (data && data.success && Array.isArray(data.data)) {
           setJobs(data.data);
         } else {
           setJobs([]);
         }
       } catch (err: any) {
-        if (!silent) {
+        if (activeHostIdRef.current !== requestHostId) return;
+        if (!silent && isActiveRef.current) {
           showToast(err.message || '加载定时任务列表失败', 'error');
         }
       } finally {
-        if (!silent) {
+        if (activeHostIdRef.current === requestHostId && !silent) {
           setIsLoading(false);
         }
       }
@@ -126,14 +141,26 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
       refresh: () => fetchJobs(false),
     }), [fetchJobs]);
 
-    // Initial fetch on host change
+    // Reset jobs and state when activeHostId changes to prevent showing stale cron jobs and modals from previous host
     useEffect(() => {
-      fetchJobs(false);
-    }, [fetchJobs]);
+      setJobs([]);
+      setIsLoading(false);
+      setDeleteConfirmJobId(null);
+      setRunningJobIds(new Set());
+      setIsJobModalOpen(false);
+      setEditingJob(null);
+      setSelectedJobForLogs(null);
+    }, [activeHostId]);
 
-    // Silent background poll every 10 seconds
+    // Initial fetch when active or when activeHostId changes while active
     useEffect(() => {
-      if (!activeHostId) return;
+      if (!isActive) return;
+      fetchJobs(false);
+    }, [isActive, fetchJobs]);
+
+    // Silent background poll every 10 seconds only when active and host is selected
+    useEffect(() => {
+      if (!isActive || !activeHostId) return;
 
       const timer = setInterval(() => {
         if (typeof document !== 'undefined' && document.hidden) return;
@@ -141,7 +168,7 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
       }, 10000);
 
       return () => clearInterval(timer);
-    }, [activeHostId, fetchJobs]);
+    }, [isActive, activeHostId, fetchJobs]);
 
     // Trigger run now
     const handleRunNow = async (job: CronJobSummary) => {

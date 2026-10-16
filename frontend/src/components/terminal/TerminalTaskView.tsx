@@ -41,10 +41,11 @@ export interface TerminalTaskViewProps {
   activeHostId?: string;
   isConnected?: boolean;
   onRequestAddNode?: () => void;
+  isActive?: boolean;
 }
 
 export const TerminalTaskView = React.forwardRef<TerminalTaskHandle, TerminalTaskViewProps>(
-  ({ adminKey, activeHostId, isConnected = true, onRequestAddNode }, ref) => {
+  ({ adminKey, activeHostId, isConnected = true, onRequestAddNode, isActive = false }, ref) => {
     const { t, language } = useTranslation();
     const isZh = language === 'zh';
 
@@ -90,12 +91,21 @@ export const TerminalTaskView = React.forwardRef<TerminalTaskHandle, TerminalTas
       return headers;
     }, [adminKey]);
 
+    const activeHostIdRef = useRef<string | undefined>(activeHostId);
+    activeHostIdRef.current = activeHostId;
+    const isActiveRef = useRef<boolean>(isActive);
+    isActiveRef.current = isActive;
+
     const fetchTasks = useCallback(
       async (silent = false) => {
         if (!activeHostId) {
           setTasks([]);
           return;
         }
+
+        if (silent && !isActiveRef.current) return;
+
+        const requestHostId = activeHostId;
 
         if (!silent) {
           setIsLoading(true);
@@ -112,17 +122,22 @@ export const TerminalTaskView = React.forwardRef<TerminalTaskHandle, TerminalTas
           }
 
           const data = await res.json();
+          if (activeHostIdRef.current !== requestHostId) {
+            return;
+          }
+
           if (data.success && Array.isArray(data.tasks)) {
             setTasks(data.tasks);
           } else {
             setTasks([]);
           }
         } catch (err: any) {
-          if (!silent) {
+          if (activeHostIdRef.current !== requestHostId) return;
+          if (!silent && isActiveRef.current) {
             showToast(err.message || '获取后台任务失败', 'error');
           }
         } finally {
-          if (!silent) {
+          if (activeHostIdRef.current === requestHostId && !silent) {
             setIsLoading(false);
           }
         }
@@ -138,14 +153,25 @@ export const TerminalTaskView = React.forwardRef<TerminalTaskHandle, TerminalTas
       [fetchTasks]
     );
 
-    // Fetch on mount or activeHostId change
+    // Reset tasks and state when activeHostId changes to prevent showing stale tasks from previous host
     useEffect(() => {
-      fetchTasks(false);
-    }, [fetchTasks]);
+      setTasks([]);
+      setIsLoading(false);
+      setIsCreateModalOpen(false);
+      setIsCreating(false);
+      setSelectedTaskForLogs(null);
+      setIsLogModalOpen(false);
+    }, [activeHostId]);
 
-    // Polling safety: Only poll when there are running tasks
+    // Fetch when active or activeHostId change while active
     useEffect(() => {
-      if (!activeHostId) return;
+      if (!isActive) return;
+      fetchTasks(false);
+    }, [isActive, fetchTasks]);
+
+    // Polling safety: Only poll when active and there are running tasks
+    useEffect(() => {
+      if (!isActive || !activeHostId) return;
 
       const hasRunning = tasks.some((t) => t.status === 'running');
       if (!hasRunning) return;
@@ -156,7 +182,7 @@ export const TerminalTaskView = React.forwardRef<TerminalTaskHandle, TerminalTas
       }, 3000);
 
       return () => clearInterval(timer);
-    }, [activeHostId, tasks, fetchTasks]);
+    }, [isActive, activeHostId, tasks, fetchTasks]);
 
     // Handle Create Task submission
     const handleCreateTask = async (input: CreateTaskInput) => {

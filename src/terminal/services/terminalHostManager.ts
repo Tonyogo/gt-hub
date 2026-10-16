@@ -14,7 +14,23 @@ export interface ManagedHost {
   type: 'agent';
   machineId?: string;
   version?: string;
-  agentWs?: any;
+}
+
+export function toHostDTO(host: ManagedHost): ManagedHost {
+  const dto: ManagedHost = {
+    id: host.id,
+    name: host.name,
+    hostname: host.hostname,
+    ip: host.ip,
+    platform: host.platform,
+    status: host.status,
+    lastSeen: host.lastSeen,
+    type: host.type,
+  };
+  if (host.startTime !== undefined) dto.startTime = host.startTime;
+  if (host.machineId !== undefined) dto.machineId = host.machineId;
+  if (host.version !== undefined) dto.version = host.version;
+  return dto;
 }
 
 export interface ITerminalSession {
@@ -398,7 +414,7 @@ export class TerminalHostManager {
       }
     }
 
-    const list = Array.from(this.hosts.values());
+    const list = Array.from(this.hosts.values()).map(toHostDTO);
     return list.sort((a, b) => {
       if (a.status !== b.status) {
         return a.status === 'online' ? -1 : 1;
@@ -507,7 +523,7 @@ export class TerminalHostManager {
     // 1. Check for Machine ID conflict against active (online) nodes
     for (const [existingId, existingHost] of this.hosts.entries()) {
       if (existingHost.machineId === machineId) {
-        const existingWs = existingHost.agentWs || this.sessions.get(existingId)?.getAgentWs();
+        const existingWs = this.sessions.get(existingId)?.getAgentWs();
         if (existingHost.status === 'online' && existingWs !== metadata.agentWs) {
           if (existingId !== id) {
             logger.warn(`[TerminalHostManager] Rejecting duplicate machine agent: machineId "${machineId}" is already held by active node "${existingHost.name}" (${existingId})`);
@@ -570,7 +586,6 @@ export class TerminalHostManager {
         type: 'agent',
         machineId,
         version: metadata.version,
-        agentWs: metadata.agentWs,
       };
       this.hosts.set(id, host);
     } else {
@@ -578,7 +593,7 @@ export class TerminalHostManager {
       host.lastSeen = Date.now();
       host.name = targetName;
       host.machineId = machineId;
-      host.agentWs = metadata.agentWs;
+      delete (host as any).agentWs;
       if (metadata.startTime !== undefined) host.startTime = metadata.startTime;
       if (metadata.hostname) host.hostname = metadata.hostname;
       if (metadata.ip) host.ip = metadata.ip;
@@ -636,7 +651,6 @@ export class TerminalHostManager {
     if (host && host.type === 'agent') {
       host.status = 'offline';
       host.lastSeen = Date.now();
-      host.agentWs = null;
       logger.info(`[TerminalHostManager] Agent unregistered/offline: ${canonicalId}`);
     }
     if (session && (!closingWs || session.getAgentWs() === closingWs)) {

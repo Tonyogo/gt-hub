@@ -46,6 +46,7 @@ export interface TerminalFileManagerViewProps {
   adminKey: string;
   activeHostId: string;
   onRequestAddNode?: () => void;
+  isActive?: boolean;
 }
 
 export interface TerminalFileItem {
@@ -154,6 +155,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
   adminKey,
   activeHostId,
   onRequestAddNode,
+  isActive = false,
 }: TerminalFileManagerViewProps, ref) {
   const { t } = useTranslation();
   const { resolvedTheme } = useTheme();
@@ -233,6 +235,9 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
     blobUrl: string;
   } | null>(null);
 
+  const activeHostIdRef = useRef<string>(activeHostId);
+  activeHostIdRef.current = activeHostId;
+
   // Load directory items
   const loadFiles = useCallback(async (targetPath?: string) => {
     if (!activeHostId) {
@@ -240,6 +245,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
       setFiles([]);
       return;
     }
+    const requestHostId = activeHostId;
     setLoading(true);
     setError(null);
     try {
@@ -251,6 +257,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
         headers: { 'x-admin-key': adminKey },
       });
       const data: ListFilesResponse = await res.json();
+      if (activeHostIdRef.current !== requestHostId) return;
       if (!res.ok || !data.success) {
         setError(data.error || 'Failed to load file list');
       } else {
@@ -261,9 +268,12 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
         setFiles(data.files || []);
       }
     } catch (err: any) {
+      if (activeHostIdRef.current !== requestHostId) return;
       setError(err.message || 'Network error');
     } finally {
-      setLoading(false);
+      if (activeHostIdRef.current === requestHostId) {
+        setLoading(false);
+      }
     }
   }, [adminKey, activeHostId]);
 
@@ -273,17 +283,36 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
     },
   }), [loadFiles, currentPath]);
 
-  // Reload when activeHostId changes
+  const loadedHostRef = useRef<string | null>(null);
+
+  // Reload when activeHostId changes or tab becomes active
   useEffect(() => {
-    setCurrentPath('');
-    setParentPath(null);
     if (!activeHostId) {
+      setCurrentPath('');
+      setParentPath(null);
       setLoading(false);
       setFiles([]);
+      loadedHostRef.current = null;
       return;
     }
-    loadFiles();
-  }, [activeHostId, loadFiles]);
+
+    if (!isActive) {
+      if (loadedHostRef.current && loadedHostRef.current !== activeHostId) {
+        setCurrentPath('');
+        setParentPath(null);
+        setFiles([]);
+        loadedHostRef.current = null;
+      }
+      return;
+    }
+
+    if (loadedHostRef.current !== activeHostId) {
+      setCurrentPath('');
+      setParentPath(null);
+      loadedHostRef.current = activeHostId;
+      loadFiles();
+    }
+  }, [isActive, activeHostId, loadFiles]);
 
   // Breadcrumbs generator
   const breadcrumbs = React.useMemo(() => {
