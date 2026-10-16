@@ -38,7 +38,7 @@
 - Consumes: `config.timeZone` from `src/server/config/default`
 - Produces: `timezone: string` on `GET /api/terminal/hosts` and `GET /api/terminal/version`
 
-- [ ] **Step 1: Write the failing API test**
+- [x] **Step 1: Write the failing API test**
 
 ```typescript
 // tests/terminalTaskApi.test.ts
@@ -85,12 +85,12 @@ describe('Terminal Task & Timezone API', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm test -- tests/terminalTaskApi.test.ts`
 Expected: FAIL with `timezone` property missing on responses.
 
-- [ ] **Step 3: Update `terminalHostController.ts` to include timezone**
+- [x] **Step 3: Update `terminalHostController.ts` to include timezone**
 
 In `src/terminal/controllers/terminalHostController.ts`:
 ```typescript
@@ -123,12 +123,12 @@ export const terminalHostController = new TerminalHostController();
 export default terminalHostController;
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npm test -- tests/terminalTaskApi.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/terminal/controllers/terminalHostController.ts tests/terminalTaskApi.test.ts
@@ -148,7 +148,7 @@ git commit -m "feat(server): expose server timezone in terminal hosts and versio
 **Interfaces:**
 - Produces: `TaskSummary`, `TaskStatus`, `TaskLogResponse`, `CreateTaskInput`, `tasks.*` i18n keys
 
-- [ ] **Step 1: Write the failing i18n and type test**
+- [x] **Step 1: Write the failing i18n and type test**
 
 ```typescript
 // tests/frontendTaskI18n.test.ts
@@ -208,12 +208,12 @@ describe('Frontend Task Management i18n Dictionary', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm test -- tests/frontendTaskI18n.test.ts`
 Expected: FAIL with missing translation keys.
 
-- [ ] **Step 3: Create `frontend/src/components/terminal/types/task.ts`**
+- [x] **Step 3: Create `frontend/src/components/terminal/types/task.ts`**
 
 ```typescript
 export type TaskStatus = 'running' | 'completed' | 'failed' | 'timeout' | 'killed';
@@ -250,7 +250,7 @@ export interface CreateTaskInput {
 }
 ```
 
-- [ ] **Step 4: Update `zh.ts` and `en.ts` with task dictionaries**
+- [x] **Step 4: Update `zh.ts` and `en.ts` with task dictionaries**
 
 Add to `frontend/src/i18n/locales/zh.ts`:
 ```typescript
@@ -301,12 +301,12 @@ Add to `frontend/src/i18n/locales/zh.ts`:
 ```
 And matching English translations in `frontend/src/i18n/locales/en.ts`.
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `npm test -- tests/frontendTaskI18n.test.ts`
 Expected: PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add frontend/src/components/terminal/types/task.ts frontend/src/i18n/locales/zh.ts frontend/src/i18n/locales/en.ts tests/frontendTaskI18n.test.ts
@@ -334,7 +334,7 @@ git commit -m "feat(frontend): define task types and i18n translations for task 
   }
   ```
 
-- [ ] **Step 1: Implement `TaskLogModal.tsx`**
+- [x] **Step 1: Implement `TaskLogModal.tsx`**
 
 Features:
 1. Modal with terminal-like dark background (`#0c1017`).
@@ -345,12 +345,12 @@ Features:
 6. Copy button with success toast / badge.
 7. Kill button if `task.status === 'running'`.
 
-- [ ] **Step 2: Verify frontend builds without type errors**
+- [x] **Step 2: Verify frontend builds without type errors**
 
 Run: `npm run build:frontend`
 Expected: PASS with 0 errors.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add frontend/src/components/terminal/components/TaskLogModal.tsx
@@ -376,7 +376,7 @@ git commit -m "feat(frontend): create TaskLogModal for live output streaming and
   }
   ```
 
-- [ ] **Step 1: Implement `CreateTaskModal.tsx`**
+- [x] **Step 1: Implement `CreateTaskModal.tsx`**
 
 Features:
 1. Command input (textarea for shell command, required).
@@ -385,12 +385,12 @@ Features:
 4. Validation: command cannot be empty.
 5. Submit button with spinner loading state.
 
-- [ ] **Step 2: Verify frontend builds without type errors**
+- [x] **Step 2: Verify frontend builds without type errors**
 
 Run: `npm run build:frontend`
 Expected: PASS with 0 errors.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add frontend/src/components/terminal/components/CreateTaskModal.tsx
@@ -419,7 +419,7 @@ git commit -m "feat(frontend): create CreateTaskModal for starting background ta
   }
   ```
 
-- [ ] **Step 1: Implement `TerminalTaskView.tsx`**
+- [x] **Step 1: Implement `TerminalTaskView.tsx`**
 
 Features:
 1. Stat Cards: Total tasks, Running (with pulsing indicator), Completed, Failed/Timeout.
@@ -440,12 +440,12 @@ Features:
    - Node offline (`TerminalEmptyState`).
    - No tasks found.
 
-- [ ] **Step 2: Verify frontend builds without type errors**
+- [x] **Step 2: Verify frontend builds without type errors**
 
 Run: `npm run build:frontend`
 Expected: PASS with 0 errors.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add frontend/src/components/terminal/TerminalTaskView.tsx
@@ -464,7 +464,7 @@ git commit -m "feat(frontend): implement TerminalTaskView with stat cards, searc
 - Extends: `TerminalSubTab = 'interactive' | 'files' | 'cron' | 'tasks'`
 - Integrates: `TerminalTaskView`, `Activity` icon, Server Timezone Badge
 
-- [ ] **Step 1: Write failing subtab & timezone test**
+- [x] **Step 1: Write failing subtab & timezone test**
 
 ```typescript
 // tests/frontendTaskSubTab.test.ts
@@ -504,12 +504,12 @@ describe('UnifiedTerminalView SubTab Integration with Tasks & Timezone', () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm test -- tests/frontendTaskSubTab.test.ts`
 Expected: FAIL.
 
-- [ ] **Step 3: Update `UnifiedTerminalView.tsx`**
+- [x] **Step 3: Update `UnifiedTerminalView.tsx`**
 
 1. Update `TerminalSubTab` type:
    ```typescript
@@ -561,12 +561,12 @@ Expected: FAIL.
    </div>
    ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npm test -- tests/frontendTaskSubTab.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/components/UnifiedTerminalView.tsx tests/frontendTaskSubTab.test.ts
@@ -582,22 +582,22 @@ git commit -m "feat(frontend): integrate tasks subtab and server timezone badge 
 - Test: `tests/frontendTaskSubTab.test.ts`
 - Test: `tests/frontendTaskI18n.test.ts`
 
-- [ ] **Step 1: Execute targeted tests**
+- [x] **Step 1: Execute targeted tests**
 
 Run: `npm test -- tests/terminalTaskApi.test.ts tests/frontendTaskSubTab.test.ts tests/frontendTaskI18n.test.ts`
 Expected: All tests pass cleanly.
 
-- [ ] **Step 2: Build frontend and backend**
+- [x] **Step 2: Build frontend and backend**
 
 Run: `npm run build`
 Expected: Full project build completes with 0 errors.
 
-- [ ] **Step 3: Run existing regression tests**
+- [x] **Step 3: Run existing regression tests**
 
 Run: `npm test -- tests/frontendUnifiedSubTabs.test.ts tests/terminalHostsApi.test.ts`
 Expected: PASS
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git commit --allow-empty -m "chore: verify full build and tests for agent task visualization and server timezone"
