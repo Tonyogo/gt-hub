@@ -1,6 +1,6 @@
 {
   "name": "gt-hub",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Centralized WebSocket Hub and WebTerminal Service",
   "main": "dist/src/index.js",
   "bin": {
