@@ -29,7 +29,7 @@
 - Consumes: `TerminalHistoryBuffer` (`src/agent/pty/terminalHistoryBuffer.ts`), `RemoteAgentTerminalSession` (`src/terminal/services/terminalHostManager.ts`), `setupTerminalWebSocket` (`src/terminal/routes/terminalWs.ts`)
 - Produces: 自动化测试套件，验证 1MB 边界截断以及 WebSocket 服务握手包含 `permessage-deflate` 扩展并可正确传输解压缩数据。
 
-- [ ] **Step 1: 编写测试文件**
+- [x] **Step 1: 编写测试文件**
 
 ```typescript
 // tests/terminalDeflateAndBufferLimit.test.ts
@@ -120,12 +120,12 @@ describe('Terminal Buffer 1MB Limit & WebSocket Deflate Compression', () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试以验证它失败**
+- [x] **Step 2: 运行测试以验证它失败**
 
 运行: `npm test -- tests/terminalDeflateAndBufferLimit.test.ts`
 预期: 失败（FAIL，因为当前默认容量为 2MB，且 WebSocket 未开启 permessage-deflate 导致握手扩展头不匹配）
 
-- [ ] **Step 3: 提交初始测试文件**
+- [x] **Step 3: 提交初始测试文件**
 
 ```bash
 git add tests/terminalDeflateAndBufferLimit.test.ts
@@ -147,7 +147,7 @@ git commit -m "test: add test suite for 1MB terminal buffer limit and permessage
 - Consumes: `TerminalHistoryBuffer`, `RemoteAgentTerminalSession`
 - Produces: 统一的 1MB 默认容量行为。
 
-- [ ] **Step 1: 修改 `src/agent/pty/terminalHistoryBuffer.ts` 默认容量**
+- [x] **Step 1: 修改 `src/agent/pty/terminalHistoryBuffer.ts` 默认容量**
 在构造函数中将默认 `maxBytes` 设为 `1 * 1024 * 1024`：
 ```typescript
 constructor(maxBytes: number = 1 * 1024 * 1024) {
@@ -155,7 +155,7 @@ constructor(maxBytes: number = 1 * 1024 * 1024) {
 }
 ```
 
-- [ ] **Step 2: 修改 `src/agent/daemon.ts` 中的回退容量**
+- [x] **Step 2: 修改 `src/agent/daemon.ts` 中的回退容量**
 将 `maxScrollbackBytes` 的缺省值由 2MB 修改为 1MB：
 ```typescript
 const maxScrollbackBytes = options.scrollback
@@ -163,24 +163,24 @@ const maxScrollbackBytes = options.scrollback
   : (1 * 1024 * 1024);
 ```
 
-- [ ] **Step 3: 修改 `src/terminal/services/terminalHostManager.ts` 中的容量常量**
+- [x] **Step 3: 修改 `src/terminal/services/terminalHostManager.ts` 中的容量常量**
 将 `RemoteAgentTerminalSession.maxBufferSize` 由 2MB 改为 1MB：
 ```typescript
 private readonly maxBufferSize: number = 1 * 1024 * 1024; // 1MB scrollback
 ```
 
-- [ ] **Step 4: 更新受容量影响的历史单元测试断言**
+- [x] **Step 4: 更新受容量影响的历史单元测试断言**
 1. 在 `tests/terminalPersistence.test.ts` 中：
 将测试用例 `should support up to 2MB buffer...` 重构为测试 1MB 容量上限（chunk1: 0.6MB, chunk2: 0.4MB, chunk3: 0.3MB，总计 1.3MB > 1MB，断言 `expect(history.length).toBeLessThanOrEqual(1 * 1024 * 1024)`）。
 2. 在 `tests/terminalSluggishnessAndFileLoadFixes.test.ts` 中：
 将 `slices excess without wiping entire 2MB buffer chunk` 的 `const max = 2 * 1024 * 1024;` 调整为 `const max = 1 * 1024 * 1024;`，chunk1 调整为 0.6MB，chunk2 调整为 0.7MB（产生 0.3MB 溢出并验证精准裁剪）。
 
-- [ ] **Step 5: 运行测试验证**
+- [x] **Step 5: 运行测试验证**
 
 运行: `npm test -- tests/terminalPersistence.test.ts tests/terminalSluggishnessAndFileLoadFixes.test.ts tests/terminalHistoryBuffer.test.ts`
 预期: 全部通过 (PASS)
 
-- [ ] **Step 6: 提交变更**
+- [x] **Step 6: 提交变更**
 
 ```bash
 git add src/agent/pty/terminalHistoryBuffer.ts src/agent/daemon.ts src/terminal/services/terminalHostManager.ts tests/terminalPersistence.test.ts tests/terminalSluggishnessAndFileLoadFixes.test.ts
@@ -201,7 +201,7 @@ git commit -m "feat(terminal): adjust agent and hub terminal buffer default to 1
 - Consumes: `TERMINAL_WS_DEFLATE_OPTIONS`
 - Produces: 启用了 `permessageDeflate` 的 WebSocketServer 与 Agent WebSocket 客户端。
 
-- [ ] **Step 1: 创建共享的 WebSocket 压缩配置**
+- [x] **Step 1: 创建共享的 WebSocket 压缩配置**
 创建 `src/shared/protocol/wsOptions.ts`：
 ```typescript
 /**
@@ -223,7 +223,7 @@ export const TERMINAL_WS_DEFLATE_OPTIONS = {
 };
 ```
 
-- [ ] **Step 2: 在 `src/terminal/routes/terminalWs.ts` 中应用压缩配置**
+- [x] **Step 2: 在 `src/terminal/routes/terminalWs.ts` 中应用压缩配置**
 导入 `TERMINAL_WS_DEFLATE_OPTIONS`，并将三个 `WebSocketServer` 实例化配置为：
 ```typescript
 const wss = new WebSocketServer({ noServer: true, permessageDeflate: TERMINAL_WS_DEFLATE_OPTIONS });
@@ -231,7 +231,7 @@ const agentWss = new WebSocketServer({ noServer: true, permessageDeflate: TERMIN
 const execWss = new WebSocketServer({ noServer: true, permessageDeflate: TERMINAL_WS_DEFLATE_OPTIONS });
 ```
 
-- [ ] **Step 3: 在 `src/agent/daemon.ts` 客户端连接中启用压缩**
+- [x] **Step 3: 在 `src/agent/daemon.ts` 客户端连接中启用压缩**
 在 `ws = new WebSocket(targetWsUrl, { ... })` 中加入客户端压缩配置：
 ```typescript
 ws = new WebSocket(targetWsUrl, {
@@ -244,12 +244,12 @@ ws = new WebSocket(targetWsUrl, {
 });
 ```
 
-- [ ] **Step 4: 运行测试验证**
+- [x] **Step 4: 运行测试验证**
 
 运行: `npm test -- tests/terminalDeflateAndBufferLimit.test.ts tests/terminalWs.test.ts`
 预期: 全部通过 (PASS)
 
-- [ ] **Step 5: 提交变更**
+- [x] **Step 5: 提交变更**
 
 ```bash
 git add src/shared/protocol/wsOptions.ts src/terminal/routes/terminalWs.ts src/agent/daemon.ts
@@ -261,23 +261,23 @@ git commit -m "feat(terminal): enable permessage-deflate compression for termina
 ### Task 4: 全局构建与全量测试套件回归验证
 
 **Files:**
-- Test: 全量编��构建产物与所有测试套件
+- Test: 全量编译构建产物与所有测试套件
 
 **Interfaces:**
 - Consumes: 全量源码
 - Produces: 稳定发布的构建产物。
 
-- [ ] **Step 1: 构建全量工程**
+- [x] **Step 1: 构建全量工程**
 
 运行: `npm run build`
 预期: 前端构建、后端编译与 CLI `dist/gt.js` 打包均无错误。
 
-- [ ] **Step 2: 执行全量测试**
+- [x] **Step 2: 执行全量测试**
 
 运行: `npm test`
 预期: 所有单元测试与集成测试全部通过 (PASS)。
 
-- [ ] **Step 3: 检查工作区状态**
+- [x] **Step 3: 检查工作区状态**
 
 运行: `git status`
 预期: 工作区干净。
