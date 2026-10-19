@@ -81,12 +81,27 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
 
   server.on('upgrade', onUpgrade);
 
+  const closeAllClients = (code = 1001, reason = 'Server shutting down') => {
+    const allServers = [wss, agentWss, execWss];
+    for (const wsServer of allServers) {
+      for (const client of wsServer.clients) {
+        try {
+          if (client.readyState === WebSocket.OPEN || client.readyState === WebSocket.CONNECTING) {
+            client.close(code, reason);
+          }
+        } catch {}
+      }
+    }
+  };
+  (wss as any).closeAllClients = closeAllClients;
+
   wss.on('close', () => {
     try {
+      closeAllClients(1001, 'Server shutting down');
       agentWss.close();
       execWss.close();
     } catch {}
-      server.removeListener('upgrade', onUpgrade);
+    server.removeListener('upgrade', onUpgrade);
   });
 
   // Agent Reverse Tunnel Handler
