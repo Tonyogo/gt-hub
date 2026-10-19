@@ -364,7 +364,7 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder={isZh ? '过滤任务...' : 'Filter jobs...'}
-                  className="pl-8 pr-3 py-1.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-xs text-white placeholder-slate-500 focus:outline-hidden focus:border-indigo-500 w-32 sm:w-48 transition-all"
+                  className="pl-8 pr-3 py-1.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-xs text-white placeholder-slate-500 focus:outline-hidden focus:border-indigo-500 w-24 focus:w-36 sm:w-48 transition-all"
                 />
               </div>
             )}
@@ -474,7 +474,206 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
                   {isZh ? '未找到匹配的任务' : 'No matching jobs found'}
                 </div>
               ) : (
-                <div className="overflow-x-auto rounded-2xl border border-white/[0.06] bg-black/20">
+                <>
+                  {/* Mobile Card List (< sm) */}
+                  <div className="sm:hidden space-y-3">
+                    {filteredJobs.map((job) => {
+                      const isRunning = runningJobIds.has(job.id);
+                      const isPaused = job.status === 'paused';
+                      const lastExec = job.lastExecution;
+
+                      return (
+                        <div
+                          key={job.id}
+                          className="p-3.5 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-3 hover:bg-white/[0.04] transition-colors"
+                        >
+                          {/* Card Header: breathing dot + name + status badge */}
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-center space-x-2 min-w-0">
+                              <div
+                                className={`w-2 h-2 rounded-full shrink-0 ${
+                                  isRunning
+                                    ? 'bg-indigo-400 animate-ping'
+                                    : isPaused
+                                    ? 'bg-slate-500'
+                                    : 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.5)]'
+                                }`}
+                              />
+                              <span className="font-semibold text-white text-sm truncate">
+                                {job.name}
+                              </span>
+                            </div>
+
+                            <div className="shrink-0">
+                              {isPaused ? (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
+                                  {t('cron.statusPaused', '已暂停')}
+                                </span>
+                              ) : !lastExec ? (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.04] text-slate-400 border border-white/[0.06]">
+                                  {t('cron.statusActive', '运行中')}
+                                </span>
+                              ) : lastExec.status === 'completed' ? (
+                                <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                  <CheckCircle2 className="w-2.5 h-2.5" />
+                                  <span>{t('cron.statusCompleted', '成功')}</span>
+                                </span>
+                              ) : lastExec.status === 'failed' ? (
+                                <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                                  <XCircle className="w-2.5 h-2.5" />
+                                  <span>{t('cron.statusFailed', '失败')}</span>
+                                </span>
+                              ) : lastExec.status === 'skipped' ? (
+                                <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                  <AlertTriangle className="w-2.5 h-2.5" />
+                                  <span>{t('cron.statusSkipped', '跳过')}</span>
+                                </span>
+                              ) : lastExec.status === 'running' ? (
+                                <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                                  <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                  <span>{t('cron.statusRunning', '运行中')}</span>
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 text-[10px]">{lastExec.status}</span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Card Source / Command */}
+                          <div className="text-xs text-slate-400 font-mono bg-black/30 rounded-xl px-2.5 py-2 border border-white/[0.04]">
+                            {job.source === 'hub' ? (
+                              <div className="flex items-center space-x-1.5 text-indigo-300">
+                                <FileCode className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                                <span className="truncate">hub:{job.scriptName}</span>
+                              </div>
+                            ) : (
+                              <div className="flex items-center space-x-1.5 text-slate-300">
+                                <Terminal className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                                <span className="truncate">{job.command}</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Card Meta: Cron + Next Run + Duration */}
+                          <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div className="flex flex-col space-y-0.5">
+                              <span className="text-[10px] text-slate-500">{t('cron.modal.cronLabel', 'Cron 表达式')}</span>
+                              <span className="font-mono text-indigo-300 bg-black/40 px-1.5 py-0.5 rounded border border-white/[0.04] text-[11px] inline-block w-fit">
+                                {job.cron}
+                              </span>
+                            </div>
+
+                            <div className="flex flex-col space-y-0.5">
+                              <span className="text-[10px] text-slate-500">{t('cron.nextRun', '下次运行')}</span>
+                              <span className={`text-[11px] truncate ${isPaused ? 'text-slate-500' : 'text-slate-300'}`}>
+                                {isPaused ? (isZh ? '已挂起' : 'Paused') : formatNextRun(job.nextRunTime)}
+                              </span>
+                            </div>
+
+                            {lastExec?.durationMs !== undefined && (
+                              <div className="flex flex-col space-y-0.5 col-span-2">
+                                <span className="text-[10px] text-slate-500">{t('cron.duration', '耗时')}</span>
+                                <span className="font-mono text-slate-400 text-[11px]">
+                                  {formatDuration(lastExec.durationMs)}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Card Actions: min-h-[36px] touch targets */}
+                          <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between gap-1">
+                            <div className="flex items-center space-x-1.5">
+                              {/* Run Now */}
+                              <button
+                                type="button"
+                                onClick={() => handleRunNow(job)}
+                                disabled={isRunning || !isConnected}
+                                className="min-h-[36px] min-w-[36px] p-2 rounded-xl bg-white/[0.04] active:bg-emerald-500/20 text-slate-400 active:text-emerald-300 border border-white/[0.06] flex items-center justify-center transition-all disabled:opacity-40"
+                                title={t('cron.runNow', '立即运行')}
+                              >
+                                {isRunning ? (
+                                  <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+                                ) : (
+                                  <Play className="w-4 h-4" />
+                                )}
+                              </button>
+
+                              {/* Pause / Resume */}
+                              <button
+                                type="button"
+                                onClick={() => handleToggleStatus(job)}
+                                className={`min-h-[36px] min-w-[36px] p-2 rounded-xl border flex items-center justify-center transition-all ${
+                                  isPaused
+                                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                                    : 'bg-white/[0.04] text-slate-400 border-white/[0.06]'
+                                }`}
+                                title={isPaused ? t('cron.resume', '恢复') : t('cron.pause', '暂停')}
+                              >
+                                {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
+                              </button>
+
+                              {/* View Logs */}
+                              <button
+                                type="button"
+                                onClick={() => setSelectedJobForLogs(job)}
+                                className="min-h-[36px] min-w-[36px] p-2 rounded-xl bg-white/[0.04] active:bg-indigo-500/20 text-slate-400 active:text-indigo-300 border border-white/[0.06] flex items-center justify-center transition-all"
+                                title={t('cron.logs', '查看日志')}
+                              >
+                                <FileText className="w-4 h-4" />
+                              </button>
+
+                              {/* Edit Job */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingJob(job);
+                                  setIsJobModalOpen(true);
+                                }}
+                                className="min-h-[36px] min-w-[36px] p-2 rounded-xl bg-white/[0.04] active:bg-white/[0.08] text-slate-400 active:text-white border border-white/[0.06] flex items-center justify-center transition-all"
+                                title={t('cron.editJob', '编辑任务')}
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                            </div>
+
+                            {/* Delete Job */}
+                            <div>
+                              {deleteConfirmJobId === job.id ? (
+                                <div className="flex items-center space-x-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteJob(job.id)}
+                                    className="min-h-[36px] px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-medium transition-all"
+                                  >
+                                    {isZh ? '确认删除' : 'Confirm'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeleteConfirmJobId(null)}
+                                    className="min-h-[36px] min-w-[36px] p-2 rounded-xl bg-white/[0.06] text-slate-400 transition-all flex items-center justify-center"
+                                  >
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setDeleteConfirmJobId(job.id)}
+                                  className="min-h-[36px] min-w-[36px] p-2 rounded-xl bg-white/[0.04] active:bg-rose-500/20 text-slate-400 active:text-rose-300 border border-white/[0.06] flex items-center justify-center transition-all"
+                                  title={t('cron.deleteJob', '删除任务')}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Desktop Table (hidden sm:block) */}
+                  <div className="hidden sm:block overflow-x-auto rounded-2xl border border-white/[0.06] bg-black/20">
                   <table className="w-full text-left text-xs text-slate-300">
                     <thead className="bg-white/[0.02] border-b border-white/[0.06] text-slate-400 font-medium text-[11px] uppercase tracking-wider">
                       <tr>
@@ -692,7 +891,8 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
                     </tbody>
                   </table>
                 </div>
-              )}
+              </>
+            )}
             </div>
           )}
         </div>
