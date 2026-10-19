@@ -84,9 +84,9 @@ describe('Non-Fullscreen Terminal Stability & Continuous Canvas', () => {
     }
   });
 
-  it('WebTerminalView sets scrollback to 30000 and intercepts CSI 3J to prevent scrollback wipe', () => {
-    // Scrollback must be at least 30000 for lengthy AI dialogue
-    expect(webTerminalContent).toMatch(/scrollback:\s*30000/);
+  it('WebTerminalView sets responsive scrollback and intercepts CSI 3J to prevent scrollback wipe', () => {
+    // Scrollback is responsive (desktop 8000 / mobile 3000)
+    expect(webTerminalContent).toMatch(/scrollback:\s*scrollback/);
 
     // Must register CSI handler for 'J' checking code === 3
     expect(webTerminalContent).toMatch(/registerCsiHandler\(\{\s*final:\s*['"]J['"]\s*\}/);
