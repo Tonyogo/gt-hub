@@ -9,7 +9,8 @@ export class TerminalCronController {
       const jobs = await terminalCronService.getJobs(nodeId);
       res.json({ success: true, data: jobs, timezone: config.timeZone });
     } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message || 'Failed to list cron jobs' });
+      const status = (err.message?.includes('Invalid node ID') || err.message?.includes('Path traversal')) ? 400 : 500;
+      res.status(status).json({ success: false, error: err.message || 'Failed to list cron jobs' });
     }
   }
 

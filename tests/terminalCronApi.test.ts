@@ -56,6 +56,37 @@ describe('Hub Terminal Cron REST API & Service', () => {
       expect(res.body.data).toEqual([]);
     });
 
+    it('rejects path traversal and invalid node IDs', async () => {
+      // Path traversal attempts
+      const res1 = await request(app)
+        .get('/api/terminal/cron/..%2F..%2Fpackage')
+        .set('x-admin-key', adminKey);
+      expect(res1.status).toBe(400);
+      expect(res1.body.success).toBe(false);
+
+      const res2 = await request(app)
+        .get('/api/terminal/cron/%2E%2E')
+        .set('x-admin-key', adminKey);
+      expect(res2.status).toBe(400);
+
+      const res3 = await request(app)
+        .get('/api/terminal/cron/node%2Fwith%2Fslash')
+        .set('x-admin-key', adminKey);
+      expect(res3.status).toBe(400);
+
+      const res4 = await request(app)
+        .post('/api/terminal/cron/..%2F..%2Fpackage')
+        .set('x-admin-key', adminKey)
+        .send({ name: 'attack', cron: '* * * * *', command: 'echo 1' });
+      expect(res4.status).toBe(400);
+
+      // Verify service-level direct invocation throws
+      expect(() => terminalCronService.resolveCanonicalNodeId('../../package')).toThrow(/Invalid node ID/);
+      expect(() => terminalCronService.resolveCanonicalNodeId('..')).toThrow(/Invalid node ID/);
+      expect(() => terminalCronService.resolveCanonicalNodeId('/etc/passwd')).toThrow(/Invalid node ID/);
+      expect(() => terminalCronService.resolveCanonicalNodeId('node with space')).toThrow(/Invalid node ID/);
+    });
+
     it('rejects adding job with invalid cron or missing required fields', async () => {
       // Missing name
       const res1 = await request(app)

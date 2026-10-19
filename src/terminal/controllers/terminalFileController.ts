@@ -497,7 +497,19 @@ class TerminalFileController {
       }
 
       // Direct binary stream upload with filename in header
-      const filename = (req.headers['x-filename'] as string) || `upload-${Date.now()}`;
+      const rawHeaderFilename = req.headers['x-filename'] as string | undefined;
+      let decodedFilename: string | undefined = undefined;
+      if (rawHeaderFilename) {
+        try {
+          decodedFilename = decodeURIComponent(rawHeaderFilename);
+        } catch {
+          decodedFilename = rawHeaderFilename;
+        }
+      }
+      const safeFilename = decodedFilename ? path.basename(decodedFilename.trim()) : '';
+      const filename = (safeFilename && safeFilename !== '.' && safeFilename !== '..')
+        ? safeFilename
+        : `upload-${Date.now()}`;
       const saveRes = await terminalFileService.saveUploadedStream(hostId, targetDir, filename, req);
       res.status(saveRes.success ? 200 : 500).json(saveRes);
     } catch (err: any) {

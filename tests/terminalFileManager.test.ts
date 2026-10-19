@@ -238,6 +238,33 @@ describe('Terminal File Manager Pure RPC Integration Tests', () => {
     expect(res.body.success).toBe(true);
   });
 
+  test('sanitizes x-filename with path traversal characters', async () => {
+    let capturedFilename = '';
+    const originalSend = mockAgentWs.send;
+    mockAgentWs.send = jest.fn((msg: string) => {
+      if (msg.startsWith('JSON:')) {
+        const parsed = JSON.parse(msg.slice(5));
+        if (parsed.type === 'file_rpc' && parsed.action === 'upload_chunk') {
+          capturedFilename = parsed.params.filename;
+        }
+      }
+      return originalSend(msg);
+    });
+
+    const res = await request(app)
+      .post('/api/admin/terminal/files/upload')
+      .set('x-admin-key', secretKey)
+      .set('x-filename', encodeURIComponent('../../evil.txt'))
+      .query({ hostId: testHostId, path: '/var/log' })
+      .send(Buffer.from('binary-data'));
+
+    mockAgentWs.send = originalSend;
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(capturedFilename).toBe('evil.txt');
+  });
+
   test('uploads file via multipart form API endpoint', async () => {
     const res = await request(app)
       .post('/api/admin/terminal/files/upload')

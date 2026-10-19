@@ -48,7 +48,8 @@ export async function handleFileRpc(control: any, targetWs: any): Promise<void> 
     }
 
     if (action === 'upload_chunk' && params.filename) {
-      const uploadFile = path.join(resolvedPath, params.filename);
+      const sanitizedFilename = path.basename(params.filename);
+      const uploadFile = path.join(resolvedPath, sanitizedFilename);
       const fileCheck = checkPathPermission(uploadFile, mode, effectiveWorkspace);
       if (!fileCheck.allowed) {
         console.warn(`[SECURITY_AUDIT] BLOCKED file_rpc upload_chunk on path: "${uploadFile}" (mode: ${mode})`);
@@ -151,7 +152,11 @@ export async function handleFileRpc(control: any, targetWs: any): Promise<void> 
     }
 
     if (action === 'upload_chunk') {
-      const full = path.join(resolvedPath, params.filename);
+      const sanitizedFilename = path.basename(params.filename || '');
+      if (!sanitizedFilename || sanitizedFilename === '.' || sanitizedFilename === '..') {
+        return reply(false, null, 'Invalid filename');
+      }
+      const full = path.join(resolvedPath, sanitizedFilename);
       await fs.promises.mkdir(path.dirname(full), { recursive: true });
       const buf = Buffer.from(params.data || '', 'base64');
 

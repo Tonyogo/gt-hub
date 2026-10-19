@@ -45,13 +45,38 @@ export class TerminalCronService {
     }
   }
 
-  private resolveCanonicalNodeId(nodeId: string): string {
-    return terminalHostManager.resolveCanonicalHostId(nodeId) || nodeId.trim();
+  public resolveCanonicalNodeId(nodeId: string): string {
+    if (!nodeId || typeof nodeId !== 'string') {
+      throw new Error('Node ID is required');
+    }
+    const trimmed = nodeId.trim();
+    if (!trimmed) {
+      throw new Error('Node ID cannot be empty');
+    }
+    const resolved = terminalHostManager.resolveCanonicalHostId(trimmed);
+    const candidate = (resolved || trimmed).trim();
+
+    if (
+      candidate === '.' ||
+      candidate === '..' ||
+      candidate.includes('..') ||
+      candidate.includes('/') ||
+      candidate.includes('\\') ||
+      !/^[a-zA-Z0-9_\-\.]+$/.test(candidate)
+    ) {
+      throw new Error(`Invalid node ID: "${nodeId}"`);
+    }
+    return candidate;
   }
 
   private getNodeFilePath(nodeId: string): string {
     const canonicalId = this.resolveCanonicalNodeId(nodeId);
-    return path.join(this.storageDir, `${canonicalId}.json`);
+    const resolvedDir = path.resolve(this.storageDir);
+    const filePath = path.resolve(resolvedDir, `${canonicalId}.json`);
+    if (!filePath.startsWith(resolvedDir + path.sep)) {
+      throw new Error(`Path traversal detected for node ID: "${nodeId}"`);
+    }
+    return filePath;
   }
 
   private loadNodeData(nodeId: string): NodeCronData {
@@ -130,7 +155,7 @@ export class TerminalCronService {
     const filePath = this.getNodeFilePath(canonicalId);
     if (fs.existsSync(filePath)) {
       const data = this.loadNodeData(canonicalId);
-      if (data.jobs && data.jobs.length > 0) {
+      if (data.jobs) {
         this.syncToAgent(canonicalId, data.jobs);
       }
     } else {
@@ -334,7 +359,7 @@ export class TerminalCronService {
       ws.send(`JSON:${JSON.stringify({ type: 'cron_trigger', jobId: job.id })}`);
       return true;
     } catch (err: any) {
-      throw new Error(`Failed to send trigger to agent: ${err.message}`);
+      throw new Error(`Failed to send trigger to agent: ${err.message}`, { cause: err });
     }
   }
 

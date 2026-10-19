@@ -43,4 +43,57 @@ describe('handleFileRpc Security Integration', () => {
     // Should fail with File not found, NOT SecurityException
     expect(data.error).not.toMatch(/SecurityException/i);
   });
+
+  it('sanitizes filename on upload_chunk preventing directory escape', async () => {
+    const fs = await import('fs');
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gt-agent-test-'));
+    try {
+      let sentMessage = '';
+      const mockWs = {
+        readyState: 1,
+        send: (msg: string) => { sentMessage = msg; },
+      };
+
+      // 1. Path traversal filename is stripped to basename
+      await handleFileRpc({
+        reqId: 'test-req-3',
+        action: 'upload_chunk',
+        path: tempDir,
+        params: {
+          filename: '../../safe_escaped.txt',
+          data: Buffer.from('chunk content').toString('base64'),
+          offset: 0,
+        },
+        permissionMode: 'bypass',
+      }, mockWs);
+
+      const data1 = JSON.parse(sentMessage.slice(5));
+      expect(data1.success).toBe(true);
+      expect(fs.existsSync(path.join(tempDir, 'safe_escaped.txt'))).toBe(true);
+      // Ensure file was not created in parent dir
+      expect(fs.existsSync(path.join(tempDir, '..', 'safe_escaped.txt'))).toBe(false);
+
+      // 2. Pure '..' or '.' filename is rejected
+      sentMessage = '';
+      await handleFileRpc({
+        reqId: 'test-req-4',
+        action: 'upload_chunk',
+        path: tempDir,
+        params: {
+          filename: '..',
+          data: Buffer.from('chunk content').toString('base64'),
+          offset: 0,
+        },
+        permissionMode: 'bypass',
+      }, mockWs);
+
+      const data2 = JSON.parse(sentMessage.slice(5));
+      expect(data2.success).toBe(false);
+      expect(data2.error).toMatch(/Invalid filename/i);
+    } finally {
+      try {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      } catch {}
+    }
+  });
 });
