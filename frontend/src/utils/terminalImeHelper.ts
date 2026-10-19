@@ -21,11 +21,18 @@ export function attachMobileImeHandler({
   let compositionEndTimer: ReturnType<typeof setTimeout> | null = null;
   let lastHandledData = '';
   let lastHandledTime = 0;
+  let pendingBeforeInputDedupe = false;
   let lastNonImeKeyDownTime = 0;
 
   const handleKeyDown = (e: KeyboardEvent) => {
+    pendingBeforeInputDedupe = false;
     if (e.keyCode !== 229 && e.key !== 'Unidentified') {
       lastNonImeKeyDownTime = Date.now();
+      if (compositionEndTimer) {
+        clearTimeout(compositionEndTimer);
+        compositionEndTimer = null;
+        isComposing = false;
+      }
     }
   };
 
@@ -42,7 +49,8 @@ export function attachMobileImeHandler({
       clearTimeout(compositionEndTimer);
     }
     // Delay resetting composing flag by 60ms to allow xterm's native
-    // CompositionHelper._finalizeComposition to read and dispatch the selected word.
+    // CompositionHelper._finalizeComposition to read and dispatch the selected word,
+    // unless a physical keydown arrives earlier.
     compositionEndTimer = setTimeout(() => {
       isComposing = false;
       compositionEndTimer = null;
@@ -71,6 +79,7 @@ export function attachMobileImeHandler({
 
       lastHandledData = e.data;
       lastHandledTime = Date.now();
+      pendingBeforeInputDedupe = true;
 
       textarea.value = '';
       onDirectInput(e.data);
@@ -92,12 +101,14 @@ export function attachMobileImeHandler({
     const inputEv = e as InputEvent;
     if (inputEv.inputType === 'insertText' && inputEv.data) {
       const now = Date.now();
-      if (inputEv.data === lastHandledData && (now - lastHandledTime) < 60) {
-        // Already handled by beforeinput
+      if (pendingBeforeInputDedupe && inputEv.data === lastHandledData && (now - lastHandledTime) < 60) {
+        // Consume the single paired input event corresponding to the preceding beforeinput
+        pendingBeforeInputDedupe = false;
         textarea.value = '';
         return;
       }
 
+      pendingBeforeInputDedupe = false;
       lastHandledData = inputEv.data;
       lastHandledTime = now;
       textarea.value = '';

@@ -27,7 +27,7 @@
 - Consumes: `TerminalImeOptions { textarea: HTMLTextAreaElement; onDirectInput: (data: string) => void }`
 - Produces: `attachMobileImeHandler(options: TerminalImeOptions): TerminalImeController`
 
-- [ ] **Step 1: Create `tests/terminalInputFreezeFixes.test.ts` with failing tests for IME repeated-character input and post-composition physical keystrokes**
+- [x] **Step 1: Create `tests/terminalInputFreezeFixes.test.ts` with failing tests for IME repeated-character input and post-composition physical keystrokes**
 
 ```typescript
 import { attachMobileImeHandler } from '../frontend/src/utils/terminalImeHelper';
@@ -124,12 +124,12 @@ describe('Terminal Input Freeze & Unresponsiveness Fixes', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npm test -- tests/terminalInputFreezeFixes.test.ts`
 Expected: FAIL (`expect(sent).toEqual(['l', 'l'])` receives `['l']` and `expect(controller.isComposing()).toBe(false)` receives `true`).
 
-- [ ] **Step 3: Update `frontend/src/utils/terminalImeHelper.ts` with paired-event deduplication and physical keydown composition unlock**
+- [x] **Step 3: Update `frontend/src/utils/terminalImeHelper.ts` with paired-event deduplication and physical keydown composition unlock**
 
 ```typescript
 export interface TerminalImeOptions {
@@ -260,7 +260,7 @@ export function attachMobileImeHandler({
 }
 ```
 
-- [ ] **Step 4: Run both new and existing IME tests to verify they pass**
+- [x] **Step 4: Run both new and existing IME tests to verify they pass**
 
 Run: `npm test -- tests/terminalInputFreezeFixes.test.ts tests/terminalImeHelper.test.ts`
 Expected: PASS
@@ -276,7 +276,7 @@ Expected: PASS
 **Interfaces:**
 - Produces: `requestAuthTicket(adminKey?: string, timeoutMs?: number): Promise<string | null>`
 
-- [ ] **Step 1: Add failing test for `requestAuthTicket` timeout protection in `tests/terminalInputFreezeFixes.test.ts`**
+- [x] **Step 1: Add failing test for `requestAuthTicket` timeout protection in `tests/terminalInputFreezeFixes.test.ts`**
 
 ```typescript
   describe('2. requestAuthTicket Timeout Protection', () => {
@@ -309,12 +309,12 @@ Expected: PASS
   });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npm test -- tests/terminalInputFreezeFixes.test.ts`
 Expected: FAIL (test times out because `requestAuthTicket` has no abort signal).
 
-- [ ] **Step 3: Implement `AbortController` timeout in `frontend/src/utils/apiClient.ts`**
+- [x] **Step 3: Implement `AbortController` timeout in `frontend/src/utils/apiClient.ts`**
 
 ```typescript
 export async function requestAuthTicket(adminKey?: string, timeoutMs: number = 5000): Promise<string | null> {
@@ -359,7 +359,7 @@ export async function requestAuthTicket(adminKey?: string, timeoutMs: number = 5
 }
 ```
 
-- [ ] **Step 4: Run tests to verify `requestAuthTicket` timeout and existing ticket tests pass**
+- [x] **Step 4: Run tests to verify `requestAuthTicket` timeout and existing ticket tests pass**
 
 Run: `npm test -- tests/terminalInputFreezeFixes.test.ts tests/frontendTicketAuth.test.ts tests/frontendApiClient.test.ts`
 Expected: PASS
@@ -378,7 +378,7 @@ Expected: PASS
   - `sendHistoryChunks(ws: any, sanitized: string): void`
   - `pendingInputBuffer` queue flushing on `updateAgentWs(agentWs)`
 
-- [ ] **Step 1: Add failing tests for Hub disconnect notification, input buffering during brief agent reconnects, and 64KB chunked history replay in `tests/terminalInputFreezeFixes.test.ts`**
+- [x] **Step 1: Add failing tests for Hub disconnect notification, input buffering during brief agent reconnects, and 64KB chunked history replay in `tests/terminalInputFreezeFixes.test.ts`**
 
 ```typescript
   describe('3. Hub RemoteAgentTerminalSession Disconnect Notification, Input Buffering & Chunked Replay', () => {
@@ -432,12 +432,12 @@ Expected: PASS
   });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npm test -- tests/terminalInputFreezeFixes.test.ts`
 Expected: FAIL
 
-- [ ] **Step 3: Implement `pendingInputBuffer`, `notifyAgentDisconnected`, and `sendHistoryChunks` in `src/terminal/services/terminalHostManager.ts`**
+- [x] **Step 3: Implement `pendingInputBuffer`, `notifyAgentDisconnected`, and `sendHistoryChunks` in `src/terminal/services/terminalHostManager.ts`**
 
 Update `RemoteAgentTerminalSession` and `TerminalHostManager.unregisterAgent` in `src/terminal/services/terminalHostManager.ts`:
 - Add `private pendingInputBuffer: string[] = [];`, `private pendingInputBytes: number = 0;`, `private readonly maxPendingInputBytes: number = 4 * 1024;`, and `private static readonly HISTORY_CHUNK_SIZE = 64 * 1024;`.
@@ -448,7 +448,7 @@ Update `RemoteAgentTerminalSession` and `TerminalHostManager.unregisterAgent` in
 - Call `session.notifyAgentDisconnected()` inside `unregisterAgent()` when the active agent socket disconnects.
 - Clear `pendingInputBuffer` and `pendingInputBytes` inside `reset()` and `destroy()`.
 
-- [ ] **Step 4: Run tests to verify new and existing `terminalHostManager` tests pass**
+- [x] **Step 4: Run tests to verify new and existing `terminalHostManager` tests pass**
 
 Run: `npm test -- tests/terminalInputFreezeFixes.test.ts tests/terminalHostManager.test.ts tests/terminalAgentOfflineRaceFix.test.ts tests/terminalReconnectDuplicateFix.test.ts tests/terminalPersistence.test.ts tests/terminalAgentHistorySync.test.ts`
 Expected: PASS
@@ -466,7 +466,7 @@ Expected: PASS
 - Preserves `WebTerminalViewProps` and `WebTerminalHandle`
 - Adds `connectSeqRef` and `lastPongTimeRef` in `WebTerminalView.tsx` and `useTerminalWebSocket.ts`
 
-- [ ] **Step 1: Add failing tests for `WebTerminalView.tsx` connection sequence token, pong timeout check, redundant hook removal, and copy focus restoration in `tests/terminalInputFreezeFixes.test.ts`**
+- [x] **Step 1: Add failing tests for `WebTerminalView.tsx` connection sequence token, pong timeout check, redundant hook removal, and copy focus restoration in `tests/terminalInputFreezeFixes.test.ts`**
 
 ```typescript
   describe('4. WebTerminalView Connection Race Guard, Pong Timeout & Redundant Hook Cleanup', () => {
@@ -490,12 +490,12 @@ Expected: PASS
   });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npm test -- tests/terminalInputFreezeFixes.test.ts`
 Expected: FAIL
 
-- [ ] **Step 3: Update `frontend/src/components/WebTerminalView.tsx` and `frontend/src/components/terminal/hooks/useTerminalWebSocket.ts`**
+- [x] **Step 3: Update `frontend/src/components/WebTerminalView.tsx` and `frontend/src/components/terminal/hooks/useTerminalWebSocket.ts`**
 
 In `frontend/src/components/WebTerminalView.tsx`:
 1. Add `const connectSeqRef = useRef<number>(0);` and `const lastPongTimeRef = useRef<number>(Date.now());`.
@@ -522,7 +522,7 @@ In `frontend/src/components/WebTerminalView.tsx`:
 5. Remove the redundant `useTerminalSelection({ ... });` and `useTerminalIme({ ... });` calls at lines 2142–2158 while keeping their exports at the bottom of the file.
 6. Apply the same `connectSeqRef` and `lastPongTimeRef` enhancements to `frontend/src/components/terminal/hooks/useTerminalWebSocket.ts`.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npm test -- tests/terminalInputFreezeFixes.test.ts tests/terminalModularHooks.test.ts tests/terminalSluggishnessAndFileLoadFixes.test.ts tests/terminalReconnectDuplicateFix.test.ts`
 Expected: PASS
@@ -539,7 +539,7 @@ Expected: PASS
 **Interfaces:**
 - Disables `IXON` software flow control on spawned PTYs so pressing `Ctrl+S` (`\x13`) never freezes terminal output.
 
-- [ ] **Step 1: Add failing test verifying `IXON` is disabled in `PosixPtyDriver` and `daemon.ts` in `tests/terminalInputFreezeFixes.test.ts`**
+- [x] **Step 1: Add failing test verifying `IXON` is disabled in `PosixPtyDriver` and `daemon.ts` in `tests/terminalInputFreezeFixes.test.ts`**
 
 ```typescript
   describe('5. Agent PTY IXON Flow Control Lockup Prevention', () => {
@@ -554,12 +554,12 @@ Expected: PASS
   });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npm test -- tests/terminalInputFreezeFixes.test.ts`
 Expected: FAIL
 
-- [ ] **Step 3: Update `src/agent/pty/drivers.ts` to disable `termios.IXON` on the PTY slave descriptor**
+- [x] **Step 3: Update `src/agent/pty/drivers.ts` to disable `termios.IXON` on the PTY slave descriptor**
 
 In `src/agent/pty/drivers.ts` inside `PosixPtyDriver`'s `pyScript` right after `master, slave = pty.openpty()`:
 ```python
@@ -576,12 +576,12 @@ except:
     pass
 ```
 
-- [ ] **Step 4: Run tests to verify PTY fallback and new tests pass**
+- [x] **Step 4: Run tests to verify PTY fallback and new tests pass**
 
 Run: `npm test -- tests/terminalInputFreezeFixes.test.ts tests/gtAgentPtyFallback.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit all changes**
+- [x] **Step 5: Commit all changes**
 
 ```bash
 git add docs/superpowers/plans/2026-10-19-terminal-input-freeze-fix.md \

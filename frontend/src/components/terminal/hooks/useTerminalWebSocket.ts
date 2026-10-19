@@ -63,6 +63,8 @@ export function useTerminalWebSocket({
   const lastSentColsRef = useRef<number>(0);
   const lastSentRowsRef = useRef<number>(0);
   const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const connectSeqRef = useRef<number>(0);
+  const lastPongTimeRef = useRef<number>(Date.now());
 
   const clearPingInterval = useCallback(() => {
     if (pingIntervalRef.current) {
@@ -109,6 +111,7 @@ export function useTerminalWebSocket({
   );
 
   const initWebSocket = useCallback(() => {
+    const currentSeq = ++connectSeqRef.current;
     clearReconnectTimers();
     isProcessExitedRef.current = false;
     isReplayingRef.current = true;
@@ -139,69 +142,86 @@ export function useTerminalWebSocket({
 
     (async () => {
       const ticket = adminKey ? await requestAuthTicket(adminKey) : null;
-    if (!isMountedRef.current) return;
+      if (!isMountedRef.current || currentSeq !== connectSeqRef.current) return;
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    const ticketParam = ticket ? `ticket=${encodeURIComponent(ticket)}` : (adminKey ? `x-admin-key=${encodeURIComponent(adminKey)}` : '');
-    const wsUrl = `${protocol}//${host}/api/terminal/ws?${ticketParam ? ticketParam + '&' : ''}hostId=${encodeURIComponent(activeHostId)}`;
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.host;
+      const ticketParam = ticket ? `ticket=${encodeURIComponent(ticket)}` : (adminKey ? `x-admin-key=${encodeURIComponent(adminKey)}` : '');
+      const wsUrl = `${protocol}//${host}/api/terminal/ws?${ticketParam ? ticketParam + '&' : ''}hostId=${encodeURIComponent(activeHostId)}`;
 
-    const ws = new WebSocket(wsUrl);
-    ws.binaryType = 'arraybuffer';
-    wsRef.current = ws;
+      const ws = new WebSocket(wsUrl);
+      ws.binaryType = 'arraybuffer';
+      wsRef.current = ws;
 
-    ws.onopen = () => {
-      setIsConnecting(false);
-      setIsConnected(true);
-      reconnectAttemptRef.current = 0;
-      clearReconnectTimers();
-      clearPingInterval();
+      ws.onopen = () => {
+        lastPongTimeRef.current = Date.now();
+        setIsConnecting(false);
+        setIsConnected(true);
+        reconnectAttemptRef.current = 0;
+        clearReconnectTimers();
+        clearPingInterval();
 
-      pingIntervalRef.current = setInterval(() => {
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          try {
-            wsRef.current.send(`JSON:${JSON.stringify({ type: 'ping' })}`);
-          } catch {}
+        pingIntervalRef.current = setInterval(() => {
+          if (Date.now() - lastPongTimeRef.current > 35000) {
+            console.warn('[WebTerminal] Heartbeat pong timeout (>35s), closing stale WebSocket');
+            clearPingInterval();
+            try {
+              wsRef.current?.close(4000, 'Heartbeat pong timeout');
+            } catch {}
+            triggerReconnect();
+            return;
+          }
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            try {
+              wsRef.current.send(`JSON:${JSON.stringify({ type: 'ping' })}`);
+            } catch {}
+          }
+        }, 15000);
+
+        if (xtermRef.current) {
+          xtermRef.current.clear();
+          xtermRef.current.reset();
         }
-      }, 15000);
 
-      if (xtermRef.current) {
-        xtermRef.current.clear();
-        xtermRef.current.reset();
-      }
+        isReplayingRef.current = true;
+        if (replayTimerRef.current) {
+          clearTimeout(replayTimerRef.current);
+        }
+        replayTimerRef.current = setTimeout(() => {
+          isReplayingRef.current = false;
+          scrollToBottomSafe(xtermRef.current);
+        }, 600);
 
-      isReplayingRef.current = true;
-      if (replayTimerRef.current) {
-        clearTimeout(replayTimerRef.current);
-      }
-      replayTimerRef.current = setTimeout(() => {
-        isReplayingRef.current = false;
-        scrollToBottomSafe(xtermRef.current);
-      }, 600);
+        lastSentColsRef.current = 0;
+        lastSentRowsRef.current = 0;
+        if (!safeFit(true)) {
+          setTimeout(() => safeFit(true), 80);
+        }
+        setTimeout(() => safeFit(true), 250);
+        setTimeout(() => safeFit(true), 600);
+      };
 
-      lastSentColsRef.current = 0;
-      lastSentRowsRef.current = 0;
-      if (!safeFit(true)) {
-        setTimeout(() => safeFit(true), 80);
-      }
-      setTimeout(() => safeFit(true), 250);
-      setTimeout(() => safeFit(true), 600);
-    };
-
-    ws.onmessage = (event) => {
-      const term = xtermRef.current;
-      if (!hasFirstDataFittedRef.current || (term && (term.cols <= 2 || term.rows <= 1))) {
-        hasFirstDataFittedRef.current = true;
-        safeFit(true);
-      }
-      const data = event.data;
-      if (typeof data === 'string') {
-        if (data.startsWith('JSON:')) {
-          try {
-            const parsed = JSON.parse(data.slice(5));
-            if (parsed.type === 'pong') {
-              return;
-            }
+      ws.onmessage = (event) => {
+        lastPongTimeRef.current = Date.now();
+        const term = xtermRef.current;
+        if (!hasFirstDataFittedRef.current || (term && (term.cols <= 2 || term.rows <= 1))) {
+          hasFirstDataFittedRef.current = true;
+          safeFit(true);
+        }
+        const data = event.data;
+        if (typeof data === 'string') {
+          if (data.startsWith('JSON:')) {
+            try {
+              const parsed = JSON.parse(data.slice(5));
+              if (parsed.type === 'agent_offline') {
+                try {
+                  ws.close(1012, 'Agent disconnected');
+                } catch {}
+                return;
+              }
+              if (parsed.type === 'pong') {
+                return;
+              }
             if (parsed.type === 'reset') {
               xtermRef.current?.clear();
               xtermRef.current?.reset();

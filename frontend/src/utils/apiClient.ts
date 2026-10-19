@@ -27,19 +27,32 @@ export function notifyUnauthorized(): void {
 }
 
 /**
- * Request a short-lived single-use authentication ticket.
+ * Request a short-lived single-use authentication ticket with timeout protection.
  */
-export async function requestAuthTicket(adminKey?: string): Promise<string | null> {
+export async function requestAuthTicket(adminKey?: string, timeoutMs: number = 5000): Promise<string | null> {
   const key = adminKey || (typeof window !== 'undefined' ? localStorage.getItem('gt_admin_key') : '') || '';
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = controller && timeoutMs > 0
+    ? setTimeout(() => {
+        try {
+          controller.abort();
+        } catch {}
+      }, timeoutMs)
+    : null;
+
   try {
     const headers: Record<string, string> = {};
     if (key) {
       headers['x-admin-key'] = key;
     }
-    const res = await fetch('/api/auth/ticket', {
+    const fetchOptions: RequestInit = {
       method: 'POST',
       headers,
-    });
+    };
+    if (controller) {
+      fetchOptions.signal = controller.signal;
+    }
+    const res = await fetch('/api/auth/ticket', fetchOptions);
     if (!res.ok) {
       return null;
     }
@@ -50,6 +63,10 @@ export async function requestAuthTicket(adminKey?: string): Promise<string | nul
     return null;
   } catch {
     return null;
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
   }
 }
 

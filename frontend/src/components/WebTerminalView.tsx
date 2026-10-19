@@ -247,6 +247,8 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
   const lastSentRowsRef = useRef<number>(0);
   const viewportDebounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const connectSeqRef = useRef<number>(0);
+  const lastPongTimeRef = useRef<number>(Date.now());
 
   const [isMobile, setIsMobile] = useState<boolean>(() => {
     return typeof window !== 'undefined'
@@ -528,6 +530,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
   }, [clearPingInterval]);
 
   const initWebSocket = useCallback(() => {
+    const currentSeq = ++connectSeqRef.current;
     clearReconnectTimers();
     isProcessExitedRef.current = false;
     isReplayingRef.current = true;
@@ -558,75 +561,92 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
     (async () => {
       const ticket = adminKey ? await requestAuthTicket(adminKey) : null;
-    if (!isMountedRef.current) return;
+      if (!isMountedRef.current || currentSeq !== connectSeqRef.current) return;
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    const ticketParam = ticket ? `ticket=${encodeURIComponent(ticket)}` : (adminKey ? `x-admin-key=${encodeURIComponent(adminKey)}` : '');
-    const wsUrl = `${protocol}//${host}/api/terminal/ws?${ticketParam ? ticketParam + '&' : ''}hostId=${encodeURIComponent(activeHostIdRef.current)}`;
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.host;
+      const ticketParam = ticket ? `ticket=${encodeURIComponent(ticket)}` : (adminKey ? `x-admin-key=${encodeURIComponent(adminKey)}` : '');
+      const wsUrl = `${protocol}//${host}/api/terminal/ws?${ticketParam ? ticketParam + '&' : ''}hostId=${encodeURIComponent(activeHostIdRef.current)}`;
 
-    const ws = new WebSocket(wsUrl);
-    ws.binaryType = 'arraybuffer';
-    wsRef.current = ws;
+      const ws = new WebSocket(wsUrl);
+      ws.binaryType = 'arraybuffer';
+      wsRef.current = ws;
 
-    ws.onopen = () => {
-      console.debug('[WebTerminal] WebSocket connection established successfully');
-      setIsConnecting(false);
-      setIsConnected(true);
-      reconnectAttemptRef.current = 0;
-      clearReconnectTimers();
-      clearPingInterval();
+      ws.onopen = () => {
+        lastPongTimeRef.current = Date.now();
+        console.debug('[WebTerminal] WebSocket connection established successfully');
+        setIsConnecting(false);
+        setIsConnected(true);
+        reconnectAttemptRef.current = 0;
+        clearReconnectTimers();
+        clearPingInterval();
 
-      // Start ping heartbeat (every 15 seconds) to prevent reverse proxy/NAT idle drop
-      pingIntervalRef.current = setInterval(() => {
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-          try {
-            wsRef.current.send(`JSON:${JSON.stringify({ type: 'ping' })}`);
-          } catch {}
+        // Start ping heartbeat (every 15 seconds) to prevent reverse proxy/NAT idle drop
+        pingIntervalRef.current = setInterval(() => {
+          if (Date.now() - lastPongTimeRef.current > 35000) {
+            console.warn('[WebTerminal] Heartbeat pong timeout (>35s), closing stale WebSocket');
+            clearPingInterval();
+            try {
+              wsRef.current?.close(4000, 'Heartbeat pong timeout');
+            } catch {}
+            triggerReconnect();
+            return;
+          }
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            try {
+              wsRef.current.send(`JSON:${JSON.stringify({ type: 'ping' })}`);
+            } catch {}
+          }
+        }, 15000);
+
+        // Reset xterm buffer so replayed history stream does not duplicate existing content
+        if (xtermRef.current) {
+          xtermRef.current.clear();
+          xtermRef.current.reset();
         }
-      }, 15000);
+        backgroundQueueRef.current.clear();
+        writeSchedulerRef.current?.flush();
 
-      // Reset xterm buffer so replayed history stream does not duplicate existing content
-      if (xtermRef.current) {
-        xtermRef.current.clear();
-        xtermRef.current.reset();
-      }
-      backgroundQueueRef.current.clear();
-      writeSchedulerRef.current?.flush();
+        isReplayingRef.current = true;
+        if (replayTimerRef.current) {
+          clearTimeout(replayTimerRef.current);
+        }
+        replayTimerRef.current = setTimeout(() => {
+          isReplayingRef.current = false;
+          scrollToBottomSafe(xtermRef.current);
+        }, 600);
 
-      isReplayingRef.current = true;
-      if (replayTimerRef.current) {
-        clearTimeout(replayTimerRef.current);
-      }
-      replayTimerRef.current = setTimeout(() => {
-        isReplayingRef.current = false;
-        scrollToBottomSafe(xtermRef.current);
-      }, 600);
+        lastSentColsRef.current = 0;
+        lastSentRowsRef.current = 0;
+        if (!safeFit(true)) {
+          setTimeout(() => safeFit(true), 80);
+        }
+        setTimeout(() => safeFit(true), 250);
+        setTimeout(() => safeFit(true), 600);
+      };
 
-      lastSentColsRef.current = 0;
-      lastSentRowsRef.current = 0;
-      if (!safeFit(true)) {
-        setTimeout(() => safeFit(true), 80);
-      }
-      setTimeout(() => safeFit(true), 250);
-      setTimeout(() => safeFit(true), 600);
-    };
-
-    ws.onmessage = (event) => {
-      const term = xtermRef.current;
-      if (!hasFirstDataFittedRef.current || (term && (term.cols <= 2 || term.rows <= 1))) {
-        hasFirstDataFittedRef.current = true;
-        safeFit(true);
-      }
-      const data = event.data;
-      if (typeof data === 'string') {
-        if (data.startsWith('JSON:')) {
-          try {
-            const parsed = JSON.parse(data.slice(5));
-            if (parsed.type === 'pong') {
-              // Server keepalive heartbeat response
-              return;
-            }
+      ws.onmessage = (event) => {
+        lastPongTimeRef.current = Date.now();
+        const term = xtermRef.current;
+        if (!hasFirstDataFittedRef.current || (term && (term.cols <= 2 || term.rows <= 1))) {
+          hasFirstDataFittedRef.current = true;
+          safeFit(true);
+        }
+        const data = event.data;
+        if (typeof data === 'string') {
+          if (data.startsWith('JSON:')) {
+            try {
+              const parsed = JSON.parse(data.slice(5));
+              if (parsed.type === 'agent_offline') {
+                try {
+                  ws.close(1012, 'Agent disconnected');
+                } catch {}
+                return;
+              }
+              if (parsed.type === 'pong') {
+                // Server keepalive heartbeat response
+                return;
+              }
             console.debug('[WebTerminal] Received backend control message:', parsed);
             if (parsed.type === 'reset') {
               console.debug('[WebTerminal] Received reset signal from backend, clearing buffer and muting synthetic reports');
@@ -1077,6 +1097,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
                   textarea.select();
                   document.execCommand('copy');
                   document.body.removeChild(textarea);
+                  xtermRef.current?.focus();
                   showToast(t('webTerminal.copiedToClipboard'));
                 } catch {}
               });
@@ -1315,6 +1336,30 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     }
 
     initWebSocket();
+
+    const handleVisibilityOrOnline = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
+      if (!activeHostIdRef.current) {
+        return;
+      }
+      if (!wsRef.current || wsRef.current.readyState > WebSocket.OPEN) {
+        reconnectAttemptRef.current = 0;
+        initWebSocket();
+      } else if (wsRef.current.readyState === WebSocket.OPEN) {
+        try {
+          wsRef.current.send(`JSON:${JSON.stringify({ type: 'ping' })}`);
+        } catch {}
+      }
+    };
+
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityOrOnline);
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('online', handleVisibilityOrOnline);
+    }
 
     // Resize observer & Visual Viewport updater
     function updateViewport() {
@@ -1588,6 +1633,13 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         writeSchedulerRef.current = null;
       }
       backgroundQueueRef.current.clear();
+      connectSeqRef.current += 1;
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityOrOnline);
+      }
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('online', handleVisibilityOrOnline);
+      }
       term.dispose();
     };
   }, [sendResize, clearReconnectTimers, adminKey]);
@@ -1776,6 +1828,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
             textarea.select();
             document.execCommand('copy');
             document.body.removeChild(textarea);
+            xtermRef.current?.focus();
           } catch {
             // Ignore
           }
@@ -1792,6 +1845,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           textarea.select();
           document.execCommand('copy');
           document.body.removeChild(textarea);
+          xtermRef.current?.focus();
         } catch {
           // Ignore
         }
@@ -2135,27 +2189,8 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     }
   };
 
-  // Decoupled Modular Custom Hooks integration
-  // (WebSocket connection lifecycle is managed directly via initWebSocket/wsRef in this view)
-
-
-  useTerminalSelection({
-    terminalContainerRef,
-    xtermRef,
-    showToast,
-    t,
-    onSendInput: (data) => handleSendInput(data, false),
-    onHideKeyboard: handleHideKeyboard,
-    onSelectModeChange,
-  });
-
-  useTerminalIme({
-    terminalContainerRef,
-    xtermRef,
-    isMountedRef,
-    onFocus: () => setIsKeyboardOpen(true),
-    onBlur: () => setIsKeyboardOpen(false),
-  });
+  // Modular Custom Hooks (useTerminalWebSocket, useTerminalSelection, useTerminalIme)
+  // are re-exported below for standalone consumption.
 
   return (
     <div

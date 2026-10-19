@@ -136,6 +136,12 @@ cmd_to_run = sys.argv[3:]
 
 master, slave = pty.openpty()
 try:
+    attrs = termios.tcgetattr(slave)
+    attrs[0] &= ~termios.IXON
+    termios.tcsetattr(slave, termios.TCSANOW, attrs)
+except:
+    pass
+try:
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
 except:
     pass

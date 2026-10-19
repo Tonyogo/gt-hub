@@ -58,6 +58,10 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
   private broadcastBatcher: StreamBatcher;
   private idleEvictionTimer: NodeJS.Timeout | null = null;
   private static readonly IDLE_EVICTION_MS = 10 * 60 * 1000; // 10 minutes
+  private static readonly HISTORY_CHUNK_SIZE = 64 * 1024;
+  private pendingInputBuffer: string[] = [];
+  private pendingInputBytes: number = 0;
+  private readonly maxPendingInputBytes: number = 4 * 1024;
 
   constructor(hostId: string, agentWs?: any) {
     this.hostId = hostId;
@@ -89,6 +93,17 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
     this.agentWs = agentWs;
     this.currentCols = 0;
     this.currentRows = 0;
+    if (this.agentWs && this.agentWs.readyState === 1 && this.pendingInputBuffer.length > 0) {
+      for (const item of this.pendingInputBuffer) {
+        try {
+          this.agentWs.send(item);
+        } catch (err: any) {
+          logger.warn(`[RemoteAgentTerminal:${this.hostId}] Failed to flush buffered input: ${err.message}`);
+        }
+      }
+      this.pendingInputBuffer = [];
+      this.pendingInputBytes = 0;
+    }
   }
 
   public getAgentWs(): any {
@@ -97,6 +112,17 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
 
   public getCurrentDimensions(): { cols: number; rows: number } {
     return { cols: this.currentCols, rows: this.currentRows };
+  }
+
+  private sendHistoryChunks(ws: any, sanitized: string): void {
+    if (sanitized.length <= RemoteAgentTerminalSession.HISTORY_CHUNK_SIZE) {
+      ws.send(sanitized);
+      return;
+    }
+    for (let i = 0; i < sanitized.length; i += RemoteAgentTerminalSession.HISTORY_CHUNK_SIZE) {
+      const chunk = sanitized.slice(i, i + RemoteAgentTerminalSession.HISTORY_CHUNK_SIZE);
+      ws.send(chunk);
+    }
   }
 
   public attach(ws: any): void {
@@ -115,7 +141,7 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
         const fullStream = this.historyBuffer.join('');
         const sanitized = stripTerminalQuerySequences(fullStream);
         if (sanitized.length > 0) {
-          ws.send(sanitized);
+          this.sendHistoryChunks(ws, sanitized);
           this.replayedSockets.add(ws);
         }
       } catch {
@@ -144,6 +170,13 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
         this.agentWs.send(data);
       } catch (err: any) {
         logger.warn(`[RemoteAgentTerminal:${this.hostId}] Failed to send data to agent: ${err.message}`);
+      }
+    } else {
+      this.pendingInputBuffer.push(data);
+      this.pendingInputBytes += data.length;
+      while (this.pendingInputBytes > this.maxPendingInputBytes && this.pendingInputBuffer.length > 0) {
+        const shifted = this.pendingInputBuffer.shift()!;
+        this.pendingInputBytes -= shifted.length;
       }
     }
   }
@@ -178,13 +211,30 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
     for (const ws of this.activeSockets) {
       if (ws.readyState === 1 && !this.replayedSockets.has(ws)) {
         try {
-          ws.send(sanitized);
+          this.sendHistoryChunks(ws, sanitized);
           this.replayedSockets.add(ws);
         } catch {
           // Ignore socket write errors during replay
         }
       }
     }
+  }
+
+  public notifyAgentDisconnected(): void {
+    const offlineMsg = `JSON:${JSON.stringify({ type: 'agent_offline', hostId: this.hostId })}`;
+    for (const ws of this.activeSockets) {
+      try {
+        if (ws && ws.readyState === 1) {
+          ws.send(offlineMsg);
+        }
+        if (ws && typeof ws.close === 'function') {
+          ws.close(1012, 'Agent disconnected');
+        }
+      } catch {
+        // Ignore write/close errors
+      }
+    }
+    this.activeSockets.clear();
   }
 
   private scheduleIdleEviction(): void {
@@ -216,6 +266,8 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
     }
     this.historyBuffer = [];
     this.totalBufferSize = 0;
+    this.pendingInputBuffer = [];
+    this.pendingInputBytes = 0;
     this.currentCols = 0;
     this.currentRows = 0;
     if (resetAgentPty && this.agentWs && this.agentWs.readyState === 1) {
@@ -247,6 +299,8 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
     this.activeSockets.clear();
     this.historyBuffer = [];
     this.totalBufferSize = 0;
+    this.pendingInputBuffer = [];
+    this.pendingInputBytes = 0;
     this.agentWs = null;
     this.currentCols = 0;
     this.currentRows = 0;
@@ -646,6 +700,7 @@ export class TerminalHostManager {
       logger.info(`[TerminalHostManager] Agent unregistered/offline: ${canonicalId}`);
     }
     if (session && (!closingWs || session.getAgentWs() === closingWs)) {
+      session.notifyAgentDisconnected();
       session.updateAgentWs(null);
       this.clearPendingRpcForHost(canonicalId, `Agent ${canonicalId} disconnected; RPC cancelled`);
     }
