@@ -107,22 +107,24 @@ describe('Terminal Sluggishness & File Loading Bug Fixes', () => {
   });
 
   describe('4. RemoteAgentTerminalSession Buffer Eviction & Backpressure Safety', () => {
-    test('slices excess without wiping entire 2MB buffer chunk', () => {
+    test('slices excess without wiping entire 1MB buffer chunk', () => {
       const session = new RemoteAgentTerminalSession('test-node');
-      const max = 2 * 1024 * 1024;
+      const max = 1 * 1024 * 1024;
 
-      // Push 1MB chunk
-      const chunk1 = 'a'.repeat(1024 * 1024);
+      // Push 0.6MB chunk
+      const chunk1Len = Math.floor(0.6 * 1024 * 1024);
+      const chunk1 = 'a'.repeat(chunk1Len);
       session.handleData(chunk1);
-      expect(session.getHistory().length).toBe(1024 * 1024);
+      expect(session.getHistory().length).toBe(chunk1Len);
 
-      // Push another 1.5MB chunk (total 2.5MB -> 500KB excess)
-      const chunk2 = 'b'.repeat(1.5 * 1024 * 1024);
+      // Push another 0.7MB chunk (total 1.3MB -> excess)
+      const chunk2Len = Math.floor(0.7 * 1024 * 1024);
+      const chunk2 = 'b'.repeat(chunk2Len);
       session.handleData(chunk2);
 
       // Should maintain exactly maxBufferSize
       expect(session.getHistory().length).toBe(max);
-      // Head should have been trimmed by 500KB, so still starts with 'a'
+      // Head should have been trimmed by excess, so still starts with 'a'
       expect(session.getHistory().startsWith('a')).toBe(true);
       expect(session.getHistory().endsWith('b')).toBe(true);
     });

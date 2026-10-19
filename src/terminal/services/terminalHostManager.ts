@@ -52,7 +52,7 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
   private replayedSockets: WeakSet<any> = new WeakSet();
   private historyBuffer: string[] = [];
   private totalBufferSize: number = 0;
-  private readonly maxBufferSize: number = 2 * 1024 * 1024; // 2MB scrollback
+  private readonly maxBufferSize: number = 1 * 1024 * 1024; // 1MB scrollback
   private currentCols: number = 0;
   private currentRows: number = 0;
   private broadcastBatcher: StreamBatcher;

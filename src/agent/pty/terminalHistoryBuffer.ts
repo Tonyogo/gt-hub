@@ -11,7 +11,7 @@ const ED3_CLEAR_BUFFER = Buffer.from('\x1b[3J', 'binary');
 /**
  * In-memory circular history ring buffer for terminal PTY output.
  * Maintained on each Agent node as the Single Source of Truth (SSoT) for scrollback history.
- * - Caps memory usage strictly at maxBytes (default 2MB).
+ * - Caps memory usage strictly at maxBytes (default 1MB).
  * - Truncates obsolete history when user/shell issues clear screen / RIS reset commands.
  * - Survives Hub restarts and re-syncs history on reconnection.
  */
@@ -20,7 +20,7 @@ export class TerminalHistoryBuffer {
   private totalBytes: number = 0;
   private readonly maxBytes: number;
 
-  constructor(maxBytes: number = 2 * 1024 * 1024) {
+  constructor(maxBytes: number = 1 * 1024 * 1024) {
     this.maxBytes = Math.max(1, maxBytes);
   }
 

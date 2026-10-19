@@ -594,8 +594,8 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
   const pty = tryRequirePty();
 
   const maxScrollbackBytes = options.scrollback
-    ? Math.max(1024, parseInt(String(options.scrollback), 10) || (2 * 1024 * 1024))
-    : (2 * 1024 * 1024);
+    ? Math.max(1024, parseInt(String(options.scrollback), 10) || (1 * 1024 * 1024))
+    : (1 * 1024 * 1024);
   const terminalHistory = new TerminalHistoryBuffer(maxScrollbackBytes);
 
   const cronScheduler = new AgentCronScheduler({

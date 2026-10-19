@@ -60,28 +60,28 @@ describe('RemoteAgentTerminalSession Persistence & Replay', () => {
     expect(session.getHistory()).toContain('brand new prompt > ');
   });
 
-  it('should support up to 2MB buffer and drop oldest chunks when exceeding maxBufferSize', () => {
+  it('should support up to 1MB buffer and drop oldest chunks when exceeding maxBufferSize', () => {
     const mockAgentWs = { readyState: 1, send: jest.fn() };
-    const session = new RemoteAgentTerminalSession('test-2mb-host', mockAgentWs);
+    const session = new RemoteAgentTerminalSession('test-1mb-host', mockAgentWs);
 
-    // 1MB chunk 1 (previously 200KB limit would have truncated this)
-    const chunk1 = 'A'.repeat(1024 * 1024);
+    // 0.6MB chunk 1
+    const chunk1 = 'A'.repeat(600 * 1024);
     session.handleData(chunk1);
-    expect(session.getHistory().length).toBe(1024 * 1024);
+    expect(session.getHistory().length).toBe(600 * 1024);
 
-    // 0.8MB chunk 2 (total 1.8MB <= 2MB)
-    const chunk2 = 'B'.repeat(800 * 1024);
+    // 0.4MB chunk 2 (total 1.0MB <= 1MB)
+    const chunk2 = 'B'.repeat(400 * 1024);
     session.handleData(chunk2);
-    expect(session.getHistory().length).toBe(1024 * 1024 + 800 * 1024);
+    expect(session.getHistory().length).toBe(600 * 1024 + 400 * 1024);
     expect(session.getHistory()).toContain('A');
     expect(session.getHistory()).toContain('B');
 
-    // 0.5MB chunk 3 (total 2.3MB > 2MB maxBufferSize)
-    const chunk3 = 'C'.repeat(500 * 1024);
+    // 0.3MB chunk 3 (total 1.3MB > 1MB maxBufferSize)
+    const chunk3 = 'C'.repeat(300 * 1024);
     session.handleData(chunk3);
 
     const history = session.getHistory();
-    expect(history.length).toBeLessThanOrEqual(2 * 1024 * 1024);
+    expect(history.length).toBeLessThanOrEqual(1 * 1024 * 1024);
     expect(history).toContain('B');
     expect(history).toContain('C');
   });
