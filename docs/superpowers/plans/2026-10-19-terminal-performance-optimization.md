@@ -30,12 +30,12 @@
 **Interfaces:**
 - Produces: `initSafeWebglAddon(term: Terminal): { addon: WebglAddon | null, dispose: () => void }`
 
-- [ ] **Step 1: 在 `frontend/package.json` 中添加 `@xterm/addon-webgl` 依赖并执行安装**
+- [x] **Step 1: 在 `frontend/package.json` 中添加 `@xterm/addon-webgl` 依赖并执行安装**
 
 在 `frontend/package.json` 的 `dependencies` 中添加 `"@xterm/addon-webgl": "^0.18.0"`。
 执行 `npm install`。
 
-- [ ] **Step 2: 编写测试用例 `tests/terminalPerformanceOptimization.test.ts` (Part 1: WebGL Helper)**
+- [x] **Step 2: 编写测试用例 `tests/terminalPerformanceOptimization.test.ts` (Part 1: WebGL Helper)**
 
 创建并编写测试：
 ```typescript
@@ -80,12 +80,12 @@ describe('Terminal Performance Optimization - WebGL Helper', () => {
 });
 ```
 
-- [ ] **Step 3: 运行测试验证失败**
+- [x] **Step 3: 运行测试验证失败**
 
 运行：`npm test -- tests/terminalPerformanceOptimization.test.ts`
 预期：FAIL（文件或模块尚未创建）。
 
-- [ ] **Step 4: 实现 `frontend/src/utils/terminalWebglHelper.ts`**
+- [x] **Step 4: 实现 `frontend/src/utils/terminalWebglHelper.ts`**
 
 编写安全的 WebGL 初始化器与降级管理：
 ```typescript
@@ -134,12 +134,12 @@ export function initSafeWebglAddon(
 }
 ```
 
-- [ ] **Step 5: 运行测试验证通过**
+- [x] **Step 5: 运行测试验证通过**
 
 运行：`npm test -- tests/terminalPerformanceOptimization.test.ts`
 预期：PASS。
 
-- [ ] **Step 6: 提交代码**
+- [x] **Step 6: 提交代码**
 
 ```bash
 git add frontend/package.json package-lock.json frontend/package-lock.json frontend/src/utils/terminalWebglHelper.ts tests/terminalPerformanceOptimization.test.ts
@@ -159,7 +159,7 @@ git commit -m "feat(terminal): add safe webgl addon initialization and fallback 
   - `class TerminalWriteScheduler`: 管理微批处理（16ms 窗口合并写入），支持立即 `flush()` 与安全销毁。
   - `class BackgroundBufferQueue`: 针对后台非激活状态的环形截断缓冲区，支持容量控制（默认 2MB）和单次批量提取。
 
-- [ ] **Step 1: 在 `tests/terminalPerformanceOptimization.test.ts` 中增加调度器与缓冲队列单元测试**
+- [x] **Step 1: 在 `tests/terminalPerformanceOptimization.test.ts` 中增加调度器与缓冲队列单元测试**
 
 编写测试：
 ```typescript
@@ -227,12 +227,12 @@ describe('Terminal Stream & Batch Helpers', () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试验证失败**
+- [x] **Step 2: 运行测试验证失败**
 
 运行：`npm test -- tests/terminalPerformanceOptimization.test.ts`
 预期：FAIL（`terminalStreamHelper` 尚未实现）。
 
-- [ ] **Step 3: 实现 `frontend/src/utils/terminalStreamHelper.ts`**
+- [x] **Step 3: 实现 `frontend/src/utils/terminalStreamHelper.ts`**
 
 编写调度器与队列实现：
 ```typescript
@@ -347,12 +347,12 @@ export class BackgroundBufferQueue {
 }
 ```
 
-- [ ] **Step 4: 运行测试验证通过**
+- [x] **Step 4: 运行测试验证通过**
 
 运行：`npm test -- tests/terminalPerformanceOptimization.test.ts`
 预期：PASS。
 
-- [ ] **Step 5: 提交代码**
+- [x] **Step 5: 提交代码**
 
 ```bash
 git add frontend/src/utils/terminalStreamHelper.ts tests/terminalPerformanceOptimization.test.ts
@@ -375,7 +375,7 @@ git commit -m "feat(terminal): add TerminalWriteScheduler and BackgroundBufferQu
 - Modifies:
   - `WebTerminalViewProps` 增加 `isActive?: boolean`（默认 `true`）
 
-- [ ] **Step 1: 在 `tests/terminalPerformanceOptimization.test.ts` 中增加组件级集成行为测试**
+- [x] **Step 1: 在 `tests/terminalPerformanceOptimization.test.ts` 中增加组件级集成行为测试**
 
 测试验证 `WebTerminalView` 在 `scrollback` 默认值与 `isActive` 状态切换下的正确响应：
 ```typescript
@@ -416,12 +416,12 @@ describe('WebTerminalView Integration Specifications', () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试验证失败**
+- [x] **Step 2: 运行测试验证失败**
 
 运行：`npm test -- tests/terminalPerformanceOptimization.test.ts`
 预期：FAIL（组件尚未引入这些修改）。
 
-- [ ] **Step 3: 修改 `WebTerminalView.tsx`**
+- [x] **Step 3: 修改 `WebTerminalView.tsx`**
 
 1. 引入 helper：
    ```typescript
@@ -448,7 +448,7 @@ describe('WebTerminalView Integration Specifications', () => {
 6. 添加 `useEffect` 监听 `isActive`：
    - 当 `isActive` 变为 `true` 时，若 `backgroundQueueRef.current.size() > 0`，调用 `drain()` 并执行写入，紧接着调用 `safeFit(true)` 与 `scrollToBottomSafe`。
 
-- [ ] **Step 4: 修改 `UnifiedTerminalView.tsx`**
+- [x] **Step 4: 修改 `UnifiedTerminalView.tsx`**
 
 在 `UnifiedTerminalView.tsx` 挂载 `WebTerminalView` 处补充：
 ```tsx
@@ -460,17 +460,17 @@ describe('WebTerminalView Integration Specifications', () => {
 />
 ```
 
-- [ ] **Step 5: 运行测试验证通过**
+- [x] **Step 5: 运行测试验证通过**
 
 运行：`npm test -- tests/terminalPerformanceOptimization.test.ts`
 预期：PASS。
 
-- [ ] **Step 6: 执行前端编译构建验证**
+- [x] **Step 6: 执行前端编译构建验证**
 
 运行：`npm run build:frontend`
 预期：SUCCESS（TypeScript 无类型错误，Vite 构建成功）。
 
-- [ ] **Step 7: 提交代码**
+- [x] **Step 7: 提交代码**
 
 ```bash
 git add frontend/src/components/WebTerminalView.tsx frontend/src/components/UnifiedTerminalView.tsx tests/terminalPerformanceOptimization.test.ts
@@ -484,7 +484,7 @@ git commit -m "perf(terminal): implement webgl hardware acceleration, scrollback
 **Files:**
 - Modify: `tests/terminalPerformanceOptimization.test.ts`
 
-- [ ] **Step 1: 运行全量终端相关单元测试**
+- [x] **Step 1: 运行全量终端相关单元测试**
 
 运行：
 ```bash
@@ -495,12 +495,12 @@ npm test -- tests/terminalPerformanceOptimization.test.ts
 ```
 预期：所有终端相关套件全部 PASS。
 
-- [ ] **Step 2: 完整构建验证**
+- [x] **Step 2: 完整构建验证**
 
 运行：`npm run build`
 预期：构建通过（后端、前端、CLI 全部编译完成）。
 
-- [ ] **Step 3: 最终提交**
+- [x] **Step 3: 最终提交**
 
 ```bash
 git commit -am "chore: finalize terminal performance optimization test suite"
