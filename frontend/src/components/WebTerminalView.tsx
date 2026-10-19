@@ -55,6 +55,8 @@ import { TerminalMagnifierBubble } from './terminal/components/TerminalMagnifier
 import { TerminalSelectionToolbar } from './terminal/components/TerminalSelectionToolbar';
 import { TerminalEmptyState } from './terminal/components/TerminalEmptyState';
 import { TerminalScriptDrawer } from './terminal/TerminalScriptDrawer';
+import { initSafeWebglAddon } from '../utils/terminalWebglHelper';
+import { TerminalWriteScheduler, BackgroundBufferQueue } from '../utils/terminalStreamHelper';
 
 
 const DARK_TERMINAL_THEME = {
@@ -131,6 +133,7 @@ export interface WebTerminalViewProps {
   hideInnerHostSelector?: boolean;
   hideHeader?: boolean;
   hideAccessoryBar?: boolean;
+  isActive?: boolean;
   onConnectionChange?: (status: { isConnected: boolean; isConnecting: boolean }) => void;
   onSelectModeChange?: (isSelect: boolean) => void;
   onRequestAddNode?: () => void;
@@ -148,6 +151,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
   hideInnerHostSelector = false,
   hideHeader = false,
   hideAccessoryBar = false,
+  isActive = true,
   onConnectionChange,
   onSelectModeChange,
   onRequestAddNode,
@@ -158,6 +162,13 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
   const xtermRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+
+  const isActiveRef = useRef<boolean>(isActive);
+  isActiveRef.current = isActive;
+
+  const backgroundQueueRef = useRef<BackgroundBufferQueue>(new BackgroundBufferQueue());
+  const writeSchedulerRef = useRef<TerminalWriteScheduler | null>(null);
+  const webglCleanupRef = useRef<(() => void) | null>(null);
 
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isConnecting, setIsConnecting] = useState<boolean>(true);
@@ -582,6 +593,8 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         xtermRef.current.clear();
         xtermRef.current.reset();
       }
+      backgroundQueueRef.current.clear();
+      writeSchedulerRef.current?.flush();
 
       isReplayingRef.current = true;
       if (replayTimerRef.current) {
@@ -619,6 +632,8 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
             console.debug('[WebTerminal] Received backend control message:', parsed);
             if (parsed.type === 'reset') {
               console.debug('[WebTerminal] Received reset signal from backend, clearing buffer and muting synthetic reports');
+              backgroundQueueRef.current.clear();
+              writeSchedulerRef.current?.flush();
               xtermRef.current?.clear();
               xtermRef.current?.reset();
               isReplayingRef.current = true;
@@ -647,29 +662,49 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
             // Not json, print as raw text
           }
         }
-        const term = xtermRef.current;
-        const wasAtBottom = isAtBottomRef.current;
-        term?.write(data, () => {
-          if (!isRefittingRef.current && shouldScrollToBottom({ isReplaying: isReplayingRef.current, wasAtBottom, bufferType: term?.buffer.active.type })) {
-            scrollToBottomSafe(term);
-          }
-          if (isReplayingRef.current) {
-            term?.refresh(0, Math.max(0, (term.rows || 1) - 1));
-            isReplayingRef.current = false;
-          }
-        });
+
+        if (!isActiveRef.current) {
+          backgroundQueueRef.current.push(data);
+          return;
+        }
+
+        if (writeSchedulerRef.current) {
+          writeSchedulerRef.current.push(data);
+        } else {
+          const term = xtermRef.current;
+          const wasAtBottom = isAtBottomRef.current;
+          term?.write(data, () => {
+            if (!isRefittingRef.current && shouldScrollToBottom({ isReplaying: isReplayingRef.current, wasAtBottom, bufferType: term?.buffer.active.type })) {
+              scrollToBottomSafe(term);
+            }
+            if (isReplayingRef.current) {
+              term?.refresh(0, Math.max(0, (term.rows || 1) - 1));
+              isReplayingRef.current = false;
+            }
+          });
+        }
       } else if (data instanceof ArrayBuffer) {
-        const term = xtermRef.current;
-        const wasAtBottom = isAtBottomRef.current;
-        term?.write(new Uint8Array(data), () => {
-          if (!isRefittingRef.current && shouldScrollToBottom({ isReplaying: isReplayingRef.current, wasAtBottom, bufferType: term?.buffer.active.type })) {
-            scrollToBottomSafe(term);
-          }
-          if (isReplayingRef.current) {
-            term?.refresh(0, Math.max(0, (term.rows || 1) - 1));
-            isReplayingRef.current = false;
-          }
-        });
+        if (!isActiveRef.current) {
+          backgroundQueueRef.current.push(data);
+          return;
+        }
+
+        const text = new TextDecoder().decode(data);
+        if (writeSchedulerRef.current) {
+          writeSchedulerRef.current.push(text);
+        } else {
+          const term = xtermRef.current;
+          const wasAtBottom = isAtBottomRef.current;
+          term?.write(new Uint8Array(data), () => {
+            if (!isRefittingRef.current && shouldScrollToBottom({ isReplaying: isReplayingRef.current, wasAtBottom, bufferType: term?.buffer.active.type })) {
+              scrollToBottomSafe(term);
+            }
+            if (isReplayingRef.current) {
+              term?.refresh(0, Math.max(0, (term.rows || 1) - 1));
+              isReplayingRef.current = false;
+            }
+          });
+        }
       }
     };
 
@@ -745,13 +780,21 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
   useEffect(() => {
     if (!terminalContainerRef.current) return;
 
+    const defaultScrollback = isMobile ? 3000 : 8000;
+    const configuredScrollback = typeof localStorage !== 'undefined'
+      ? parseInt(localStorage.getItem('terminal_scrollback_lines') || '', 10)
+      : NaN;
+    const scrollback = !isNaN(configuredScrollback) && configuredScrollback > 0
+      ? configuredScrollback
+      : defaultScrollback;
+
     const term = new Terminal({
       cursorBlink: true,
       cursorStyle: 'block',
       fontSize,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
       convertEol: false,
-      scrollback: 30000,
+      scrollback: scrollback,
       macOptionIsMeta: true,
       altClickMovesCursor: true,
       theme: resolvedTheme === 'dark' ? DARK_TERMINAL_THEME : LIGHT_TERMINAL_THEME,
@@ -773,6 +816,8 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
     term.loadAddon(fitAddon);
     term.loadAddon(webLinksAddon);
+    const webglResult = initSafeWebglAddon(term);
+    webglCleanupRef.current = webglResult.dispose;
     term.open(terminalContainerRef.current);
 
     // Code-server mobile textarea optimization
@@ -841,6 +886,21 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
+
+    writeSchedulerRef.current = new TerminalWriteScheduler((batch: string) => {
+      if (!isMountedRef.current || !xtermRef.current) return;
+      const t = xtermRef.current;
+      const wasAtBottom = isAtBottomRef.current;
+      t.write(batch, () => {
+        if (!isRefittingRef.current && shouldScrollToBottom({ isReplaying: isReplayingRef.current, wasAtBottom, bufferType: t?.buffer.active.type })) {
+          scrollToBottomSafe(t);
+        }
+        if (isReplayingRef.current) {
+          t?.refresh(0, Math.max(0, (t.rows || 1) - 1));
+          isReplayingRef.current = false;
+        }
+      });
+    }, 16);
 
     let cursorShiftRaf: number | null = null;
     const scheduleCursorShift = () => {
@@ -1527,9 +1587,40 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         } catch {}
         wsRef.current = null;
       }
+      if (webglCleanupRef.current) {
+        webglCleanupRef.current();
+        webglCleanupRef.current = null;
+      }
+      if (writeSchedulerRef.current) {
+        writeSchedulerRef.current.destroy();
+        writeSchedulerRef.current = null;
+      }
+      backgroundQueueRef.current.clear();
       term.dispose();
     };
   }, [sendResize, clearReconnectTimers, adminKey]);
+
+  // Background buffer flush when transitioning to active tab
+  useEffect(() => {
+    if (isActive) {
+      if (backgroundQueueRef.current && backgroundQueueRef.current.size() > 0) {
+        const bufferedData = backgroundQueueRef.current.drain();
+        if (bufferedData && xtermRef.current) {
+          xtermRef.current.write(bufferedData, () => {
+            safeFit(true);
+            if (xtermRef.current) {
+              scrollToBottomSafe(xtermRef.current);
+            }
+          });
+        }
+      } else {
+        safeFit(true);
+        if (xtermRef.current) {
+          scrollToBottomSafe(xtermRef.current);
+        }
+      }
+    }
+  }, [isActive, safeFit]);
 
   // Re-fit and send resize when standalone mode toggles without disconnecting WS
   useEffect(() => {

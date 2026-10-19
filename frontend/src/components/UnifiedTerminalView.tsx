@@ -751,6 +751,7 @@ export default function UnifiedTerminalView({
             adminKey={adminKey}
             hideHeader={true}
             standalone={Boolean(isStandalone)}
+            isActive={subTab === 'interactive'}
             onExitStandalone={onExitStandalone}
             onToggleStandalone={(val) => {
               if (val && onEnterStandalone) {

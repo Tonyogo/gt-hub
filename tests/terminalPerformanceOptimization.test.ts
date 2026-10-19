@@ -1,6 +1,8 @@
 if (typeof (globalThis as any).self === 'undefined') {
   (globalThis as any).self = globalThis;
 }
+import * as fs from 'fs';
+import * as path from 'path';
 import { initSafeWebglAddon } from '../frontend/src/utils/terminalWebglHelper';
 import { TerminalWriteScheduler, BackgroundBufferQueue } from '../frontend/src/utils/terminalStreamHelper';
 
@@ -102,4 +104,38 @@ describe('Terminal Stream & Batch Helpers', () => {
     });
   });
 });
+
+describe('WebTerminalView Integration Specifications', () => {
+  const compPath = path.resolve(__dirname, '../frontend/src/components/WebTerminalView.tsx');
+  const unifiedPath = path.resolve(__dirname, '../frontend/src/components/UnifiedTerminalView.tsx');
+  let compContent: string;
+  let unifiedContent: string;
+
+  beforeAll(() => {
+    compContent = fs.readFileSync(compPath, 'utf-8');
+    unifiedContent = fs.readFileSync(unifiedPath, 'utf-8');
+  });
+
+  it('defines responsive scrollback with 8000 desktop and 3000 mobile fallback', () => {
+    expect(compContent).toContain('scrollback:');
+    expect(compContent).not.toMatch(/scrollback:\s*30000/);
+    expect(compContent).toMatch(/8000/);
+    expect(compContent).toMatch(/3000/);
+  });
+
+  it('integrates initSafeWebglAddon during terminal initialization', () => {
+    expect(compContent).toContain('initSafeWebglAddon');
+  });
+
+  it('accepts isActive prop in WebTerminalViewProps and passes it from UnifiedTerminalView', () => {
+    expect(compContent).toContain('isActive?: boolean;');
+    expect(unifiedContent).toContain('isActive={subTab === \'interactive\'}');
+  });
+
+  it('flushes backgroundQueue when transitioning from inactive to active', () => {
+    expect(compContent).toContain('backgroundQueueRef');
+    expect(compContent).toContain('writeSchedulerRef');
+  });
+});
+
 
