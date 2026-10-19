@@ -30,13 +30,13 @@
 **Interfaces:**
 - Removes: `initSafeWebglAddon` from `terminalWebglHelper.ts`
 
-- [ ] **Step 1: 删除 `frontend/src/utils/terminalWebglHelper.ts`**
+- [x] **Step 1: 删除 `frontend/src/utils/terminalWebglHelper.ts`**
 
 ```bash
 rm -f frontend/src/utils/terminalWebglHelper.ts
 ```
 
-- [ ] **Step 2: 从 `frontend/package.json` 中移除 `@xterm/addon-webgl` 依赖**
+- [x] **Step 2: 从 `frontend/package.json` 中移除 `@xterm/addon-webgl` 依赖**
 
 修改 `frontend/package.json`，在 `dependencies` 中移除 `"@xterm/addon-webgl": "^0.18.0",`：
 ```json
@@ -51,14 +51,14 @@ rm -f frontend/src/utils/terminalWebglHelper.ts
   },
 ```
 
-- [ ] **Step 3: 更新前端依赖锁定**
+- [x] **Step 3: 更新前端依赖锁定**
 
 运行：
 ```bash
 cd frontend && npm install
 ```
 
-- [ ] **Step 4: 提交依赖与辅助文件移除**
+- [x] **Step 4: 提交依赖与辅助文件移除**
 
 ```bash
 git add frontend/package.json frontend/package-lock.json
@@ -74,7 +74,7 @@ git commit -m "chore(deps): remove @xterm/addon-webgl dependency and helper"
 - Modify: `frontend/src/components/WebTerminalView.tsx`
 - Modify: `tests/terminalPerformanceOptimization.test.ts`
 
-- [ ] **Step 1: 更新 `tests/terminalPerformanceOptimization.test.ts`**
+- [x] **Step 1: 更新 `tests/terminalPerformanceOptimization.test.ts`**
 
 移除关于 `initSafeWebglAddon` 的导入及所有测试块，更新为仅测试流式调度、后台队列与组件集成：
 ```typescript
@@ -180,14 +180,14 @@ describe('Terminal Performance Optimization', () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试验证失败**
+- [x] **Step 2: 运行测试验证失败**
 
 运行：`npm test -- tests/terminalPerformanceOptimization.test.ts`
 预期：FAIL（`WebTerminalView.tsx` 仍包含 `initSafeWebglAddon`）。
 
-- [ ] **Step 3: 修改 `WebTerminalView.tsx` 移除 WebGL 相关逻辑**
+- [x] **Step 3: 修改 `WebTerminalView.tsx` 移除 WebGL 相关逻辑**
 
-1. 移除引���：
+1. 移除引用：
    删除：
    ```typescript
    import { initSafeWebglAddon } from '../utils/terminalWebglHelper';
@@ -213,12 +213,12 @@ describe('Terminal Performance Optimization', () => {
    }
    ```
 
-- [ ] **Step 4: 运行测试验证通过**
+- [x] **Step 4: 运行测试验证通过**
 
 运行：`npm test -- tests/terminalPerformanceOptimization.test.ts`
 预期：PASS。
 
-- [ ] **Step 5: 提交更改**
+- [x] **Step 5: 提交更改**
 
 ```bash
 git add frontend/src/components/WebTerminalView.tsx tests/terminalPerformanceOptimization.test.ts
@@ -232,7 +232,7 @@ git commit -m "refactor(terminal): remove webgl addon references from WebTermina
 **Files:**
 - Verification only
 
-- [ ] **Step 1: 验证前端独立构建**
+- [x] **Step 1: 验证前端独立构建**
 
 运行：
 ```bash
@@ -240,7 +240,7 @@ npm run build:frontend
 ```
 预期：SUCCESS，无编译错误。
 
-- [ ] **Step 2: 运行全量终端测试套件**
+- [x] **Step 2: 运行全量终端测试套件**
 
 运行：
 ```bash
@@ -251,7 +251,7 @@ npm test -- tests/terminalMobileKeyboardPushUp.test.ts
 ```
 预期：所有测试套件全部 PASS。
 
-- [ ] **Step 3: 全项目构建测试**
+- [x] **Step 3: 全项目构建测试**
 
 运行：
 ```bash
