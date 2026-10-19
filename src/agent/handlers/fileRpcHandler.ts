@@ -68,23 +68,27 @@ export async function handleFileRpc(control: any, targetWs: any): Promise<void> 
       }
       const entries = await fs.promises.readdir(resolvedPath, { withFileTypes: true });
       const files: any[] = [];
-      await Promise.all(
-        entries.map(async (entry) => {
-          const full = path.join(resolvedPath, entry.name);
-          try {
-            const entryStat = await fs.promises.stat(full);
-            const isDir = entry.isDirectory();
-            files.push({
-              name: entry.name,
-              path: full,
-              isDirectory: isDir,
-              size: isDir ? 0 : entryStat.size,
-              updatedAt: entryStat.mtimeMs,
-              extension: isDir ? '' : path.extname(entry.name).replace(/^\./, '').toLowerCase(),
-            });
-          } catch {}
-        })
-      );
+      const batchSize = 64;
+      for (let i = 0; i < entries.length; i += batchSize) {
+        const batch = entries.slice(i, i + batchSize);
+        await Promise.all(
+          batch.map(async (entry) => {
+            const full = path.join(resolvedPath, entry.name);
+            try {
+              const entryStat = await fs.promises.stat(full);
+              const isDir = entryStat.isDirectory();
+              files.push({
+                name: entry.name,
+                path: full,
+                isDirectory: isDir,
+                size: isDir ? 0 : entryStat.size,
+                updatedAt: entryStat.mtimeMs,
+                extension: isDir ? '' : path.extname(entry.name).replace(/^\./, '').toLowerCase(),
+              });
+            } catch {}
+          })
+        );
+      }
       files.sort((a, b) => {
         if (a.isDirectory && !b.isDirectory) return -1;
         if (!a.isDirectory && b.isDirectory) return 1;

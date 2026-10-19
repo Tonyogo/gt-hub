@@ -844,6 +844,8 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
     let cursorShiftRaf: number | null = null;
     const scheduleCursorShift = () => {
+      // Only schedule cursor shift when mobile virtual keyboard is actively showing
+      if (!isKeyboardShowingRef.current && !isKeyboardOpen) return;
       if (cursorShiftRaf !== null) return;
       if (typeof requestAnimationFrame !== 'undefined') {
         cursorShiftRaf = requestAnimationFrame(() => {
@@ -865,6 +867,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     const renderDisposable = term.onRender(() => {
       scheduleCursorShift();
     });
+    let scrollDebounceTimer: NodeJS.Timeout | null = null;
     const scrollDisposable = term.onScroll(() => {
       if (!term || !isMountedRef.current) return;
       if (term.buffer.active.type === 'alternate') {
@@ -875,10 +878,12 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         return;
       }
       const atBottom = isUserAtBottom(term);
-      if (isAtBottomRef.current !== atBottom) {
-        isAtBottomRef.current = atBottom;
-        setIsAtBottom(atBottom);
-      }
+      isAtBottomRef.current = atBottom;
+      if (scrollDebounceTimer) clearTimeout(scrollDebounceTimer);
+      scrollDebounceTimer = setTimeout(() => {
+        if (!isMountedRef.current) return;
+        setIsAtBottom((prev) => (prev !== isAtBottomRef.current ? isAtBottomRef.current : prev));
+      }, 100);
     });
 
     // Virtual modifier keyboard event handler (CTRL/ALT key combination interception & auto-release)
@@ -1494,6 +1499,10 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         }
         cursorShiftRaf = null;
       }
+      if (scrollDebounceTimer) {
+        clearTimeout(scrollDebounceTimer);
+        scrollDebounceTimer = null;
+      }
       csiDisposable.dispose();
       selectionDisposable.dispose();
       cursorMoveDisposable.dispose();
@@ -2044,18 +2053,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
   };
 
   // Decoupled Modular Custom Hooks integration
-  useTerminalWebSocket({
-    adminKey,
-    activeHostId,
-    xtermRef,
-    fitAddonRef,
-    isMountedRef,
-    isAtBottomRef,
-    isRefittingRef,
-    isMobileRef,
-    safeFit,
-    onConnectionChange,
-  });
+  // (WebSocket connection lifecycle is managed directly via initWebSocket/wsRef in this view)
 
 
   useTerminalSelection({

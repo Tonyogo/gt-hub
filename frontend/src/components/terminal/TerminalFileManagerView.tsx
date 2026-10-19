@@ -284,6 +284,9 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
   }), [loadFiles, currentPath]);
 
   const loadedHostRef = useRef<string | null>(null);
+  const wasActiveRef = useRef<boolean>(false);
+  const currentPathRef = useRef<string>('');
+  currentPathRef.current = currentPath;
 
   // Reload when activeHostId changes or tab becomes active
   useEffect(() => {
@@ -293,6 +296,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
       setLoading(false);
       setFiles([]);
       loadedHostRef.current = null;
+      wasActiveRef.current = false;
       return;
     }
 
@@ -303,14 +307,20 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
         setFiles([]);
         loadedHostRef.current = null;
       }
+      wasActiveRef.current = false;
       return;
     }
+
+    const justBecameActive = !wasActiveRef.current;
+    wasActiveRef.current = true;
 
     if (loadedHostRef.current !== activeHostId) {
       setCurrentPath('');
       setParentPath(null);
       loadedHostRef.current = activeHostId;
       loadFiles();
+    } else if (justBecameActive) {
+      loadFiles(currentPathRef.current || undefined);
     }
   }, [isActive, activeHostId, loadFiles]);
 

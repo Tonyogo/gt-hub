@@ -55,9 +55,12 @@ export function shouldScrollToBottom({
   return wasAtBottom;
 }
 
+const pendingRafMap = new WeakMap<TerminalLike, any>();
+
 /**
  * Safely scrolls terminal to bottom with dual-phase sync (immediate + requestAnimationFrame)
  * ensuring layout reflow / flexbox expansion clamps do not truncate the scroll position.
+ * Coalesces pending animation frames to avoid flooding the browser scheduler during streaming output.
  */
 export function scrollToBottomSafe(term: TerminalLike | null | undefined): void {
   if (!term || typeof term.scrollToBottom !== 'function') {
@@ -67,7 +70,9 @@ export function scrollToBottomSafe(term: TerminalLike | null | undefined): void 
     return;
   }
 
-  term.scrollToBottom();
+  try {
+    term.scrollToBottom();
+  } catch {}
 
   const getRaf = () => {
     if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
@@ -80,11 +85,15 @@ export function scrollToBottomSafe(term: TerminalLike | null | undefined): void 
   };
 
   const raf = getRaf();
-  if (raf) {
-    raf(() => {
-      if (term && term.buffer?.active?.type !== 'alternate' && typeof term.scrollToBottom === 'function') {
-        term.scrollToBottom();
-      }
+  if (raf && !pendingRafMap.has(term)) {
+    const handle = raf(() => {
+      pendingRafMap.delete(term);
+      try {
+        if (term && term.buffer?.active?.type !== 'alternate' && typeof term.scrollToBottom === 'function') {
+          term.scrollToBottom();
+        }
+      } catch {}
     });
+    pendingRafMap.set(term, handle);
   }
 }

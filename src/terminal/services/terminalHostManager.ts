@@ -67,6 +67,10 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
       for (const ws of this.activeSockets) {
         try {
           if (ws.readyState === 1) {
+            if (typeof ws.bufferedAmount === 'number' && ws.bufferedAmount > 2 * 1024 * 1024) {
+              logger.warn(`[RemoteAgentTerminal:${this.hostId}] Dropping frame for slow client socket (bufferedAmount=${ws.bufferedAmount})`);
+              continue;
+            }
             ws.send(batchedText);
           } else {
             deadSockets.push(ws);
@@ -272,32 +276,20 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
       }
     }
 
-    if (this.totalBufferSize > this.maxBufferSize) {
-      let dropCount = 0;
-      let droppedBytes = 0;
-      const bytesToDrop = this.totalBufferSize - this.maxBufferSize;
-      while (dropCount < this.historyBuffer.length && droppedBytes < bytesToDrop) {
-        droppedBytes += this.historyBuffer[dropCount].length;
-        dropCount++;
-      }
-      if (dropCount > 0) {
-        if (dropCount >= this.historyBuffer.length) {
-          const lastChunk = this.historyBuffer[this.historyBuffer.length - 1];
-          if (lastChunk.length > this.maxBufferSize) {
-            this.historyBuffer = [lastChunk.slice(lastChunk.length - this.maxBufferSize)];
-            this.totalBufferSize = this.maxBufferSize;
-          } else {
-            this.historyBuffer = [];
-            this.totalBufferSize = 0;
-          }
-        } else {
-          this.historyBuffer.splice(0, dropCount);
-          this.totalBufferSize -= droppedBytes;
-        }
+    while (this.totalBufferSize > this.maxBufferSize && this.historyBuffer.length > 0) {
+      const head = this.historyBuffer[0];
+      const excess = this.totalBufferSize - this.maxBufferSize;
+      if (head.length <= excess) {
+        this.totalBufferSize -= head.length;
+        this.historyBuffer.shift();
+      } else {
+        this.historyBuffer[0] = head.slice(excess);
+        this.totalBufferSize -= excess;
+        break;
       }
     }
 
-    if (this.historyBuffer.length > 500) {
+    if (this.historyBuffer.length > 1000) {
       this.historyBuffer = [this.historyBuffer.join('')];
     }
 
