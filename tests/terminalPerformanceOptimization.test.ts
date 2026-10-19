@@ -2,6 +2,7 @@ if (typeof (globalThis as any).self === 'undefined') {
   (globalThis as any).self = globalThis;
 }
 import { initSafeWebglAddon } from '../frontend/src/utils/terminalWebglHelper';
+import { TerminalWriteScheduler, BackgroundBufferQueue } from '../frontend/src/utils/terminalStreamHelper';
 
 describe('Terminal Performance Optimization - WebGL Helper', () => {
   it('gracefully handles WebGL initialization failures without throwing', () => {
@@ -40,3 +41,65 @@ describe('Terminal Performance Optimization - WebGL Helper', () => {
     expect(mockAddonInstance.dispose).toHaveBeenCalled();
   });
 });
+
+describe('Terminal Stream & Batch Helpers', () => {
+  describe('TerminalWriteScheduler', () => {
+    it('batches rapid small writes into single callback execution', (done) => {
+      const writtenBatches: string[] = [];
+      const scheduler = new TerminalWriteScheduler((batch) => {
+        writtenBatches.push(batch);
+      }, 16);
+
+      scheduler.push('hello ');
+      scheduler.push('world ');
+      scheduler.push('!');
+
+      expect(writtenBatches.length).toBe(0);
+
+      setTimeout(() => {
+        expect(writtenBatches.length).toBe(1);
+        expect(writtenBatches[0]).toBe('hello world !');
+        scheduler.destroy();
+        done();
+      }, 30);
+    });
+
+    it('flushes immediately when buffer exceeds maxBatchBytes', () => {
+      const writtenBatches: string[] = [];
+      const scheduler = new TerminalWriteScheduler((batch) => {
+        writtenBatches.push(batch);
+      }, 50, 10); // 10 bytes threshold
+
+      scheduler.push('12345');
+      expect(writtenBatches.length).toBe(0);
+      scheduler.push('67890abc');
+      // Buffer length 13 >= 10, triggers immediate flush
+      expect(writtenBatches.length).toBe(1);
+      expect(writtenBatches[0]).toBe('1234567890abc');
+      scheduler.destroy();
+    });
+  });
+
+  describe('BackgroundBufferQueue', () => {
+    it('stores data and flushes concatenated string', () => {
+      const queue = new BackgroundBufferQueue(100);
+      queue.push('chunk1;');
+      queue.push('chunk2;');
+      expect(queue.size()).toBe(14);
+      expect(queue.drain()).toBe('chunk1;chunk2;');
+      expect(queue.size()).toBe(0);
+    });
+
+    it('caps total buffered size and trims excess from head', () => {
+      const queue = new BackgroundBufferQueue(10);
+      queue.push('12345');
+      queue.push('67890');
+      queue.push('abc'); // Total 13, max 10 -> 3 bytes excess evicted
+      expect(queue.size()).toBeLessThanOrEqual(10);
+      const drained = queue.drain();
+      expect(drained.endsWith('67890abc')).toBe(true);
+      expect(drained.length).toBeLessThanOrEqual(10);
+    });
+  });
+});
+
