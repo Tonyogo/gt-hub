@@ -239,11 +239,13 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto animate-in fade-in duration-150">
       <div
-        className="bg-[#18181b] border border-white/10 rounded-2xl shadow-2xl max-w-4xl w-full overflow-hidden text-slate-200 my-auto flex flex-col max-h-[90vh]"
+        className="bg-[#18181b] border-t sm:border border-white/10 rounded-t-2xl sm:rounded-2xl rounded-b-none sm:rounded-b-2xl shadow-2xl max-w-4xl w-full overflow-hidden text-slate-200 my-0 sm:my-auto flex flex-col max-h-[90vh] sm:max-h-[85vh] pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-0"
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Mobile Pull Handle */}
+        <div className="sm:hidden w-10 h-1 bg-white/20 rounded-full mx-auto my-2 shrink-0" />
         {/* Header */}
         <div className="px-5 py-4 border-b border-white/[0.08] flex items-center justify-between bg-white/[0.02]">
           <div className="flex items-center space-x-3 min-w-0">
@@ -361,7 +363,7 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
             <button
               type="button"
               onClick={() => setAutoScroll((prev) => !prev)}
-              className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all flex items-center space-x-1.5 ${
+              className={`min-h-[36px] px-2.5 py-1 rounded-lg text-xs font-medium border transition-all flex items-center space-x-1.5 ${
                 autoScroll
                   ? 'bg-indigo-600/20 text-indigo-300 border-indigo-500/30'
                   : 'bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-slate-200 border-white/[0.06]'
@@ -377,7 +379,7 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
               <button
                 type="button"
                 onClick={handleCopy}
-                className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all flex items-center space-x-1.5 ${
+                className={`min-h-[36px] px-2.5 py-1 rounded-lg text-xs font-medium border transition-all flex items-center space-x-1.5 ${
                   isCopied
                     ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
                     : 'bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border-white/[0.06]'
@@ -394,7 +396,7 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
                 type="button"
                 onClick={handleKill}
                 disabled={isKilling}
-                className="px-2.5 py-1 rounded-lg text-xs font-medium bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 transition-all flex items-center space-x-1.5 disabled:opacity-50"
+                className="min-h-[36px] px-2.5 py-1 rounded-lg text-xs font-medium bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 transition-all flex items-center space-x-1.5 disabled:opacity-50"
               >
                 {isKilling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5" />}
                 <span>{t('tasks.killTask', '终止任务')}</span>
@@ -404,7 +406,7 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
         </div>
 
         {/* Log Viewer Viewport */}
-        <div className="p-4 flex-1 min-h-[340px] flex flex-col bg-[#0c1017]">
+        <div className="p-4 flex-1 min-h-[300px] flex flex-col bg-[#0c1017]">
           {isLoading && !logText ? (
             <div className="flex-1 flex flex-col items-center justify-center space-y-2 text-slate-400">
               <Loader2 className="w-6 h-6 animate-spin text-indigo-400" />
@@ -422,7 +424,7 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
           ) : (
             <div
               ref={logContainerRef}
-              className="flex-1 bg-slate-950 font-mono text-xs text-slate-200 border border-slate-800 rounded-xl p-4 max-h-[520px] overflow-y-auto whitespace-pre-wrap break-all select-text shadow-inner"
+              className="flex-1 bg-slate-950 font-mono text-xs text-slate-200 border border-slate-800 rounded-xl p-4 max-h-[50vh] sm:max-h-[520px] overflow-y-auto whitespace-pre-wrap break-all select-text shadow-inner"
             >
               {logText}
             </div>
@@ -437,7 +439,7 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] text-slate-300 text-xs font-medium transition-all"
+            className="min-h-[36px] px-4 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] text-slate-300 text-xs font-medium transition-all"
           >
             {t('tasks.logsModal.close', '关闭')}
           </button>

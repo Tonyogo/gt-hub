@@ -65,11 +65,13 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto animate-in fade-in duration-150">
       <div
-        className="bg-[#18181b] border border-white/10 rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden text-slate-200 my-auto flex flex-col"
+        className="bg-[#18181b] border-t sm:border border-white/10 rounded-t-2xl sm:rounded-2xl rounded-b-none sm:rounded-b-2xl shadow-2xl max-w-lg w-full overflow-hidden text-slate-200 my-0 sm:my-auto flex flex-col max-h-[90vh] sm:max-h-[85vh] pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-0"
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Mobile Pull Handle */}
+        <div className="sm:hidden w-10 h-1 bg-white/20 rounded-full mx-auto my-2 shrink-0" />
         {/* Header */}
         <div className="px-5 py-4 border-b border-white/[0.08] flex items-center justify-between bg-white/[0.02]">
           <div className="flex items-center space-x-3">
