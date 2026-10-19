@@ -55,7 +55,6 @@ import { TerminalMagnifierBubble } from './terminal/components/TerminalMagnifier
 import { TerminalSelectionToolbar } from './terminal/components/TerminalSelectionToolbar';
 import { TerminalEmptyState } from './terminal/components/TerminalEmptyState';
 import { TerminalScriptDrawer } from './terminal/TerminalScriptDrawer';
-import { initSafeWebglAddon } from '../utils/terminalWebglHelper';
 import { TerminalWriteScheduler, BackgroundBufferQueue } from '../utils/terminalStreamHelper';
 
 
@@ -168,7 +167,6 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
   const backgroundQueueRef = useRef<BackgroundBufferQueue>(new BackgroundBufferQueue());
   const writeSchedulerRef = useRef<TerminalWriteScheduler | null>(null);
-  const webglCleanupRef = useRef<(() => void) | null>(null);
 
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isConnecting, setIsConnecting] = useState<boolean>(true);
@@ -816,8 +814,6 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
     term.loadAddon(fitAddon);
     term.loadAddon(webLinksAddon);
-    const webglResult = initSafeWebglAddon(term);
-    webglCleanupRef.current = webglResult.dispose;
     term.open(terminalContainerRef.current);
 
     // Code-server mobile textarea optimization
@@ -1586,10 +1582,6 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           oldWs.close();
         } catch {}
         wsRef.current = null;
-      }
-      if (webglCleanupRef.current) {
-        webglCleanupRef.current();
-        webglCleanupRef.current = null;
       }
       if (writeSchedulerRef.current) {
         writeSchedulerRef.current.destroy();
