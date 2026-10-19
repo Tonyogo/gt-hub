@@ -9,12 +9,13 @@ import { terminalExecBridge } from '../services/terminalExecBridge';
 import { ticketManager } from '../../server/modules/auth/ticketManager';
 import { terminalCronService } from '../services/terminalCronService';
 import { BIN_MSG_TYPE, decodeBinaryPacket } from '../../shared/protocol/binaryProtocol';
+import { TERMINAL_WS_DEFLATE_OPTIONS } from '../../shared/protocol/wsOptions';
 
 export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?: any): WebSocketServer {
   const hostMgr = hostManagerInstance || terminalHostManager;
-  const wss = new WebSocketServer({ noServer: true });
-  const agentWss = new WebSocketServer({ noServer: true });
-  const execWss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({ noServer: true, perMessageDeflate: TERMINAL_WS_DEFLATE_OPTIONS });
+  const agentWss = new WebSocketServer({ noServer: true, perMessageDeflate: TERMINAL_WS_DEFLATE_OPTIONS });
+  const execWss = new WebSocketServer({ noServer: true, perMessageDeflate: TERMINAL_WS_DEFLATE_OPTIONS });
 
   const onUpgrade = (req: http.IncomingMessage, socket: any, head: Buffer) => {
     const reqUrl = req.url || '';

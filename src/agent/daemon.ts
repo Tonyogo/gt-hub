@@ -921,6 +921,11 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
 
     ws = new WebSocket(targetWsUrl, {
       headers: { 'x-admin-key': adminKey },
+      perMessageDeflate: {
+        threshold: 1024,
+        clientNoContextTakeover: true,
+        serverNoContextTakeover: true,
+      },
     });
 
     ws.on('pong', () => {
