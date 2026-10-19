@@ -340,7 +340,7 @@ export const TerminalTaskView = React.forwardRef<TerminalTaskHandle, TerminalTas
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t('tasks.searchPlaceholder', '搜索任务 ID 或命令...')}
-                className="pl-8 pr-3 py-1.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-xs text-white placeholder-slate-500 focus:outline-hidden focus:border-indigo-500 w-36 sm:w-56 transition-all"
+                className="pl-8 pr-3 py-1.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-xs text-white placeholder-slate-500 focus:outline-hidden focus:border-indigo-500 w-24 focus:w-36 sm:w-56 transition-all"
               />
             </div>
 
@@ -411,7 +411,7 @@ export const TerminalTaskView = React.forwardRef<TerminalTaskHandle, TerminalTas
           ) : (
             <>
               {/* Stat Cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0">
+              <div className="hidden sm:grid sm:grid-cols-4 gap-3 shrink-0">
                 {/* Total */}
                 <div className="p-3.5 rounded-xl bg-white/[0.02] border border-white/[0.06] flex items-center justify-between">
                   <div>
@@ -517,7 +517,149 @@ export const TerminalTaskView = React.forwardRef<TerminalTaskHandle, TerminalTas
                   )}
                 </div>
               ) : (
-                <div className="flex-1 bg-white/[0.01] border border-white/[0.06] rounded-2xl overflow-hidden flex flex-col">
+                <>
+                  {/* Mobile Task Card List (< sm) */}
+                  <div className="sm:hidden space-y-3">
+                    {filteredTasks.map((task) => {
+                      const isCopied = copiedTaskId === task.taskId;
+                      return (
+                        <div
+                          key={task.taskId}
+                          onClick={() => {
+                            setSelectedTaskForLogs(task);
+                            setIsLogModalOpen(true);
+                          }}
+                          className="p-3.5 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-3 hover:bg-white/[0.04] active:bg-white/[0.06] transition-colors cursor-pointer"
+                        >
+                          {/* Card Header: Task ID + Copy + Status + Exit Code */}
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center space-x-1.5 min-w-0" onClick={(e) => e.stopPropagation()}>
+                              <span className="font-mono text-xs text-slate-300 truncate max-w-[120px]">
+                                {task.taskId}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={(e) => handleCopyTaskId(e, task.taskId)}
+                                className="min-h-[36px] min-w-[36px] p-2 rounded-lg text-slate-400 hover:text-white bg-white/[0.03] border border-white/[0.06] flex items-center justify-center transition-all"
+                                title={t('tasks.copySuccess', '复制 ID')}
+                              >
+                                {isCopied ? (
+                                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                ) : (
+                                  <Copy className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                            </div>
+
+                            <div className="flex items-center space-x-1.5 shrink-0">
+                              {task.status === 'completed' && (
+                                <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                  <CheckCircle2 className="w-2.5 h-2.5" />
+                                  <span>{t('tasks.filterCompleted', '已完成')}</span>
+                                </span>
+                              )}
+                              {task.status === 'running' && (
+                                <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                  <PlayCircle className="w-2.5 h-2.5 animate-pulse" />
+                                  <span>{t('tasks.filterRunning', '运行中')}</span>
+                                </span>
+                              )}
+                              {task.status === 'failed' && (
+                                <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                                  <XCircle className="w-2.5 h-2.5" />
+                                  <span>{t('tasks.filterFailed', '失败')}</span>
+                                </span>
+                              )}
+                              {task.status === 'timeout' && (
+                                <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                                  <AlertTriangle className="w-2.5 h-2.5" />
+                                  <span>超时</span>
+                                </span>
+                              )}
+                              {task.status === 'killed' && (
+                                <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-800 text-slate-400 border border-white/10">
+                                  <Square className="w-2.5 h-2.5" />
+                                  <span>{t('tasks.filterKilled', '已终止')}</span>
+                                </span>
+                              )}
+
+                              {task.exitCode !== null && task.exitCode !== undefined && (
+                                <span
+                                  className={`font-mono px-1.5 py-0.5 rounded text-[10px] font-medium border ${
+                                    task.exitCode === 0
+                                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                      : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                                  }`}
+                                >
+                                  {task.exitCode}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Command: monospace box */}
+                          <div
+                            className="font-mono text-xs text-indigo-300 truncate bg-black/30 px-2.5 py-2 rounded-xl border border-white/[0.04]"
+                            title={task.command}
+                          >
+                            {task.command}
+                          </div>
+
+                          {/* Start Time & Duration */}
+                          <div className="flex items-center justify-between text-xs text-slate-400 pt-0.5">
+                            <div className="flex items-center space-x-1.5">
+                              <span className="text-[10px] text-slate-500">{t('tasks.colStartTime', '启动时间')}:</span>
+                              <span className="text-[11px] text-slate-300">{formatTime(task.startTime)}</span>
+                            </div>
+                            <div className="flex items-center space-x-1.5">
+                              <span className="text-[10px] text-slate-500">{t('tasks.colDuration', '耗时')}:</span>
+                              <span className="font-mono text-[11px] text-slate-300">
+                                {formatDuration(task.startTime, task.endTime)}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Card Actions: min-h-[36px] buttons */}
+                          <div
+                            className="pt-2 border-t border-white/[0.06] flex items-center justify-end space-x-2"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedTaskForLogs(task);
+                                setIsLogModalOpen(true);
+                              }}
+                              className="min-h-[36px] px-3 py-1.5 rounded-xl bg-white/[0.04] active:bg-white/[0.08] text-slate-300 active:text-white border border-white/[0.06] text-xs font-medium transition-all"
+                            >
+                              {t('tasks.viewLogs', '查看日志')}
+                            </button>
+
+                            {task.status === 'running' && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const confirmed = window.confirm(
+                                    t('tasks.killConfirm', '确定要向该任务发送终止信号吗？')
+                                  );
+                                  if (confirmed) {
+                                    handleKillTask(task.taskId);
+                                  }
+                                }}
+                                className="min-h-[36px] px-3 py-1.5 rounded-xl bg-rose-500/15 active:bg-rose-500/25 text-rose-300 border border-rose-500/30 text-xs font-medium transition-all flex items-center space-x-1.5"
+                              >
+                                <Square className="w-3.5 h-3.5" />
+                                <span>{t('tasks.killTask', '终止')}</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Desktop Table (hidden sm:block) */}
+                  <div className="hidden sm:block flex-1 bg-white/[0.01] border border-white/[0.06] rounded-2xl overflow-hidden">
                   <div className="overflow-x-auto flex-1">
                     <table className="w-full text-left text-xs border-collapse">
                       <thead>
@@ -676,6 +818,7 @@ export const TerminalTaskView = React.forwardRef<TerminalTaskHandle, TerminalTas
                     </table>
                   </div>
                 </div>
+              </>
               )}
             </>
           )}
