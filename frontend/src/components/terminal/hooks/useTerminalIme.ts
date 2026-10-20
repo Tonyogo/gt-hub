@@ -1,6 +1,10 @@
 import { useRef, useCallback } from 'react';
 import { Terminal } from '@xterm/xterm';
-import { attachMobileImeHandler, TerminalImeController } from '../../../utils/terminalImeHelper';
+import {
+  attachMobileImeHandler,
+  patchCompositionHelper,
+  TerminalImeController,
+} from '../../../utils/terminalImeHelper';
 
 export interface UseTerminalImeOptions {
   terminalContainerRef: React.RefObject<HTMLDivElement | null>;
@@ -38,6 +42,10 @@ export function useTerminalIme({
 
       helperTextarea.addEventListener('focus', onFocus);
       helperTextarea.addEventListener('blur', onBlur);
+
+      if (xtermRef.current) {
+        patchCompositionHelper(xtermRef.current);
+      }
 
       imeControllerRef.current = attachMobileImeHandler({
         textarea: helperTextarea,

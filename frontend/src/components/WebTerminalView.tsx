@@ -45,6 +45,7 @@ import {
 } from '../utils/terminalMagnifierHelper';
 import {
   attachMobileImeHandler,
+  patchCompositionHelper,
   TerminalImeController,
 } from '../utils/terminalImeHelper';
 import { useTerminalWebSocket } from './terminal/hooks/useTerminalWebSocket';
@@ -838,6 +839,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     term.loadAddon(fitAddon);
     term.loadAddon(webLinksAddon);
     term.open(terminalContainerRef.current);
+    patchCompositionHelper(term);
 
     // Code-server mobile textarea optimization
     const helperTextarea = terminalContainerRef.current.querySelector('textarea');
@@ -972,6 +974,11 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     term.attachCustomKeyEventHandler((domEvent: KeyboardEvent) => {
       if (domEvent.type !== 'keydown') {
         return true;
+      }
+
+      // Ignore CapsLock to prevent accidental duplicate inputs or unwanted behavior when toggling IME
+      if (domEvent.keyCode === 20 || domEvent.key === 'CapsLock' || (domEvent as any).code === 'CapsLock') {
+        return false;
       }
 
       const isCtrl = isCtrlActiveRef.current;

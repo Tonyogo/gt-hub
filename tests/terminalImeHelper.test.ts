@@ -1,4 +1,8 @@
-import { attachMobileImeHandler } from '../frontend/src/utils/terminalImeHelper';
+import {
+  attachMobileImeHandler,
+  isModifierKey,
+  patchCompositionHelper,
+} from '../frontend/src/utils/terminalImeHelper';
 
 class MockTextArea extends EventTarget {
   value = '';
@@ -328,5 +332,185 @@ describe('terminalImeHelper', () => {
     textarea.dispatchEvent(beforeInputEv);
 
     expect(sentData).toEqual([]);
+  });
+
+  describe('isModifierKey', () => {
+    test('correctly identifies Shift, Control, Alt, CapsLock, and Meta keys', () => {
+      expect(isModifierKey({ keyCode: 16 } as KeyboardEvent)).toBe(true);
+      expect(isModifierKey({ keyCode: 17 } as KeyboardEvent)).toBe(true);
+      expect(isModifierKey({ keyCode: 18 } as KeyboardEvent)).toBe(true);
+      expect(isModifierKey({ keyCode: 20 } as KeyboardEvent)).toBe(true);
+      expect(isModifierKey({ keyCode: 91 } as KeyboardEvent)).toBe(true);
+      expect(isModifierKey({ keyCode: 92 } as KeyboardEvent)).toBe(true);
+      expect(isModifierKey({ keyCode: 93 } as KeyboardEvent)).toBe(true);
+      expect(isModifierKey({ key: 'CapsLock' } as KeyboardEvent)).toBe(true);
+      expect(isModifierKey({ key: 'Shift' } as KeyboardEvent)).toBe(true);
+      expect(isModifierKey({ key: 'Meta' } as KeyboardEvent)).toBe(true);
+      expect(isModifierKey({ code: 'CapsLock' } as any)).toBe(true);
+
+      // Non-modifiers
+      expect(isModifierKey({ keyCode: 13, key: 'Enter' } as KeyboardEvent)).toBe(false);
+      expect(isModifierKey({ keyCode: 65, key: 'a' } as KeyboardEvent)).toBe(false);
+      expect(isModifierKey({ keyCode: 229, key: 'Unidentified' } as KeyboardEvent)).toBe(false);
+    });
+  });
+
+  describe('Chinese to English switch and CapsLock protection', () => {
+    test('does NOT unlock composition when CapsLock or Shift is pressed during the 60ms grace window', () => {
+      jest.useFakeTimers();
+      const controller = attachMobileImeHandler({
+        textarea,
+        onDirectInput: (data: string) => sentData.push(data),
+      });
+
+      textarea.dispatchEvent(new Event('compositionstart'));
+      textarea.dispatchEvent(new Event('compositionend'));
+      expect(controller.isComposing()).toBe(true);
+
+      // User presses CapsLock 15ms after compositionend (switching Chinese to English)
+      jest.advanceTimersByTime(15);
+      const kdCaps = new CustomEvent('keydown') as any;
+      kdCaps.keyCode = 20;
+      kdCaps.key = 'CapsLock';
+      textarea.dispatchEvent(kdCaps);
+
+      // Should still remain composing during grace window
+      expect(controller.isComposing()).toBe(true);
+
+      // User presses Shift 15ms later
+      jest.advanceTimersByTime(15);
+      const kdShift = new CustomEvent('keydown') as any;
+      kdShift.keyCode = 16;
+      kdShift.key = 'Shift';
+      textarea.dispatchEvent(kdShift);
+
+      expect(controller.isComposing()).toBe(true);
+
+      // After grace window passes (60ms total)
+      jest.advanceTimersByTime(40);
+      expect(controller.isComposing()).toBe(false);
+
+      controller.dispose();
+    });
+
+    test('clears textarea.value after compositionEndTimer expires to prevent stale Chinese characters', () => {
+      jest.useFakeTimers();
+      const controller = attachMobileImeHandler({
+        textarea,
+        onDirectInput: (data: string) => sentData.push(data),
+      });
+
+      textarea.value = '你好';
+      textarea.dispatchEvent(new Event('compositionstart'));
+      textarea.dispatchEvent(new Event('compositionend'));
+
+      // Still has value during the 60ms window so xterm can finalize
+      expect(textarea.value).toBe('你好');
+
+      // Advance timers past 60ms
+      jest.advanceTimersByTime(70);
+      expect(controller.isComposing()).toBe(false);
+      // Cleared after composition finalized
+      expect(textarea.value).toBe('');
+
+      controller.dispose();
+    });
+
+    test('clears textarea.value when physical keydown arrives during grace window', () => {
+      jest.useFakeTimers();
+      const controller = attachMobileImeHandler({
+        textarea,
+        onDirectInput: (data: string) => sentData.push(data),
+      });
+
+      textarea.value = '你好';
+      textarea.dispatchEvent(new Event('compositionstart'));
+      textarea.dispatchEvent(new Event('compositionend'));
+
+      jest.advanceTimersByTime(10);
+      const kd = new CustomEvent('keydown') as any;
+      kd.keyCode = 13;
+      kd.key = 'Enter';
+      textarea.dispatchEvent(kd);
+
+      expect(controller.isComposing()).toBe(false);
+      expect(textarea.value).toBe('');
+
+      controller.dispose();
+    });
+  });
+
+  describe('patchCompositionHelper', () => {
+    test('intercepts CapsLock and modifier keys during composition and returns false without premature finalization', () => {
+      let origKeydownCalled = false;
+      const mockCompHelper = {
+        _isComposing: true,
+        _isSendingComposition: false,
+        keydown: jest.fn((_ev: KeyboardEvent) => {
+          origKeydownCalled = true;
+          return false;
+        }),
+      };
+      const mockTerm = {
+        _core: {
+          _compositionHelper: mockCompHelper,
+        },
+      };
+
+      patchCompositionHelper(mockTerm as any);
+
+      // CapsLock during composition
+      const evCaps = { keyCode: 20, key: 'CapsLock' } as KeyboardEvent;
+      const resCaps = mockCompHelper.keydown(evCaps);
+      expect(resCaps).toBe(false);
+      expect(origKeydownCalled).toBe(false);
+
+      // Shift during composition
+      const evShift = { keyCode: 16, key: 'Shift' } as KeyboardEvent;
+      const resShift = mockCompHelper.keydown(evShift);
+      expect(resShift).toBe(false);
+      expect(origKeydownCalled).toBe(false);
+
+      // Meta during composition
+      const evMeta = { keyCode: 91, key: 'Meta' } as KeyboardEvent;
+      const resMeta = mockCompHelper.keydown(evMeta);
+      expect(resMeta).toBe(false);
+      expect(origKeydownCalled).toBe(false);
+
+      // Regular key during composition (e.g. Enter) should call original keydown
+      const evEnter = { keyCode: 13, key: 'Enter' } as KeyboardEvent;
+      mockCompHelper.keydown(evEnter);
+      expect(origKeydownCalled).toBe(true);
+    });
+
+    test('intercepts CapsLock when _isSendingComposition is true', () => {
+      let origKeydownCalled = false;
+      const mockCompHelper = {
+        _isComposing: false,
+        _isSendingComposition: true,
+        keydown: jest.fn((_ev: KeyboardEvent) => {
+          origKeydownCalled = true;
+          return false;
+        }),
+      };
+      const mockTerm = {
+        _core: {
+          _compositionHelper: mockCompHelper,
+        },
+      };
+
+      patchCompositionHelper(mockTerm as any);
+
+      const evCaps = { keyCode: 20, key: 'CapsLock' } as KeyboardEvent;
+      const resCaps = mockCompHelper.keydown(evCaps);
+      expect(resCaps).toBe(false);
+      expect(origKeydownCalled).toBe(false);
+    });
+
+    test('safely ignores term if _compositionHelper is missing or not a function', () => {
+      expect(() => patchCompositionHelper(null)).not.toThrow();
+      expect(() => patchCompositionHelper({})).not.toThrow();
+      expect(() => patchCompositionHelper({ _core: {} })).not.toThrow();
+    });
   });
 });

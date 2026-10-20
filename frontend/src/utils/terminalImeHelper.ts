@@ -13,6 +13,112 @@ export interface TerminalImeController {
   dispose: () => void;
 }
 
+export function isModifierKey(e: KeyboardEvent): boolean {
+  return (
+    e.keyCode === 16 || // Shift
+    e.keyCode === 17 || // Control
+    e.keyCode === 18 || // Alt
+    e.keyCode === 20 || // CapsLock
+    e.keyCode === 91 || // Meta Left / OS
+    e.keyCode === 92 || // Meta Right
+    e.keyCode === 93 || // Meta
+    e.keyCode === 225 || // AltGraph
+    e.key === 'Shift' ||
+    e.key === 'Control' ||
+    e.key === 'Alt' ||
+    e.key === 'CapsLock' ||
+    e.key === 'Meta' ||
+    e.key === 'Fn' ||
+    e.key === 'AltGraph' ||
+    e.key === 'OS' ||
+    (e as any).code === 'CapsLock' ||
+    (e as any).code === 'ShiftLeft' ||
+    (e as any).code === 'ShiftRight' ||
+    (e as any).code === 'ControlLeft' ||
+    (e as any).code === 'ControlRight' ||
+    (e as any).code === 'AltLeft' ||
+    (e as any).code === 'AltRight' ||
+    (e as any).code === 'MetaLeft' ||
+    (e as any).code === 'MetaRight' ||
+    (e as any).code === 'Fn'
+  );
+}
+
+/**
+ * Patches xterm.js CompositionHelper to prevent premature composition finalization
+ * and duplicate input when switching between Chinese and English (especially via CapsLock or Shift).
+ * Addresses xterm.js PR #5282 where CapsLock (keyCode 20) and modifier keys were not treated as
+ * non-finalizing modifiers during composition, and ensures stale Chinese text in textarea.value
+ * is purged immediately upon composition finalization so subsequent English input does not duplicate.
+ */
+export function patchCompositionHelper(term: any): void {
+  if (!term) return;
+
+  const compHelper = term?._core?._compositionHelper;
+  if (compHelper && typeof compHelper.keydown === 'function') {
+    if ((compHelper as any).__imePatched) {
+      return;
+    }
+    (compHelper as any).__imePatched = true;
+
+    const origKeydown = compHelper.keydown.bind(compHelper);
+    compHelper.keydown = function (ev: KeyboardEvent): boolean {
+      if (compHelper._isComposing || compHelper.isComposing || (compHelper as any)._isSendingComposition) {
+        if (isModifierKey(ev)) {
+          return false;
+        }
+      }
+      return origKeydown(ev);
+    };
+
+    if (typeof compHelper._finalizeComposition === 'function') {
+      const origFinalize = compHelper._finalizeComposition.bind(compHelper);
+      compHelper._finalizeComposition = function (waitForPropagation: boolean) {
+        if (waitForPropagation) {
+          origFinalize(true);
+          setTimeout(() => {
+            if (!compHelper._isComposing) {
+              if (compHelper._textarea) {
+                compHelper._textarea.value = '';
+              }
+              if (compHelper._compositionPosition) {
+                compHelper._compositionPosition.start = 0;
+                compHelper._compositionPosition.end = 0;
+              }
+              compHelper._dataAlreadySent = '';
+            }
+          }, 0);
+        } else {
+          origFinalize(false);
+          if (!compHelper._isComposing) {
+            if (compHelper._textarea) {
+              compHelper._textarea.value = '';
+            }
+            if (compHelper._compositionPosition) {
+              compHelper._compositionPosition.start = 0;
+              compHelper._compositionPosition.end = 0;
+            }
+            compHelper._dataAlreadySent = '';
+          }
+        }
+      };
+    }
+    return;
+  }
+
+  // If term._core._compositionHelper is not yet initialized (e.g. called before term.open()),
+  // hook term.open so it patches CompositionHelper immediately upon initialization.
+  if (typeof term.open === 'function' && !(term as any).__openPatchedForIme) {
+    (term as any).__openPatchedForIme = true;
+    const origOpen = term.open.bind(term);
+    term.open = function (...args: any[]) {
+      const res = origOpen(...args);
+      patchCompositionHelper(term);
+      return res;
+    };
+  }
+}
+
 export function attachMobileImeHandler({
   textarea,
   onDirectInput,
@@ -26,12 +132,19 @@ export function attachMobileImeHandler({
 
   const handleKeyDown = (e: KeyboardEvent) => {
     pendingBeforeInputDedupe = false;
+    if (isModifierKey(e)) {
+      // Modifier keys (CapsLock, Shift, Meta, etc.) switch input method modes
+      // and do not produce characters. They must not unlock the composition grace window
+      // or be registered as physical character keydowns.
+      return;
+    }
     if (e.keyCode !== 229 && e.key !== 'Unidentified') {
       lastNonImeKeyDownTime = Date.now();
       if (compositionEndTimer) {
         clearTimeout(compositionEndTimer);
         compositionEndTimer = null;
         isComposing = false;
+        textarea.value = '';
       }
     }
   };
@@ -54,6 +167,7 @@ export function attachMobileImeHandler({
     compositionEndTimer = setTimeout(() => {
       isComposing = false;
       compositionEndTimer = null;
+      textarea.value = '';
     }, 60);
   };
 
