@@ -2,6 +2,53 @@ type UnauthorizedListener = () => void;
 
 const unauthorizedListeners: Set<UnauthorizedListener> = new Set();
 
+export const ADMIN_KEY_STORAGE_KEY = 'admin_secret_key';
+
+/**
+ * Retrieve stored admin secret key from localStorage with legacy fallback.
+ */
+export function getStoredAdminKey(): string {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return '';
+  }
+  try {
+    return (
+      localStorage.getItem('admin_secret_key') ||
+      localStorage.getItem('gt_admin_key') ||
+      localStorage.getItem('adminKey') ||
+      ''
+    );
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Persist admin secret key to localStorage and clean up legacy keys.
+ */
+export function setStoredAdminKey(key: string): void {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return;
+  }
+  try {
+    localStorage.setItem('admin_secret_key', key);
+  } catch {}
+}
+
+/**
+ * Remove stored admin secret key and legacy keys from localStorage.
+ */
+export function clearStoredAdminKey(): void {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return;
+  }
+  try {
+    localStorage.removeItem('admin_secret_key');
+    localStorage.removeItem('gt_admin_key');
+    localStorage.removeItem('adminKey');
+  } catch {}
+}
+
 /**
  * Register a listener to be invoked when an API request returns HTTP 401 Unauthorized.
  * Returns an unregister cleanup function.
@@ -30,7 +77,7 @@ export function notifyUnauthorized(): void {
  * Request a short-lived single-use authentication ticket with timeout protection.
  */
 export async function requestAuthTicket(adminKey?: string, timeoutMs: number = 5000): Promise<string | null> {
-  const key = adminKey || (typeof window !== 'undefined' ? localStorage.getItem('gt_admin_key') : '') || '';
+  const key = adminKey || getStoredAdminKey();
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
   const timer = controller && timeoutMs > 0
     ? setTimeout(() => {

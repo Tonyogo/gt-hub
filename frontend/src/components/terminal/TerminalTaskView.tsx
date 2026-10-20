@@ -20,7 +20,7 @@ import {
   X
 } from 'lucide-react';
 import { useTranslation } from '../../i18n/LanguageContext';
-import { apiFetch } from '../../utils/apiClient';
+import { apiFetch, getStoredAdminKey } from '../../utils/apiClient';
 import { TaskSummary, TaskStatus, CreateTaskInput } from './types/task';
 import { TaskLogModal } from './components/TaskLogModal';
 import { CreateTaskModal } from './components/CreateTaskModal';
@@ -80,11 +80,7 @@ export const TerminalTaskView = React.forwardRef<TerminalTaskHandle, TerminalTas
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
       };
-      const key =
-        adminKey ||
-        (typeof window !== 'undefined'
-          ? localStorage.getItem('gt_admin_key') || localStorage.getItem('admin_secret_key') || ''
-          : '');
+      const key = adminKey || getStoredAdminKey();
       if (key) {
         headers['x-admin-key'] = key;
       }

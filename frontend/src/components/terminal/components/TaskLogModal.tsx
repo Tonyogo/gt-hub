@@ -15,7 +15,7 @@ import {
   ArrowDown
 } from 'lucide-react';
 import { useTranslation } from '../../../i18n/LanguageContext';
-import { apiFetch } from '../../../utils/apiClient';
+import { apiFetch, getStoredAdminKey } from '../../../utils/apiClient';
 import { TaskSummary, TaskStatus, TaskLogResponse } from '../types/task';
 
 export interface TaskLogModalProps {
@@ -56,11 +56,7 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
 
   const getHeaders = useCallback(() => {
     const headers: Record<string, string> = {};
-    const key =
-      adminKey ||
-      (typeof window !== 'undefined'
-        ? localStorage.getItem('gt_admin_key') || localStorage.getItem('admin_secret_key') || ''
-        : '');
+    const key = adminKey || getStoredAdminKey();
     if (key) {
       headers['x-admin-key'] = key;
     }

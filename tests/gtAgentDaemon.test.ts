@@ -45,6 +45,17 @@ describe('gt agent singleton daemon lifecycle and parameter guards', () => {
     }
   });
 
+  it('rotates agent.log when size exceeds threshold', () => {
+    process.env.GT_CONFIG_DIR = testConfigDir;
+    const { AgentDaemonManager } = require('../scripts/gt.js');
+    const logFile = AgentDaemonManager.getLogFile();
+    fs.writeFileSync(logFile, 'x'.repeat(2048), 'utf-8');
+    AgentDaemonManager.rotateLogFileIfNeeded(logFile, 1024);
+    expect(fs.existsSync(logFile)).toBe(false);
+    expect(fs.existsSync(`${logFile}.1`)).toBe(true);
+    expect(fs.statSync(`${logFile}.1`).size).toBe(2048);
+  });
+
   it('rejects agent execution if not authenticated via gt auth login', () => {
     const cleanEnv: Record<string, string> = { ...process.env, GT_CONFIG_DIR: testConfigDir };
     delete cleanEnv.TERMINAL_SERVER;

@@ -9,7 +9,7 @@ import { getVersionInfo } from '../shared/version';
 
 const app = express();
 
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: '10mb' }));
 
 // Public direct download endpoints (/install.sh, /gt, etc.)
 app.use(downloadRoutes);

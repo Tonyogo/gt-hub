@@ -1,6 +1,7 @@
 import request from 'supertest';
 import express from 'express';
 import authRoutes from '../src/auth/routes/authRoutes';
+import { loginRateLimiter } from '../src/server/modules/auth/rateLimiter';
 import config from '../config/default';
 
 describe('Auth Routes (/api/auth)', () => {
@@ -12,6 +13,7 @@ describe('Auth Routes (/api/auth)', () => {
 
   afterEach(() => {
     config.adminSecretKey = originalKey;
+    loginRateLimiter.reset();
   });
 
   describe('GET /api/auth/status', () => {
@@ -68,6 +70,18 @@ describe('Auth Routes (/api/auth)', () => {
       const res = await request(app).post('/api/auth/login').send({ key: 'bad-token' });
       expect(res.status).toBe(401);
       expect(res.body).toHaveProperty('error');
+    });
+
+    it('returns 429 Too Many Requests after exceeding max failed login attempts and resets on success', async () => {
+      config.adminSecretKey = 'my-secret-token';
+      for (let i = 0; i < 15; i++) {
+        const failRes = await request(app).post('/api/auth/login').send({ key: 'wrong-key' });
+        expect(failRes.status).toBe(401);
+      }
+      const blockedRes = await request(app).post('/api/auth/login').send({ key: 'wrong-key' });
+      expect(blockedRes.status).toBe(429);
+      expect(blockedRes.headers['retry-after']).toBeDefined();
+      expect(blockedRes.body.error).toMatch(/Too many failed login attempts/);
     });
   });
 });

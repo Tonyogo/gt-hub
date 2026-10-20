@@ -13,7 +13,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { useTranslation } from '../../../i18n/LanguageContext';
-import { apiFetch } from '../../../utils/apiClient';
+import { apiFetch, getStoredAdminKey } from '../../../utils/apiClient';
 import { CronJobSummary, CronExecutionLogResponse } from '../types/cron';
 
 export interface CronLogModalProps {
@@ -46,7 +46,7 @@ export const CronLogModal: React.FC<CronLogModalProps> = ({
       setErrorMessage(null);
 
       const headers: Record<string, string> = {};
-      const key = adminKey || (typeof window !== 'undefined' ? localStorage.getItem('gt_admin_key') || localStorage.getItem('admin_secret_key') : '');
+      const key = adminKey || getStoredAdminKey();
       if (key) {
         headers['x-admin-key'] = key;
       }

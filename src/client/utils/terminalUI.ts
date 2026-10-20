@@ -1,6 +1,9 @@
 import http from 'http';
 import https from 'https';
 import url from 'url';
+import { quoteShellArg } from '../../shared/utils/shell';
+
+export { quoteShellArg };
 
 export function exitWithError(message: string, code: number = 1): never {
   console.error(message.startsWith('Error:') || message.startsWith('[Error]') ? message : `Error: ${message}`);
@@ -139,14 +142,6 @@ export function parseRemoteSpec(str: string): { host: string; path: string } {
     host: str.slice(0, colonIdx).trim(),
     path: str.slice(colonIdx + 1).trim() || '.',
   };
-}
-
-export function quoteShellArg(arg: string): string {
-  if (typeof arg !== 'string') return '';
-  if (/^[a-zA-Z0-9_.\-\/=:@]+$/.test(arg)) {
-    return arg;
-  }
-  return `'${arg.replace(/'/g, `'\\''`)}'`;
 }
 
 export function resolveWebSocketUrl(

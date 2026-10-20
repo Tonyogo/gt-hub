@@ -44,14 +44,14 @@ export interface ITerminalSession {
 
 export { stripTerminalQuerySequences } from '../../shared/utils/terminalSanitizer';
 import { stripTerminalQuerySequences } from '../../shared/utils/terminalSanitizer';
+import { TerminalHistoryBuffer } from '../../agent/pty/terminalHistoryBuffer';
 
 export class RemoteAgentTerminalSession implements ITerminalSession {
   public hostId: string;
   private agentWs: any = null;
   private activeSockets: Set<any> = new Set();
   private replayedSockets: WeakSet<any> = new WeakSet();
-  private historyBuffer: string[] = [];
-  private totalBufferSize: number = 0;
+  private history: TerminalHistoryBuffer;
   private readonly maxBufferSize: number = 1 * 1024 * 1024; // 1MB scrollback
   private currentCols: number = 0;
   private currentRows: number = 0;
@@ -66,6 +66,7 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
   constructor(hostId: string, agentWs?: any) {
     this.hostId = hostId;
     this.agentWs = agentWs;
+    this.history = new TerminalHistoryBuffer(this.maxBufferSize);
     this.broadcastBatcher = new StreamBatcher((batchedText) => {
       const deadSockets: any[] = [];
       for (const ws of this.activeSockets) {
@@ -136,10 +137,9 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
     this.cancelIdleEviction();
 
     // Replay history buffer atomically as a single combined stream with query sequences stripped to prevent echo storms
-    if (this.historyBuffer.length > 0 && ws.readyState === 1) {
+    if (this.history.getSize() > 0 && ws.readyState === 1) {
       try {
-        const fullStream = this.historyBuffer.join('');
-        const sanitized = stripTerminalQuerySequences(fullStream);
+        const sanitized = this.history.getSanitizedString();
         if (sanitized.length > 0) {
           this.sendHistoryChunks(ws, sanitized);
           this.replayedSockets.add(ws);
@@ -147,7 +147,7 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
       } catch {
         // Ignore socket write errors during replay
       }
-    } else if (this.historyBuffer.length === 0 && this.agentWs && this.agentWs.readyState === 1) {
+    } else if (this.history.getSize() === 0 && this.agentWs && this.agentWs.readyState === 1) {
       // Hub has no cached history (e.g. Hub restarted or cache was pruned) -> request from Agent on demand
       try {
         this.agentWs.send(`JSON:${JSON.stringify({ type: 'history_req' })}`);
@@ -204,8 +204,8 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
       : (typeof history === 'string' ? history : String(history));
     if (!raw) return;
     const sanitized = stripTerminalQuerySequences(raw);
-    this.historyBuffer = [sanitized];
-    this.totalBufferSize = sanitized.length;
+    this.history.clear();
+    this.history.push(sanitized);
 
     // Immediately push to any active clients that haven't received history replay
     for (const ws of this.activeSockets) {
@@ -241,10 +241,9 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
     if (this.idleEvictionTimer) return;
     this.idleEvictionTimer = setTimeout(() => {
       this.idleEvictionTimer = null;
-      if (this.activeSockets.size === 0 && this.historyBuffer.length > 0) {
+      if (this.activeSockets.size === 0 && this.history.getSize() > 0) {
         logger.debug(`[RemoteAgentTerminal:${this.hostId}] Evicted idle history buffer from Hub memory`);
-        this.historyBuffer = [];
-        this.totalBufferSize = 0;
+        this.history.clear();
       }
     }, RemoteAgentTerminalSession.IDLE_EVICTION_MS);
     if (this.idleEvictionTimer && typeof this.idleEvictionTimer.unref === 'function') {
@@ -264,8 +263,7 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
     if (this.broadcastBatcher) {
       this.broadcastBatcher.flush();
     }
-    this.historyBuffer = [];
-    this.totalBufferSize = 0;
+    this.history.clear();
     this.pendingInputBuffer = [];
     this.pendingInputBytes = 0;
     this.currentCols = 0;
@@ -297,8 +295,7 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
       this.broadcastBatcher.flush();
     }
     this.activeSockets.clear();
-    this.historyBuffer = [];
-    this.totalBufferSize = 0;
+    this.history.clear();
     this.pendingInputBuffer = [];
     this.pendingInputBytes = 0;
     this.agentWs = null;
@@ -317,41 +314,12 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
       return;
     }
     const text = typeof data === 'string' ? data : data.toString('utf-8');
-    this.historyBuffer.push(text);
-    this.totalBufferSize += text.length;
-
-    // If stream contains terminal hardware reset sequence (\x1bc), compact buffer to purge stale screen history
-    if (text.includes('\x1bc')) {
-      const combined = this.historyBuffer.join('');
-      const lastClearIdx = combined.lastIndexOf('\x1bc');
-      if (lastClearIdx !== -1) {
-        this.historyBuffer = [combined.slice(lastClearIdx)];
-        this.totalBufferSize = this.historyBuffer[0].length;
-      }
-    }
-
-    while (this.totalBufferSize > this.maxBufferSize && this.historyBuffer.length > 0) {
-      const head = this.historyBuffer[0];
-      const excess = this.totalBufferSize - this.maxBufferSize;
-      if (head.length <= excess) {
-        this.totalBufferSize -= head.length;
-        this.historyBuffer.shift();
-      } else {
-        this.historyBuffer[0] = head.slice(excess);
-        this.totalBufferSize -= excess;
-        break;
-      }
-    }
-
-    if (this.historyBuffer.length > 1000) {
-      this.historyBuffer = [this.historyBuffer.join('')];
-    }
-
+    this.history.push(text);
     this.broadcastBatcher.push(text);
   }
 
   public getHistory(): string {
-    return this.historyBuffer.join('');
+    return this.history.getString();
   }
 }
 

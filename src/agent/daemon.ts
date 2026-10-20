@@ -54,6 +54,23 @@ export class AgentDaemonManager {
     return path.join(ConfigStore.getConfigDir(), 'agent.log');
   }
 
+  static rotateLogFileIfNeeded(logFile: string = this.getLogFile(), maxBytes: number = 10 * 1024 * 1024): void {
+    try {
+      if (fs.existsSync(logFile)) {
+        const stat = fs.statSync(logFile);
+        if (stat.size >= maxBytes) {
+          const backupFile = `${logFile}.1`;
+          try {
+            if (fs.existsSync(backupFile)) {
+              fs.unlinkSync(backupFile);
+            }
+          } catch {}
+          fs.renameSync(logFile, backupFile);
+        }
+      }
+    } catch {}
+  }
+
   static isProcessAlive(pid?: number | null): boolean {
     if (!pid || typeof pid !== 'number') return false;
     try {
@@ -477,9 +494,9 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       cleanArgs.push(a);
     }
     cleanArgs.push(`--server=${serverArg}`);
-    cleanArgs.push(`--key=${adminKey}`);
 
     const logFile = AgentDaemonManager.getLogFile();
+    AgentDaemonManager.rotateLogFileIfNeeded(logFile);
     const logFd = fs.openSync(logFile, 'a', 0o600);
 
     const scriptPath = process.argv[1] || path.resolve(__filename);
@@ -489,7 +506,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       {
         detached: true,
         stdio: ['ignore', logFd, logFd],
-        env: { ...process.env },
+        env: { ...process.env, GT_SERVER: serverArg, GT_KEY: adminKey },
       }
     );
 

@@ -200,6 +200,30 @@ describe('AgentCronScheduler', () => {
     const cachedFile = path.join(cacheDir, 'custom-script.sh');
     expect(fs.existsSync(cachedFile)).toBe(true);
 
+    // Update script on Hub and verify Agent updates local cache on next run
+    mockHubScripts['custom-script.sh'] = '#!/bin/sh\necho "updated hub script v2: $1"\n';
+    const record2 = await scheduler.triggerJob('script-job');
+    expect(record2.status).toBe('completed');
+    expect(fs.readFileSync(cachedFile, 'utf-8')).toContain('updated hub script v2');
+
+    // Reject path traversal scriptName
+    scheduler.syncJobs([
+      {
+        id: 'traversal-job',
+        name: 'Traversal Script',
+        cron: '* * * * *',
+        source: 'hub',
+        scriptName: '../../evil.sh',
+        concurrency: 'forbid',
+        status: 'active',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+    ]);
+    const traversalRecord = await scheduler.triggerJob('traversal-job');
+    expect(traversalRecord.status).toBe('failed');
+    expect(traversalRecord.error).toContain('Invalid script name');
+
     scheduler.stop();
   });
 });

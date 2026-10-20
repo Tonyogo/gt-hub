@@ -28,7 +28,7 @@ import {
 import { useTranslation } from '../i18n/LanguageContext';
 import { useTheme } from '../theme/ThemeContext';
 import { calculateKeyboardTranslateY } from '../utils/mobileViewportHelper';
-import { apiFetch, onUnauthorized } from '../utils/apiClient';
+import { apiFetch, onUnauthorized, getStoredAdminKey } from '../utils/apiClient';
 import {
   isFullscreenActive,
   toggleBrowserFullscreen,
@@ -56,7 +56,7 @@ export default function UnifiedTerminalView({
   const { t, language, setLanguage } = useTranslation();
   const { setTheme, resolvedTheme } = useTheme();
   const [adminKey, setAdminKey] = useState<string>(() => {
-    return propAdminKey || (typeof window !== 'undefined' ? localStorage.getItem('admin_secret_key') || '' : '');
+    return propAdminKey || getStoredAdminKey();
   });
 
   useEffect(() => {
@@ -87,11 +87,7 @@ export default function UnifiedTerminalView({
     const fetchServerTimezone = async () => {
       try {
         const headers: Record<string, string> = {};
-        const key =
-          adminKey ||
-          (typeof window !== 'undefined'
-            ? localStorage.getItem('gt_admin_key') || localStorage.getItem('admin_secret_key') || ''
-            : '');
+        const key = adminKey || getStoredAdminKey();
         if (key) headers['x-admin-key'] = key;
         const res = await apiFetch('/api/terminal/version', { headers });
         if (res.ok) {

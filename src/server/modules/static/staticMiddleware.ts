@@ -1,9 +1,16 @@
-import express, { Router, Request, Response, NextFunction } from 'express';
+import express, { Router, Request, Response, NextFunction, RequestHandler } from 'express';
 import path from 'path';
 import fs from 'fs';
 import config from '../../config/default';
 
+let cachedFrontendDist: string | null = null;
+let cachedStaticHandler: RequestHandler | null = null;
+
 function resolveFrontendDist(): string | null {
+  if (cachedFrontendDist && fs.existsSync(cachedFrontendDist)) {
+    return cachedFrontendDist;
+  }
+
   const candidates = [
     path.join(__dirname, '../../../../dist/frontend'),
     path.join(__dirname, '../../../dist/frontend'),
@@ -11,7 +18,12 @@ function resolveFrontendDist(): string | null {
     path.join(process.cwd(), 'dist/frontend'),
     path.join(process.cwd(), 'frontend'),
   ];
-  return candidates.find((p) => fs.existsSync(p)) || null;
+  const found = candidates.find((p) => fs.existsSync(p)) || null;
+  if (found !== cachedFrontendDist) {
+    cachedFrontendDist = found;
+    cachedStaticHandler = found ? express.static(found) : null;
+  }
+  return found;
 }
 
 const router = Router();
@@ -19,8 +31,8 @@ const router = Router();
 if (config.enableUi) {
   router.use((req: Request, res: Response, next: NextFunction) => {
     const frontendDist = resolveFrontendDist();
-    if (frontendDist) {
-      express.static(frontendDist)(req, res, next);
+    if (frontendDist && cachedStaticHandler) {
+      cachedStaticHandler(req, res, next);
     } else {
       next();
     }

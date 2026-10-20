@@ -18,6 +18,7 @@ interface NodeCronData {
 export class TerminalCronService {
   private storageDir: string;
   private readonly MAX_EXECUTIONS = 100;
+  private cache: Map<string, NodeCronData> = new Map();
 
   constructor(customStorageDir?: string) {
     if (customStorageDir) {
@@ -30,6 +31,7 @@ export class TerminalCronService {
 
   public setStorageDir(dir: string): void {
     this.storageDir = path.resolve(dir);
+    this.cache.clear();
     this.ensureDir();
   }
 
@@ -84,6 +86,16 @@ export class TerminalCronService {
     const filePath = this.getNodeFilePath(nodeId);
     const canonicalId = this.resolveCanonicalNodeId(nodeId);
 
+    const cached = this.cache.get(canonicalId);
+    if (cached && fs.existsSync(filePath)) {
+      if (cached.timezone !== config.timeZone) {
+        cached.timezone = config.timeZone;
+        cached.jobs = cached.jobs.map((job) => ({ ...job, timezone: config.timeZone }));
+        this.saveNodeData(canonicalId, cached);
+      }
+      return cached;
+    }
+
     if (fs.existsSync(filePath)) {
       try {
         const raw = fs.readFileSync(filePath, 'utf-8');
@@ -110,6 +122,7 @@ export class TerminalCronService {
           jobs,
           executions: Array.isArray(parsed.executions) ? parsed.executions : [],
         };
+        this.cache.set(canonicalId, data);
         if (migrated) {
           this.saveNodeData(canonicalId, data);
         }
@@ -119,21 +132,34 @@ export class TerminalCronService {
       }
     }
 
-    return {
+    const emptyData: NodeCronData = {
       nodeId: canonicalId,
       timezone: config.timeZone,
       jobs: [],
       executions: [],
     };
+    this.cache.set(canonicalId, emptyData);
+    return emptyData;
   }
 
   private saveNodeData(nodeId: string, data: NodeCronData): void {
     this.ensureDir();
-    const filePath = this.getNodeFilePath(nodeId);
+    const canonicalId = this.resolveCanonicalNodeId(nodeId);
+    const filePath = this.getNodeFilePath(canonicalId);
+    this.cache.set(canonicalId, data);
+    const tmpFilePath = `${filePath}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
     try {
-      fs.writeFileSync(filePath, JSON.stringify(data, null, 2), { encoding: 'utf-8', mode: 0o600 });
+      fs.writeFileSync(tmpFilePath, JSON.stringify(data, null, 2), { encoding: 'utf-8', mode: 0o600 });
+      fs.renameSync(tmpFilePath, filePath);
     } catch (err: any) {
-      logger.error(`[TerminalCronService] Failed to save cron data for ${nodeId}: ${err.message}`);
+      try {
+        if (fs.existsSync(tmpFilePath)) fs.unlinkSync(tmpFilePath);
+      } catch {}
+      try {
+        fs.writeFileSync(filePath, JSON.stringify(data, null, 2), { encoding: 'utf-8', mode: 0o600 });
+      } catch (fallbackErr: any) {
+        logger.error(`[TerminalCronService] Failed to save cron data for ${nodeId}: ${fallbackErr.message}`);
+      }
     }
   }
 

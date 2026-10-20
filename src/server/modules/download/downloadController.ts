@@ -2,7 +2,14 @@ import { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
 
+const scriptPathCache = new Map<string, string>();
+
 function resolveScriptFile(filename: string): string | null {
+  const cached = scriptPathCache.get(filename);
+  if (cached && fs.existsSync(cached)) {
+    return cached;
+  }
+
   const candidates = [
     path.join(__dirname, '../../../../dist', filename),
     path.join(__dirname, '../../../dist', filename),
@@ -13,7 +20,28 @@ function resolveScriptFile(filename: string): string | null {
     path.join(__dirname, '../../scripts', filename),
     path.join(process.cwd(), 'scripts', filename),
   ];
-  return candidates.find((p) => fs.existsSync(p)) || null;
+  const found = candidates.find((p) => fs.existsSync(p)) || null;
+  if (found) {
+    scriptPathCache.set(filename, found);
+  }
+  return found;
+}
+
+function sanitizeProto(raw?: string): string {
+  const cleaned = (raw || '').trim().toLowerCase();
+  if (cleaned === 'https' || cleaned === 'http') {
+    return cleaned;
+  }
+  return 'http';
+}
+
+function sanitizeHost(raw?: string): string {
+  const cleaned = (raw || '').trim().replace(/\/+$/, '');
+  // Reject shell metacharacters, quotes, backticks, newlines, spaces, or semicolons
+  if (!cleaned || /["'`\\\r\n\s;|&<>()]/.test(cleaned)) {
+    return 'localhost';
+  }
+  return cleaned;
 }
 
 export class DownloadController {
@@ -30,12 +58,12 @@ export class DownloadController {
       // Dynamic Host and Protocol detection
       const protoHeader = req.headers['x-forwarded-proto'];
       const rawProto = Array.isArray(protoHeader) ? protoHeader[0] : protoHeader;
-      const proto = rawProto?.split(',')[0]?.trim() || req.protocol || 'http';
+      const proto = sanitizeProto(rawProto?.split(',')[0]?.trim() || req.protocol || 'http');
 
       const hostHeader = req.headers['x-forwarded-host'];
       const rawHost = Array.isArray(hostHeader) ? hostHeader[0] : hostHeader;
       const fallbackHost = Array.isArray(req.headers.host) ? req.headers.host[0] : req.headers.host;
-      const host = (rawHost?.split(',')[0]?.trim() || fallbackHost?.split(',')[0]?.trim() || 'localhost').replace(/\/+$/, '');
+      const host = sanitizeHost(rawHost?.split(',')[0]?.trim() || fallbackHost?.split(',')[0]?.trim() || 'localhost');
 
       const hubUrl = `${proto}://${host}`;
 

@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import config from '../../config/default';
 import { safeCompareSecret } from '../../../shared/utils/security';
 import { ticketManager } from './ticketManager';
+import { loginRateLimiter } from './rateLimiter';
 
 export class AuthController {
   static getStatus(req: Request, res: Response): void {
@@ -28,10 +29,22 @@ export class AuthController {
       return;
     }
 
+    const clientIp = req.ip || req.socket?.remoteAddress || 'unknown';
+    const rateStatus = loginRateLimiter.isRateLimited(clientIp);
+    if (rateStatus.limited) {
+      res.setHeader('Retry-After', String(rateStatus.retryAfterSec));
+      res.status(429).json({
+        error: `Too many failed login attempts. Please try again in ${rateStatus.retryAfterSec} seconds.`,
+      });
+      return;
+    }
+
     const { key } = req.body || {};
     if (safeCompareSecret(key, secretKey)) {
+      loginRateLimiter.clear(clientIp);
       res.status(200).json({ success: true });
     } else {
+      loginRateLimiter.recordFailure(clientIp);
       res.status(401).json({ error: 'Unauthorized: Invalid secret key' });
     }
   }

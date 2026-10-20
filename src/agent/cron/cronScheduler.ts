@@ -3,6 +3,7 @@ import path from 'path';
 import os from 'os';
 import { CronJobConfig, CronExecutionRecord, CronJobSummary } from '../../shared/types/cron';
 import { getNextCronTime, isValidCronExpression, isValidTimezone } from '../../shared/utils/cronParser';
+import { quoteShellArg } from '../../shared/utils/shell';
 import { taskManager } from '../tasks/taskManager';
 
 export interface AgentCronSchedulerOptions {
@@ -13,10 +14,7 @@ export interface AgentCronSchedulerOptions {
   getScriptContent?: (name: string) => Promise<string>;
 }
 
-function quoteShellArg(arg: string): string {
-  if (/^[a-zA-Z0-9_\-\.\/=]+$/.test(arg)) return arg;
-  return `'${arg.replace(/'/g, `'\\''`)}'`;
-}
+const VALID_SCRIPT_NAME_REGEX = /^[a-zA-Z0-9_\-\.]+$/;
 
 function getDefaultConfigDir(): string {
   return path.join(os.homedir() || process.env.HOME || process.cwd(), '.gt');
@@ -363,20 +361,46 @@ export class AgentCronScheduler {
         return errRecord;
       }
 
-      const scriptPath = path.join(this.cacheDir, scriptName);
-      if (!fs.existsSync(scriptPath)) {
-        if (this.getScriptContent) {
-          try {
-            const content = await this.getScriptContent(scriptName);
-            const dir = path.dirname(scriptPath);
-            if (!fs.existsSync(dir)) {
-              fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
-            }
-            fs.writeFileSync(scriptPath, content, { encoding: 'utf-8', mode: 0o755 });
-            if (os.platform() !== 'win32') {
-              try { fs.chmodSync(scriptPath, 0o755); } catch {}
-            }
-          } catch (err: any) {
+      const resolvedCacheDir = path.resolve(this.cacheDir);
+      const scriptPath = path.resolve(resolvedCacheDir, scriptName);
+      if (
+        scriptName === '.' ||
+        scriptName === '..' ||
+        scriptName.includes('..') ||
+        !VALID_SCRIPT_NAME_REGEX.test(scriptName) ||
+        !scriptPath.startsWith(resolvedCacheDir + path.sep)
+      ) {
+        const errRecord: CronExecutionRecord = {
+          executionId,
+          jobId: job.id,
+          jobName: job.name,
+          triggerTime: planTriggerTime,
+          startTime: now,
+          endTime: now,
+          status: 'failed',
+          exitCode: 1,
+          error: `Invalid script name: "${scriptName}"`,
+          durationMs: 0,
+        };
+        this.runningExecutions.delete(job.id);
+        this.addHistoryRecord(errRecord);
+        this.emitReport(errRecord);
+        return errRecord;
+      }
+
+      if (this.getScriptContent) {
+        try {
+          const content = await this.getScriptContent(scriptName);
+          const dir = path.dirname(scriptPath);
+          if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true, mode: 0o755 });
+          }
+          fs.writeFileSync(scriptPath, content, { encoding: 'utf-8', mode: 0o755 });
+          if (os.platform() !== 'win32') {
+            try { fs.chmodSync(scriptPath, 0o755); } catch {}
+          }
+        } catch (err: any) {
+          if (!fs.existsSync(scriptPath)) {
             const errRecord: CronExecutionRecord = {
               executionId,
               jobId: job.id,
@@ -394,24 +418,24 @@ export class AgentCronScheduler {
             this.emitReport(errRecord);
             return errRecord;
           }
-        } else {
-          const errRecord: CronExecutionRecord = {
-            executionId,
-            jobId: job.id,
-            jobName: job.name,
-            triggerTime: planTriggerTime,
-            startTime: now,
-            endTime: now,
-            status: 'failed',
-            exitCode: 1,
-            error: `Script "${scriptName}" not found in local cache`,
-            durationMs: 0,
-          };
-          this.runningExecutions.delete(job.id);
-          this.addHistoryRecord(errRecord);
-          this.emitReport(errRecord);
-          return errRecord;
         }
+      } else if (!fs.existsSync(scriptPath)) {
+        const errRecord: CronExecutionRecord = {
+          executionId,
+          jobId: job.id,
+          jobName: job.name,
+          triggerTime: planTriggerTime,
+          startTime: now,
+          endTime: now,
+          status: 'failed',
+          exitCode: 1,
+          error: `Script "${scriptName}" not found in local cache`,
+          durationMs: 0,
+        };
+        this.runningExecutions.delete(job.id);
+        this.addHistoryRecord(errRecord);
+        this.emitReport(errRecord);
+        return errRecord;
       }
 
       const argsStr = (job.scriptArgs || []).map(a => quoteShellArg(a)).join(' ');

@@ -220,6 +220,10 @@ export async function handleFileRpc(control: any, targetWs: any): Promise<void> 
 
       const hasSliceParams = params && (params.offset !== undefined || params.length !== undefined);
       if (!hasSliceParams) {
+        const MAX_DIRECT_READ = 10 * 1024 * 1024; // 10MB OOM protection guard for unchunked fallback
+        if (stat.size > MAX_DIRECT_READ) {
+          return reply(false, null, 'File exceeds 10MB direct download limit; chunked range transfer required');
+        }
         const buf = await fs.promises.readFile(resolvedPath);
         return reply(true, buf.toString('base64'));
       }

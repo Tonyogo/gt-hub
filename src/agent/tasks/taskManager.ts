@@ -2,6 +2,7 @@ import os from 'os';
 import path from 'path';
 import fs from 'fs';
 import { spawn, execSync, ChildProcess } from 'child_process';
+import { StringDecoder } from 'string_decoder';
 
 export function getDefaultShell(options: { shell?: string } = {}): string {
   if (options.shell) return options.shell;
@@ -233,8 +234,11 @@ export class TaskManager {
       killTimer: null,
     };
 
-    const appendChunk = (type: 'stdout' | 'stderr', chunk: any) => {
-      const text = chunk.toString('utf-8');
+    const stdoutDecoder = new StringDecoder('utf8');
+    const stderrDecoder = new StringDecoder('utf8');
+
+    const appendDecodedText = (type: 'stdout' | 'stderr', text: string) => {
+      if (!text) return;
       const bytes = Buffer.byteLength(text, 'utf-8');
       const startOffset = taskRecord.totalBytes;
       const endOffset = startOffset + bytes;
@@ -262,6 +266,12 @@ export class TaskManager {
       }
     };
 
+    const appendChunk = (type: 'stdout' | 'stderr', chunk: any) => {
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), 'utf-8');
+      const text = type === 'stdout' ? stdoutDecoder.write(buf) : stderrDecoder.write(buf);
+      appendDecodedText(type, text);
+    };
+
     if (child.stdout) {
       child.stdout.on('data', (chunk) => appendChunk('stdout', chunk));
     }
@@ -285,6 +295,8 @@ export class TaskManager {
     });
 
     child.on('close', (code, signal) => {
+      appendDecodedText('stdout', stdoutDecoder.end());
+      appendDecodedText('stderr', stderrDecoder.end());
       if (taskRecord.timeoutTimer) clearTimeout(taskRecord.timeoutTimer);
       if (taskRecord.killTimer) clearTimeout(taskRecord.killTimer);
       taskRecord.endTime = Date.now();

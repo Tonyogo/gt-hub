@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from '../../i18n/LanguageContext';
 import { formatRelativeTime } from '../../utils/timeHelpers';
-import { apiFetch } from '../../utils/apiClient';
+import { apiFetch, getStoredAdminKey } from '../../utils/apiClient';
 
 export interface ManagedHostItem {
   id: string;
@@ -137,7 +137,7 @@ export function TerminalHostSelector({
   const fetchHosts = async () => {
     try {
       setIsLoading(true);
-      const effectiveKey = adminKey || (typeof localStorage !== 'undefined' ? localStorage.getItem('adminKey') || '' : '');
+      const effectiveKey = adminKey || getStoredAdminKey();
       const res = await apiFetch('/api/terminal/hosts', {
         headers: effectiveKey ? { 'x-admin-key': effectiveKey } : {},
       });
@@ -165,7 +165,7 @@ export function TerminalHostSelector({
     }
     try {
       setIsClearingOffline(true);
-      const effectiveKey = adminKey || (typeof localStorage !== 'undefined' ? localStorage.getItem('adminKey') || '' : '');
+      const effectiveKey = adminKey || getStoredAdminKey();
       const res = await apiFetch('/api/terminal/hosts/offline', {
         method: 'DELETE',
         headers: effectiveKey ? { 'x-admin-key': effectiveKey } : {},
