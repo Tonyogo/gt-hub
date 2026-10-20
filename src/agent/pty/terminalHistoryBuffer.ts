@@ -19,9 +19,11 @@ export class TerminalHistoryBuffer {
   private chunks: Buffer[] = [];
   private totalBytes: number = 0;
   private readonly maxBytes: number;
+  private readonly clearOnEd3: boolean;
 
-  constructor(maxBytes: number = 1 * 1024 * 1024) {
+  constructor(maxBytes: number = 1 * 1024 * 1024, clearOnEd3: boolean = true) {
     this.maxBytes = Math.max(1, maxBytes);
+    this.clearOnEd3 = clearOnEd3;
   }
 
   /**
@@ -34,7 +36,7 @@ export class TerminalHistoryBuffer {
 
     // Check for hardware/screen clear resets to purge stale screen history
     const lastRisIdx = buf.lastIndexOf(RIS_RESET_BUFFER);
-    const lastEd3Idx = buf.lastIndexOf(ED3_CLEAR_BUFFER);
+    const lastEd3Idx = this.clearOnEd3 ? buf.lastIndexOf(ED3_CLEAR_BUFFER) : -1;
     const resetIdx = Math.max(lastRisIdx, lastEd3Idx);
 
     if (resetIdx !== -1) {

@@ -436,7 +436,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
   const sendResize = useCallback((cols: number, rows: number, force: boolean = false) => {
     if (cols <= 0 || rows <= 0) return;
-    if (cols === lastSentColsRef.current && rows === lastSentRowsRef.current) {
+    if (!force && cols === lastSentColsRef.current && rows === lastSentRowsRef.current) {
       return;
     }
 

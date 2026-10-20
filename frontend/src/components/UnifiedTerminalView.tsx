@@ -56,7 +56,7 @@ export default function UnifiedTerminalView({
   const { t, language, setLanguage } = useTranslation();
   const { setTheme, resolvedTheme } = useTheme();
   const [adminKey, setAdminKey] = useState<string>(() => {
-    return propAdminKey || getStoredAdminKey();
+    return propAdminKey || getStoredAdminKey() || (typeof localStorage !== 'undefined' ? localStorage.getItem('admin_secret_key') || '' : '');
   });
 
   useEffect(() => {

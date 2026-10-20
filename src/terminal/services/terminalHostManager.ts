@@ -68,7 +68,7 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
   constructor(hostId: string, agentWs?: any) {
     this.hostId = hostId;
     this.agentWs = agentWs;
-    this.history = new TerminalHistoryBuffer(this.maxBufferSize);
+    this.history = new TerminalHistoryBuffer(this.maxBufferSize, false);
     this.broadcastBatcher = new StreamBatcher((batchedText) => {
       const deadSockets: any[] = [];
       for (const ws of this.activeSockets) {
