@@ -167,6 +167,8 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
   const backgroundQueueRef = useRef<BackgroundBufferQueue>(new BackgroundBufferQueue());
   const writeSchedulerRef = useRef<TerminalWriteScheduler | null>(null);
+  const streamTextDecoderRef = useRef<TextDecoder>(new TextDecoder('utf-8'));
+  const magnifierRafRef = useRef<number | null>(null);
 
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isConnecting, setIsConnecting] = useState<boolean>(true);
@@ -434,7 +436,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
   const sendResize = useCallback((cols: number, rows: number, force: boolean = false) => {
     if (cols <= 0 || rows <= 0) return;
-    if (!force && cols === lastSentColsRef.current && rows === lastSentRowsRef.current) {
+    if (cols === lastSentColsRef.current && rows === lastSentRowsRef.current) {
       return;
     }
 
@@ -508,7 +510,6 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         if (shouldScrollToBottom({ isReplaying: isReplayingRef.current, wasAtBottom, bufferType: term.buffer.active.type })) {
           scrollToBottomSafe(term);
         }
-        term.refresh(0, Math.max(0, rows - 1));
         return true;
       }
     } catch (err) {
@@ -605,7 +606,8 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           xtermRef.current.reset();
         }
         backgroundQueueRef.current.clear();
-        writeSchedulerRef.current?.flush();
+        writeSchedulerRef.current?.clear();
+        streamTextDecoderRef.current.decode();
 
         isReplayingRef.current = true;
         if (replayTimerRef.current) {
@@ -651,7 +653,8 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
             if (parsed.type === 'reset') {
               console.debug('[WebTerminal] Received reset signal from backend, clearing buffer and muting synthetic reports');
               backgroundQueueRef.current.clear();
-              writeSchedulerRef.current?.flush();
+              writeSchedulerRef.current?.clear();
+              streamTextDecoderRef.current.decode();
               xtermRef.current?.clear();
               xtermRef.current?.reset();
               isReplayingRef.current = true;
@@ -707,7 +710,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           return;
         }
 
-        const text = new TextDecoder().decode(data);
+        const text = streamTextDecoderRef.current.decode(data, { stream: true });
         if (writeSchedulerRef.current) {
           writeSchedulerRef.current.push(text);
         } else {
@@ -903,20 +906,23 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    writeSchedulerRef.current = new TerminalWriteScheduler((batch: string) => {
-      if (!isMountedRef.current || !xtermRef.current) return;
+    writeSchedulerRef.current = new TerminalWriteScheduler((batch: string, done: () => void) => {
+      if (!isMountedRef.current || !xtermRef.current) {
+        done();
+        return;
+      }
       const t = xtermRef.current;
       const wasAtBottom = isAtBottomRef.current;
       t.write(batch, () => {
+        done();
         if (!isRefittingRef.current && shouldScrollToBottom({ isReplaying: isReplayingRef.current, wasAtBottom, bufferType: t?.buffer.active.type })) {
           scrollToBottomSafe(t);
         }
         if (isReplayingRef.current) {
-          t?.refresh(0, Math.max(0, (t.rows || 1) - 1));
           isReplayingRef.current = false;
         }
       });
-    }, 16);
+    }, 8, 64 * 1024, 4096);
 
     let cursorShiftRaf: number | null = null;
     const scheduleCursorShift = () => {
@@ -999,15 +1005,30 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       return true;
     });
 
-    // Track selection changes on xterm instance
-    const selectionDisposable = term.onSelectionChange(() => {
+    // Track selection changes on xterm instance (throttled via RAF to prevent drag-select jank)
+    let selectionRaf: number | null = null;
+    const syncSelectionState = () => {
+      if (!isMountedRef.current) return;
       const selected = term.hasSelection();
-      setHasSelection(selected);
+      setHasSelection((prev) => (prev !== selected ? selected : prev));
       if (selected) {
-        const text = term.getSelection();
-        setSelectedCharCount(text.length);
+        if (isSelectModeRef.current) {
+          const text = term.getSelection();
+          setSelectedCharCount((prev) => (prev !== text.length ? text.length : prev));
+        }
       } else {
-        setSelectedCharCount(0);
+        setSelectedCharCount((prev) => (prev !== 0 ? 0 : prev));
+      }
+    };
+    const selectionDisposable = term.onSelectionChange(() => {
+      if (selectionRaf !== null) return;
+      if (typeof requestAnimationFrame !== 'undefined') {
+        selectionRaf = requestAnimationFrame(() => {
+          selectionRaf = null;
+          syncSelectionState();
+        });
+      } else {
+        syncSelectionState();
       }
     });
 
@@ -1363,10 +1384,9 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
     // Resize observer & Visual Viewport updater
     function updateViewport() {
-      const mobile = window.innerWidth < 768 || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-      setIsMobile(mobile);
-
       // Keep window scroll at top to avoid browser auto-scroll misalignment on mobile
+      const mobile = window.innerWidth < 768 || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      setIsMobile((prev) => (prev !== mobile ? mobile : prev));
       if (typeof window !== 'undefined' && window.scrollY !== 0) {
         window.scrollTo(0, 0);
       }
@@ -1600,6 +1620,18 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         }
         cursorShiftRaf = null;
       }
+      if (selectionRaf !== null) {
+        if (typeof cancelAnimationFrame !== 'undefined') {
+          cancelAnimationFrame(selectionRaf);
+        }
+        selectionRaf = null;
+      }
+      if (magnifierRafRef.current !== null) {
+        if (typeof cancelAnimationFrame !== 'undefined') {
+          cancelAnimationFrame(magnifierRafRef.current);
+        }
+        magnifierRafRef.current = null;
+      }
       if (scrollDebounceTimer) {
         clearTimeout(scrollDebounceTimer);
         scrollDebounceTimer = null;
@@ -1649,13 +1681,21 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     if (isActive) {
       if (backgroundQueueRef.current && backgroundQueueRef.current.size() > 0) {
         const bufferedData = backgroundQueueRef.current.drain();
-        if (bufferedData && xtermRef.current) {
-          xtermRef.current.write(bufferedData, () => {
+        if (bufferedData) {
+          if (writeSchedulerRef.current) {
+            writeSchedulerRef.current.push(bufferedData);
             safeFit(true);
             if (xtermRef.current) {
               scrollToBottomSafe(xtermRef.current);
             }
-          });
+          } else if (xtermRef.current) {
+            xtermRef.current.write(bufferedData, () => {
+              safeFit(true);
+              if (xtermRef.current) {
+                scrollToBottomSafe(xtermRef.current);
+              }
+            });
+          }
         }
       } else {
         safeFit(true);
@@ -1890,6 +1930,10 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     setIsSelectMode((prev) => {
       const next = !prev;
       isSelectModeRef.current = next;
+      if (next && xtermRef.current?.hasSelection()) {
+        const len = xtermRef.current.getSelection().length;
+        setSelectedCharCount((prevCount) => (prevCount !== len ? len : prevCount));
+      }
       if (next) {
         handleHideKeyboard();
         showToast(t('webTerminal.selectModeTip'));
@@ -2038,15 +2082,35 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
   const handleOverlayTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
     if (e.touches.length === 1 && overlaySelectionStartRef.current) {
       const touch = e.touches[0];
-      const currentCell = getOverlayCellCoords(touch.clientX, touch.clientY);
-      if (currentCell) {
-        applyOverlaySelection(overlaySelectionStartRef.current, currentCell);
-        updateMagnifierFromTouch(touch.clientX, touch.clientY);
+      const clientX = touch.clientX;
+      const clientY = touch.clientY;
+      if (magnifierRafRef.current !== null) {
+        return;
+      }
+      const applyMove = () => {
+        magnifierRafRef.current = null;
+        if (!overlaySelectionStartRef.current) return;
+        const currentCell = getOverlayCellCoords(clientX, clientY);
+        if (currentCell) {
+          applyOverlaySelection(overlaySelectionStartRef.current, currentCell);
+          updateMagnifierFromTouch(clientX, clientY);
+        }
+      };
+      if (typeof requestAnimationFrame !== 'undefined') {
+        magnifierRafRef.current = requestAnimationFrame(applyMove);
+      } else {
+        applyMove();
       }
     }
   };
 
   const handleOverlayTouchEnd = () => {
+    if (magnifierRafRef.current !== null) {
+      if (typeof cancelAnimationFrame !== 'undefined') {
+        cancelAnimationFrame(magnifierRafRef.current);
+      }
+      magnifierRafRef.current = null;
+    }
     overlaySelectionStartRef.current = null;
     setMagnifier(prev => ({ ...prev, visible: false }));
   };

@@ -190,6 +190,7 @@ else:
     fcntl.fcntl(master, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 
     stdin_fileno = sys.stdin.fileno()
+    stdout_fileno = sys.stdout.fileno()
     stdin_closed = False
 
     ctl_fd = 3
@@ -236,7 +237,7 @@ else:
 
         if not stdin_closed and stdin_fileno in r:
             try:
-                data = os.read(stdin_fileno, 4096)
+                data = os.read(stdin_fileno, 16384)
                 if not data:
                     stdin_closed = True
                 else:
@@ -246,11 +247,10 @@ else:
 
         if master in r:
             try:
-                data = os.read(master, 4096)
+                data = os.read(master, 16384)
                 if not data:
                     break
-                os.write(sys.stdout.fileno(), data)
-                sys.stdout.flush()
+                os.write(stdout_fileno, data)
             except (BlockingIOError, OSError):
                 pass
 
@@ -260,10 +260,9 @@ else:
             # Drain remaining
             try:
                 while True:
-                    data = os.read(master, 4096)
+                    data = os.read(master, 16384)
                     if not data: break
-                    os.write(sys.stdout.fileno(), data)
-                    sys.stdout.flush()
+                    os.write(stdout_fileno, data)
             except:
                 pass
             if hasattr(os, "waitstatus_to_exitcode"):

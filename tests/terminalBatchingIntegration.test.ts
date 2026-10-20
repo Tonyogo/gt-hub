@@ -85,4 +85,30 @@ describe('Terminal Batching Integration (RemoteAgentTerminalSession)', () => {
     session.destroy();
     expect(clientSent).toContain('data before destroy');
   });
+
+  it('decodes multi-byte UTF-8 Buffer chunks split across frame boundaries without replacement characters', () => {
+    const mockAgentWs = { readyState: 1, send: jest.fn() };
+    const session = new RemoteAgentTerminalSession('test-utf8-split', mockAgentWs);
+
+    const clientSent: string[] = [];
+    const mockClientWs = {
+      readyState: 1,
+      send: (data: string) => clientSent.push(data),
+    };
+    session.attach(mockClientWs as any);
+
+    const fullBuf = Buffer.from('终端流畅度测试🚀', 'utf-8');
+    // Split right in the middle of a 3-byte Chinese character and 4-byte emoji
+    const chunk1 = fullBuf.subarray(0, 4);
+    const chunk2 = fullBuf.subarray(4, 10);
+    const chunk3 = fullBuf.subarray(10);
+
+    session.handleData(chunk1);
+    session.handleData(chunk2);
+    session.handleData(chunk3);
+    session.flush();
+
+    expect(session.getHistory()).toBe('终端流畅度测试🚀');
+    expect(clientSent.join('')).toBe('终端流畅度测试🚀');
+  });
 });

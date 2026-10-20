@@ -59,4 +59,27 @@ describe('StreamBatcher', () => {
 
     expect(outputs).toEqual(['pending data', 'tail data']);
   });
+
+  it('immediately flushes first small packet when immediateMaxBytes is set and batches subsequent burst within cooldown window', () => {
+    const outputs: string[] = [];
+    const batcher = new StreamBatcher((data) => {
+      outputs.push(data);
+    }, 8, 64 * 1024, 4096);
+
+    // First small packet (keystroke echo) is sent with 0ms delay
+    batcher.push('a');
+    expect(outputs).toEqual(['a']);
+
+    // Subsequent burst chunks during the 8ms cooldown window are batched
+    batcher.push('b');
+    batcher.push('c');
+    expect(outputs).toEqual(['a']);
+
+    jest.advanceTimersByTime(8);
+    expect(outputs).toEqual(['a', 'bc']);
+
+    // Next packet after cooldown is again sent immediately
+    batcher.push('d');
+    expect(outputs).toEqual(['a', 'bc', 'd']);
+  });
 });

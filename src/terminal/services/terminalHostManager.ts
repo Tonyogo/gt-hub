@@ -45,6 +45,7 @@ export interface ITerminalSession {
 export { stripTerminalQuerySequences } from '../../shared/utils/terminalSanitizer';
 import { stripTerminalQuerySequences } from '../../shared/utils/terminalSanitizer';
 import { TerminalHistoryBuffer } from '../../agent/pty/terminalHistoryBuffer';
+import { StringDecoder } from 'string_decoder';
 
 export class RemoteAgentTerminalSession implements ITerminalSession {
   public hostId: string;
@@ -56,6 +57,7 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
   private currentCols: number = 0;
   private currentRows: number = 0;
   private broadcastBatcher: StreamBatcher;
+  private utf8Decoder: StringDecoder = new StringDecoder('utf8');
   private idleEvictionTimer: NodeJS.Timeout | null = null;
   private static readonly IDLE_EVICTION_MS = 10 * 60 * 1000; // 10 minutes
   private static readonly HISTORY_CHUNK_SIZE = 64 * 1024;
@@ -264,6 +266,7 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
       this.broadcastBatcher.flush();
     }
     this.history.clear();
+    this.utf8Decoder = new StringDecoder('utf8');
     this.pendingInputBuffer = [];
     this.pendingInputBytes = 0;
     this.currentCols = 0;
@@ -296,6 +299,7 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
     }
     this.activeSockets.clear();
     this.history.clear();
+    this.utf8Decoder = new StringDecoder('utf8');
     this.pendingInputBuffer = [];
     this.pendingInputBytes = 0;
     this.agentWs = null;
@@ -313,7 +317,10 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
     if (typeof data === 'string' && data.startsWith('JSON:')) {
       return;
     }
-    const text = typeof data === 'string' ? data : data.toString('utf-8');
+    const text = typeof data === 'string'
+      ? data
+      : this.utf8Decoder.write(Buffer.isBuffer(data) ? data : Buffer.from(data as any));
+    if (!text) return;
     this.history.push(text);
     this.broadcastBatcher.push(text);
   }

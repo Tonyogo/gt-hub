@@ -2,6 +2,7 @@ import os from 'os';
 import path from 'path';
 import fs from 'fs';
 import { spawn } from 'child_process';
+import { StringDecoder } from 'string_decoder';
 import { ConfigStore } from '../client/config/configStore';
 import { resolveWebSocketUrl, parseControlMessage } from '../client/utils/terminalUI';
 import { createWebSocketAdapter } from '../shared/utils/wsAdapter';
@@ -765,10 +766,25 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       if (!ptyBatcher) {
         ptyBatcher = new StreamBatcher((batched) => {
           sendToWs(batched);
-        }, 16);
+        }, 8, 64 * 1024, 4096);
       }
       return ptyBatcher;
     }
+
+    const ptyDecoder = new StringDecoder('utf8');
+    const pushDecodedPtyChunk = (data: any) => {
+      const text = typeof data === 'string' ? data : ptyDecoder.write(Buffer.isBuffer(data) ? data : Buffer.from(data));
+      if (text) {
+        getPtyBatcher().push(text);
+      }
+    };
+    const flushDecodedPtyEnd = () => {
+      const tail = ptyDecoder.end();
+      if (tail) {
+        getPtyBatcher().push(tail);
+      }
+      getPtyBatcher().flush();
+    };
 
     // 1. Layer 1: node-pty (C++ native addon)
     if (pty) {
@@ -782,11 +798,11 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
         });
 
         proc.onData((data: any) => {
-          getPtyBatcher().push(typeof data === 'string' ? data : data.toString('utf-8'));
+          pushDecodedPtyChunk(data);
         });
 
         proc.onExit(({ exitCode }: { exitCode: number }) => {
-          getPtyBatcher().flush();
+          flushDecodedPtyEnd();
           console.log(`[PTY] Shell exited with code: ${exitCode}`);
           ptyProcess = null;
           terminalHistory.clear();
@@ -815,10 +831,10 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
           cols,
           rows,
           onData: (data: any) => {
-            getPtyBatcher().push(typeof data === 'string' ? data : data.toString('utf-8'));
+            pushDecodedPtyChunk(data);
           },
           onExit: (code: any) => {
-            getPtyBatcher().flush();
+            flushDecodedPtyEnd();
             console.log(`[PTY] Shell (PosixPty) exited with code: ${code}`);
             ptyProcess = null;
             terminalHistory.clear();
@@ -860,10 +876,10 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
           cols,
           rows,
           onData: (data: any) => {
-            getPtyBatcher().push(typeof data === 'string' ? data : data.toString('utf-8'));
+            pushDecodedPtyChunk(data);
           },
           onExit: (code: any) => {
-            getPtyBatcher().flush();
+            flushDecodedPtyEnd();
             console.log(`[PTY] Shell (InteractivePipe) exited with code: ${code}`);
             ptyProcess = null;
             terminalHistory.clear();

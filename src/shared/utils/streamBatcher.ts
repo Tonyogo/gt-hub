@@ -4,20 +4,42 @@ export class StreamBatcher {
   private timer: NodeJS.Timeout | null = null;
   private readonly maxBatchBytes: number;
   private readonly intervalMs: number;
+  private readonly immediateMaxBytes: number;
   private flushCallback: (batch: string) => void;
 
   constructor(
     flushCallback: (batch: string) => void,
     intervalMs: number = 16,
-    maxBatchBytes: number = 64 * 1024
+    maxBatchBytes: number = 64 * 1024,
+    immediateMaxBytes: number = 0
   ) {
     this.flushCallback = flushCallback;
     this.intervalMs = intervalMs;
     this.maxBatchBytes = maxBatchBytes;
+    this.immediateMaxBytes = immediateMaxBytes;
   }
 
   public push(chunk: string): void {
     if (!chunk || chunk.length === 0) return;
+
+    // Fast-path: when idle (no active cooldown timer) and immediateMaxBytes is enabled,
+    // flush small interactive packets (like keystroke echo) immediately with 0ms latency
+    // and start the cooldown timer so subsequent burst chunks within intervalMs are coalesced.
+    if (this.immediateMaxBytes > 0 && !this.timer && this.buffer.length === 0 && chunk.length <= this.immediateMaxBytes) {
+      try {
+        this.flushCallback(chunk);
+      } catch {
+        // Ignore callback errors
+      }
+      this.timer = setTimeout(() => {
+        this.timer = null;
+        if (this.buffer.length > 0) {
+          this.flush();
+        }
+      }, this.intervalMs);
+      return;
+    }
+
     this.buffer.push(chunk);
     this.bufferedLength += chunk.length;
 

@@ -38,6 +38,63 @@ describe('Terminal Performance Optimization', () => {
         expect(writtenBatches[0]).toBe('1234567890abc');
         scheduler.destroy();
       });
+
+      it('enforces inFlight backpressure and slices large bursts when async done callback is used', () => {
+        jest.useFakeTimers();
+        try {
+          const writtenBatches: string[] = [];
+          const pendingDoneCallbacks: Array<() => void> = [];
+
+          const scheduler = new TerminalWriteScheduler(
+            (batch, done) => {
+              writtenBatches.push(batch);
+              pendingDoneCallbacks.push(done);
+            },
+            8,
+            10, // maxBatchBytes = 10
+            4   // immediateMaxBytes = 4
+          );
+
+          // 1. Idle small write (<=4 bytes) dispatches immediately with 0ms delay
+          scheduler.push('abc');
+          expect(writtenBatches).toEqual(['abc']);
+          expect(scheduler.isBusy()).toBe(true);
+
+          // 2. While first write is still in-flight in xterm.js, flood 25 bytes
+          scheduler.push('0123456789');
+          scheduler.push('abcdefghij');
+          scheduler.push('UVWXY');
+
+          // Must NOT call xterm.write while busy (prevents main thread lockup)
+          expect(writtenBatches.length).toBe(1);
+          expect(scheduler.pendingBytes()).toBe(25);
+
+          // 3. Complete first write -> schedules next slice after 8ms
+          pendingDoneCallbacks.shift()!();
+          expect(scheduler.isBusy()).toBe(false);
+
+          jest.advanceTimersByTime(8);
+          expect(writtenBatches.length).toBe(2);
+          expect(writtenBatches[1]).toBe('0123456789'); // 10-byte slice
+          expect(scheduler.pendingBytes()).toBe(15);
+
+          // 4. Complete second write -> next 10-byte slice
+          pendingDoneCallbacks.shift()!();
+          jest.advanceTimersByTime(8);
+          expect(writtenBatches.length).toBe(3);
+          expect(writtenBatches[2]).toBe('abcdefghij');
+          expect(scheduler.pendingBytes()).toBe(5);
+
+          // 5. Complete third write -> final 5-byte slice
+          pendingDoneCallbacks.shift()!();
+          jest.advanceTimersByTime(8);
+          expect(writtenBatches.length).toBe(4);
+          expect(writtenBatches[3]).toBe('UVWXY');
+          expect(scheduler.pendingBytes()).toBe(0);
+        } finally {
+          jest.useRealTimers();
+        }
+      });
     });
 
     describe('BackgroundBufferQueue', () => {
@@ -59,6 +116,19 @@ describe('Terminal Performance Optimization', () => {
         const drained = queue.drain();
         expect(drained.endsWith('67890abc')).toBe(true);
         expect(drained.length).toBeLessThanOrEqual(10);
+      });
+
+      it('preserves multi-byte UTF-8 characters split across ArrayBuffer chunks', () => {
+        const queue = new BackgroundBufferQueue(100);
+        // '你好' in UTF-8 is 6 bytes: [0xe4, 0xbd, 0xa0, 0xe5, 0xa5, 0xbd]
+        const fullBytes = Buffer.from('你好', 'utf-8');
+        const part1 = new Uint8Array(fullBytes.subarray(0, 2)); // incomplete first char
+        const part2 = new Uint8Array(fullBytes.subarray(2));    // rest of first + second char
+
+        queue.push(part1);
+        queue.push(part2);
+
+        expect(queue.drain()).toBe('你好');
       });
     });
   });

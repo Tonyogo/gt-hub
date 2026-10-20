@@ -2,50 +2,180 @@ export class TerminalWriteScheduler {
   private buffer: string[] = [];
   private bufferedLength: number = 0;
   private timer: any = null;
+  private inFlight: boolean = false;
   private readonly maxBatchBytes: number;
   private readonly intervalMs: number;
-  private flushCallback: (batch: string) => void;
+  private readonly immediateMaxBytes: number;
+  private readonly maxQueueBytes: number;
+  private flushCallback: (batch: string, done: () => void) => void;
 
   constructor(
-    flushCallback: (batch: string) => void,
+    flushCallback: (batch: string, done: () => void) => void,
     intervalMs: number = 16,
-    maxBatchBytes: number = 64 * 1024
+    maxBatchBytes: number = 64 * 1024,
+    immediateMaxBytes: number = 0,
+    maxQueueBytes: number = 4 * 1024 * 1024
   ) {
     this.flushCallback = flushCallback;
     this.intervalMs = intervalMs;
     this.maxBatchBytes = maxBatchBytes;
+    this.immediateMaxBytes = immediateMaxBytes;
+    this.maxQueueBytes = Math.max(maxBatchBytes, maxQueueBytes);
   }
 
   public push(chunk: string): void {
     if (!chunk || chunk.length === 0) return;
+
+    // Fast-path: when idle (no timer and no in-flight xterm write) and immediateMaxBytes > 0,
+    // dispatch small interactive echo immediately with 0ms delay.
+    if (
+      this.immediateMaxBytes > 0 &&
+      !this.inFlight &&
+      !this.timer &&
+      this.buffer.length === 0 &&
+      chunk.length <= this.immediateMaxBytes
+    ) {
+      this.dispatchBatch(chunk);
+      return;
+    }
+
     this.buffer.push(chunk);
     this.bufferedLength += chunk.length;
+
+    // Cap maximum queued memory during extreme output floods (e.g. `yes` or `cat /dev/zero`)
+    while (this.bufferedLength > this.maxQueueBytes && this.buffer.length > 1) {
+      const dropped = this.buffer.shift()!;
+      this.bufferedLength -= dropped.length;
+    }
+
+    // If a write is currently in flight in xterm.js, wait for its completion callback
+    // to apply natural backpressure and keep the browser main thread responsive.
+    if (this.inFlight) {
+      return;
+    }
 
     if (this.bufferedLength >= this.maxBatchBytes) {
       this.flush();
       return;
     }
 
-    if (!this.timer) {
-      const getTimer = typeof window !== 'undefined' ? window.setTimeout : setTimeout;
-      this.timer = getTimer(() => this.flush(), this.intervalMs);
-    }
+    this.scheduleTimer();
   }
 
-  public flush(): void {
+  private scheduleTimer(): void {
+    if (this.timer || this.inFlight || this.buffer.length === 0) return;
+    const getTimer = typeof window !== 'undefined' ? window.setTimeout : setTimeout;
+    this.timer = getTimer(() => {
+      this.timer = null;
+      this.flushNextSlice();
+    }, this.intervalMs);
+  }
+
+  private clearScheduledTimer(): void {
     if (this.timer) {
       const clear = typeof window !== 'undefined' ? window.clearTimeout : clearTimeout;
       clear(this.timer);
       this.timer = null;
     }
+  }
+
+  private dequeueSlice(maxChars: number): string {
+    if (this.buffer.length === 0) return '';
+    if (this.bufferedLength <= maxChars) {
+      const all = this.buffer.length === 1 ? this.buffer[0] : this.buffer.join('');
+      this.buffer = [];
+      this.bufferedLength = 0;
+      return all;
+    }
+
+    const parts: string[] = [];
+    let collected = 0;
+    while (this.buffer.length > 0 && collected < maxChars) {
+      const head = this.buffer[0];
+      const remaining = maxChars - collected;
+      if (head.length <= remaining) {
+        parts.push(this.buffer.shift()!);
+        this.bufferedLength -= head.length;
+        collected += head.length;
+      } else {
+        parts.push(head.slice(0, remaining));
+        this.buffer[0] = head.slice(remaining);
+        this.bufferedLength -= remaining;
+        collected += remaining;
+        break;
+      }
+    }
+    return parts.length === 1 ? parts[0] : parts.join('');
+  }
+
+  private dispatchBatch(batch: string): void {
+    if (!batch) return;
+    const expectsAsyncDone = this.flushCallback.length >= 2;
+    if (!expectsAsyncDone) {
+      try {
+        this.flushCallback(batch, () => {});
+      } catch {}
+      if (this.buffer.length > 0 && !this.timer) {
+        this.scheduleTimer();
+      }
+      return;
+    }
+
+    this.inFlight = true;
+    let doneCalled = false;
+    const onDone = () => {
+      if (doneCalled) return;
+      doneCalled = true;
+      this.inFlight = false;
+      if (this.buffer.length > 0) {
+        this.scheduleTimer();
+      }
+    };
+
+    try {
+      this.flushCallback(batch, onDone);
+    } catch {
+      onDone();
+    }
+  }
+
+  private flushNextSlice(): void {
+    this.clearScheduledTimer();
+    if (this.inFlight || this.buffer.length === 0) return;
+
+    const expectsAsyncDone = this.flushCallback.length >= 2;
+    const batch = expectsAsyncDone
+      ? this.dequeueSlice(this.maxBatchBytes)
+      : this.dequeueSlice(this.bufferedLength);
+    this.dispatchBatch(batch);
+  }
+
+  public flush(): void {
+    this.clearScheduledTimer();
+    this.inFlight = false;
     if (this.buffer.length === 0) return;
 
     const combined = this.buffer.length === 1 ? this.buffer[0] : this.buffer.join('');
     this.buffer = [];
     this.bufferedLength = 0;
     try {
-      this.flushCallback(combined);
+      this.flushCallback(combined, () => {});
     } catch {}
+  }
+
+  public clear(): void {
+    this.clearScheduledTimer();
+    this.inFlight = false;
+    this.buffer = [];
+    this.bufferedLength = 0;
+  }
+
+  public isBusy(): boolean {
+    return this.inFlight;
+  }
+
+  public pendingBytes(): number {
+    return this.bufferedLength;
   }
 
   public destroy(): void {
@@ -57,6 +187,7 @@ export class BackgroundBufferQueue {
   private chunks: string[] = [];
   private totalBytes: number = 0;
   private readonly maxBytes: number;
+  private decoder: TextDecoder = new TextDecoder('utf-8');
 
   constructor(maxBytes: number = 2 * 1024 * 1024) {
     this.maxBytes = Math.max(1, maxBytes);
@@ -66,10 +197,8 @@ export class BackgroundBufferQueue {
     let str = '';
     if (typeof data === 'string') {
       str = data;
-    } else if (data instanceof ArrayBuffer) {
-      str = new TextDecoder().decode(data);
-    } else if (data instanceof Uint8Array) {
-      str = new TextDecoder().decode(data);
+    } else if (data instanceof ArrayBuffer || data instanceof Uint8Array) {
+      str = this.decoder.decode(data, { stream: true });
     }
     if (!str) return;
 
@@ -91,6 +220,11 @@ export class BackgroundBufferQueue {
   }
 
   public drain(): string {
+    const tail = this.decoder.decode();
+    if (tail) {
+      this.chunks.push(tail);
+      this.totalBytes += tail.length;
+    }
     if (this.chunks.length === 0) return '';
     const combined = this.chunks.length === 1 ? this.chunks[0] : this.chunks.join('');
     this.chunks = [];
@@ -103,6 +237,7 @@ export class BackgroundBufferQueue {
   }
 
   public clear(): void {
+    this.decoder.decode();
     this.chunks = [];
     this.totalBytes = 0;
   }
