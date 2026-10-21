@@ -32,7 +32,10 @@ export function createWebSocketAdapter(customWs?: any): any {
       if (!WsCtor) {
         throw new Error('WebSocket implementation not found (neither globalThis.WebSocket nor ws is available)');
       }
-      const isNativeGlobalWs = typeof globalThis !== 'undefined' && WsCtor === (globalThis as any).WebSocket;
+      const isNativeGlobalWs =
+        typeof globalThis !== 'undefined' &&
+        typeof (globalThis as any).WebSocket === 'function' &&
+        WsCtor === (globalThis as any).WebSocket;
       if (isNativeGlobalWs) {
         // Native browser/Node 22+ WebSocket only accepts string | string[] as second argument.
         // Passing an options object with headers causes a TypeError in Node 22/24.

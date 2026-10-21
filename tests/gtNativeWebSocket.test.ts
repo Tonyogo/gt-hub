@@ -195,11 +195,41 @@ describe('NativeWebSocketAdapter', () => {
   });
 
   it('falls back to URL query parameters when using native globalThis.WebSocket with headers', (done) => {
+    const origWs = (globalThis as any).WebSocket;
+    let mocked = false;
+    if (typeof (globalThis as any).WebSocket !== 'function') {
+      const WsPackage = require('ws');
+      class NativeLikeWebSocket extends WsPackage {
+        constructor(url: string, protocols?: any) {
+          if (protocols && typeof protocols === 'object' && !Array.isArray(protocols)) {
+            throw new TypeError('options is not a valid subprotocol');
+          }
+          super(url, protocols);
+        }
+      }
+      (globalThis as any).WebSocket = NativeLikeWebSocket;
+      mocked = true;
+    }
+
+    const cleanup = () => {
+      if (mocked) {
+        if (origWs !== undefined) {
+          (globalThis as any).WebSocket = origWs;
+        } else {
+          delete (globalThis as any).WebSocket;
+        }
+      }
+    };
+
     wss.once('connection', (ws, req) => {
-      const parsedUrl = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
-      expect(parsedUrl.searchParams.get('x-admin-key')).toBe('query-secret');
-      ws.close();
-      done();
+      try {
+        const parsedUrl = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
+        expect(parsedUrl.searchParams.get('x-admin-key')).toBe('query-secret');
+      } finally {
+        ws.close();
+        cleanup();
+        done();
+      }
     });
 
     const NativeAdapter = gt.createWebSocketAdapter((globalThis as any).WebSocket);
