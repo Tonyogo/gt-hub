@@ -23,6 +23,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies & Build local gt CLI
+        run: |
+          npm install --no-audit --no-fund
+          npm run build:gt
 
       - name: Validate configuration & Deploy via gt
         env:
@@ -50,12 +56,8 @@ jobs:
           echo "Deploy Path : $DEPLOY_PATH"
           echo "=========================================="
 
-          # 2. Dynamically download gt CLI from GT_SERVER
-          echo "Downloading gt CLI from $GT_SERVER/gt..."
-          curl -fsSL "$GT_SERVER/gt" -o ./gt.js
-
-          # 3. Trigger deployment command via gt exec with repository auto-discovery fallback
-          node ./gt.js exec \
+          # 2. Trigger deployment command via freshly built local gt CLI
+          node ./dist/gt.js exec \
             --poll \
             --verbose \
             -e DEPLOY_PATH="$DEPLOY_PATH" \
