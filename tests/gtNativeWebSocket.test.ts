@@ -193,4 +193,19 @@ describe('NativeWebSocketAdapter', () => {
       });
     });
   });
+
+  it('falls back to URL query parameters when using native globalThis.WebSocket with headers', (done) => {
+    wss.once('connection', (ws, req) => {
+      const parsedUrl = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
+      expect(parsedUrl.searchParams.get('x-admin-key')).toBe('query-secret');
+      ws.close();
+      done();
+    });
+
+    const NativeAdapter = gt.createWebSocketAdapter((globalThis as any).WebSocket);
+    const client = new NativeAdapter(`ws://127.0.0.1:${port}`, {
+      headers: { 'x-admin-key': 'query-secret' },
+    });
+    expect(client).toBeDefined();
+  });
 });

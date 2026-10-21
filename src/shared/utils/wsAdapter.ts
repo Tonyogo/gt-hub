@@ -1,12 +1,15 @@
 export function createWebSocketAdapter(customWs?: any): any {
   const getWsCtor = () => {
     if (customWs !== undefined) return customWs;
+    // In Node.js environment, prioritize the 'ws' package because it supports Node.js network options
+    // such as custom HTTP headers ({ headers: { 'x-admin-key': '...' } }), permessage-deflate, and agent options.
+    try {
+      const wsModule = require('ws');
+      if (wsModule) return wsModule;
+    } catch {}
     if (typeof globalThis !== 'undefined' && typeof (globalThis as any).WebSocket === 'function') {
       return (globalThis as any).WebSocket;
     }
-    try {
-      return require('ws');
-    } catch {}
     return null;
   };
 
@@ -33,10 +36,33 @@ export function createWebSocketAdapter(customWs?: any): any {
       if (isNativeGlobalWs) {
         // Native browser/Node 22+ WebSocket only accepts string | string[] as second argument.
         // Passing an options object with headers causes a TypeError in Node 22/24.
-        try {
-          this._ws = new WsCtor(url);
-        } catch {
-          this._ws = new WsCtor(url, options);
+        // Fallback: If options.headers contains an admin key, append it to query params (?x-admin-key=...)
+        let finalUrl = url;
+        if (options && typeof options === 'object' && options.headers) {
+          const headers = options.headers;
+          const adminKey = headers['x-admin-key'] || headers['X-Admin-Key'] || headers['key'];
+          if (adminKey && typeof adminKey === 'string') {
+            try {
+              const parsed = new URL(finalUrl);
+              if (!parsed.searchParams.has('x-admin-key') && !parsed.searchParams.has('key')) {
+                parsed.searchParams.set('x-admin-key', adminKey);
+                finalUrl = parsed.toString();
+              }
+            } catch {
+              const separator = finalUrl.includes('?') ? '&' : '?';
+              finalUrl = `${finalUrl}${separator}x-admin-key=${encodeURIComponent(adminKey)}`;
+            }
+          }
+        }
+
+        const protocols = Array.isArray(options) || typeof options === 'string'
+          ? options
+          : (options && typeof options === 'object' && options.protocols ? options.protocols : undefined);
+
+        if (protocols) {
+          this._ws = new WsCtor(finalUrl, protocols);
+        } else {
+          this._ws = new WsCtor(finalUrl);
         }
       } else {
         this._ws = new WsCtor(url, options);
@@ -65,6 +91,12 @@ export function createWebSocketAdapter(customWs?: any): any {
         this._ws.on('close', (code: any, reason: any) => this._emit('close', code, reason));
         this._ws.on('error', (err: any) => this._emit('error', err));
         this._ws.on('message', (data: any, isBinary: boolean) => this._emit('message', data, isBinary));
+      }
+
+      if (typeof this._ws.on === 'function') {
+        this._ws.on('upgrade', (response: any) => this._emit('upgrade', response));
+        this._ws.on('ping', (data: any) => this._emit('ping', data));
+        this._ws.on('pong', (data: any) => this._emit('pong', data));
       }
     }
 
