@@ -27,7 +27,7 @@ export function parseExecArgs(args: string[]): ExecParsedArgs {
   let interactive = false;
   let tty = false;
   const rawModeEnv = (process.env.GT_EXEC_MODE || '').trim().toLowerCase();
-  let mode: 'stream' | 'poll' = rawModeEnv === 'poll' || rawModeEnv === 'http' ? 'poll' : 'stream';
+  let mode: 'stream' | 'poll' = rawModeEnv === 'poll' ? 'poll' : 'stream';
   const envVars: Record<string, string> = {};
   let host = '';
   const commandParts: string[] = [];
@@ -46,28 +46,10 @@ export function parseExecArgs(args: string[]): ExecParsedArgs {
     }
     if (a === '-d' || a === '--detach' || a === '-a' || a === '--async') {
       detach = true;
-    } else if (a === '--poll' || a === '--http') {
+    } else if (a === '--poll') {
       mode = 'poll';
-    } else if (a === '--stream' || a === '--ws') {
+    } else if (a === '--stream') {
       mode = 'stream';
-    } else if (a === '--mode') {
-      const nextArg = (args[++i] || '').toLowerCase();
-      if (nextArg === 'poll' || nextArg === 'http') {
-        mode = 'poll';
-      } else if (nextArg === 'stream' || nextArg === 'ws') {
-        mode = 'stream';
-      } else {
-        throw new Error(`Invalid execution mode: "${nextArg}". Expected "stream" or "poll".`);
-      }
-    } else if (a.startsWith('--mode=')) {
-      const val = a.slice(7).toLowerCase();
-      if (val === 'poll' || val === 'http') {
-        mode = 'poll';
-      } else if (val === 'stream' || val === 'ws') {
-        mode = 'stream';
-      } else {
-        throw new Error(`Invalid execution mode: "${val}". Expected "stream" or "poll".`);
-      }
     } else if (a === '--verbose') {
       verbose = true;
     } else if (a === '-q' || a === '--quiet') {

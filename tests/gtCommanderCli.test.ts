@@ -97,7 +97,7 @@ describe('gt Commander CLI Structure', () => {
     expect(parsed.fullCommand).toBe("bash -c 'ls -la'");
   });
 
-  it('supports selecting exec mode via --poll, --http, --stream, and --mode flags', () => {
+  it('supports selecting exec mode via --poll and --stream flags', () => {
     // Default mode is stream
     const defaultParsed = parseExecArgs(['worker', 'echo', 'hi']);
     expect(defaultParsed.options.mode).toBe('stream');
@@ -106,30 +106,9 @@ describe('gt Commander CLI Structure', () => {
     const pollParsed = parseExecArgs(['--poll', 'worker', 'echo', 'hi']);
     expect(pollParsed.options.mode).toBe('poll');
 
-    // --http flag
-    const httpParsed = parseExecArgs(['--http', 'worker', 'echo', 'hi']);
-    expect(httpParsed.options.mode).toBe('poll');
-
     // --stream flag
     const streamParsed = parseExecArgs(['--stream', 'worker', 'echo', 'hi']);
     expect(streamParsed.options.mode).toBe('stream');
-
-    // --mode poll
-    const modePoll = parseExecArgs(['--mode', 'poll', 'worker', 'echo', 'hi']);
-    expect(modePoll.options.mode).toBe('poll');
-
-    // --mode=poll
-    const modeEqPoll = parseExecArgs(['--mode=poll', 'worker', 'echo', 'hi']);
-    expect(modeEqPoll.options.mode).toBe('poll');
-
-    // --mode stream
-    const modeStream = parseExecArgs(['--mode', 'stream', 'worker', 'echo', 'hi']);
-    expect(modeStream.options.mode).toBe('stream');
-
-    // Invalid mode throws
-    expect(() => parseExecArgs(['--mode', 'invalid', 'worker', 'echo', 'hi'])).toThrow(
-      /Invalid execution mode: "invalid"/
-    );
   });
 
   it('honors GT_EXEC_MODE environment variable default', () => {
