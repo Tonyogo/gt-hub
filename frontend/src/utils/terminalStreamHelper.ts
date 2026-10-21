@@ -27,7 +27,7 @@ export class TerminalWriteScheduler {
     if (!chunk || chunk.length === 0) return;
 
     // Fast-path: when idle (no timer and no in-flight xterm write) and immediateMaxBytes > 0,
-    // dispatch small interactive echo immediately with 0ms delay.
+    // dispatch small interactive echo immediately with 0ms delay, and set a cooldown timer.
     if (
       this.immediateMaxBytes > 0 &&
       !this.inFlight &&
@@ -36,6 +36,13 @@ export class TerminalWriteScheduler {
       chunk.length <= this.immediateMaxBytes
     ) {
       this.dispatchBatch(chunk);
+      const getTimer = typeof window !== 'undefined' ? window.setTimeout : setTimeout;
+      this.timer = getTimer(() => {
+        this.timer = null;
+        if (this.buffer.length > 0) {
+          this.flushNextSlice();
+        }
+      }, this.intervalMs);
       return;
     }
 
@@ -55,7 +62,7 @@ export class TerminalWriteScheduler {
     }
 
     if (this.bufferedLength >= this.maxBatchBytes) {
-      this.flush();
+      this.flushNextSlice();
       return;
     }
 

@@ -699,6 +699,21 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
         } else {
           ws.send(`JSON:${JSON.stringify({ type: 'ping' })}`);
         }
+        if (!heartbeatTimeoutTimer) {
+          heartbeatTimeoutTimer = setTimeout(() => {
+            if (Date.now() - lastPongReceived >= HEARTBEAT_TIMEOUT_MS) {
+              console.warn(
+                `[Agent] Heartbeat response timeout on ${serverArg}. Terminating connection...`
+              );
+              if (ws) {
+                try { ws.terminate(); } catch {}
+              }
+            }
+          }, HEARTBEAT_TIMEOUT_MS);
+          if (typeof heartbeatTimeoutTimer.unref === 'function') {
+            heartbeatTimeoutTimer.unref();
+          }
+        }
       } catch {}
     }, HEARTBEAT_INTERVAL_MS);
   }
@@ -731,8 +746,13 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       LANG: process.env.LANG || 'en_US.UTF-8',
       TERM_PROGRAM: 'gemini-proxy-agent',
       PROMPT_EOL_MARK: '',
-      CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: process.env.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN || '1',
+      ...(process.env.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN
+        ? { CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: process.env.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN }
+        : {}),
     };
+    if (!process.env.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN) {
+      delete env.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN;
+    }
     delete env.TMUX;
     delete env.TMUX_PANE;
     delete env.STY;

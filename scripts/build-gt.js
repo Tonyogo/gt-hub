@@ -115,7 +115,7 @@ function buildGt(options = {}) {
     target: 'node18',
     outfile,
     banner: { js: '#!/usr/bin/env node' },
-    external: ['node-pty', 'ws'],
+    external: ['node-pty'],
     ...esbuildOptions,
     define,
   });
