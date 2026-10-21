@@ -56,6 +56,7 @@ jobs:
 
           # 3. Trigger deployment command via gt exec with repository auto-discovery fallback
           node ./gt.js exec \
+            --poll \
             --verbose \
             -e DEPLOY_PATH="$DEPLOY_PATH" \
             "$TARGET_HOST" \

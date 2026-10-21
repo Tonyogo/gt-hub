@@ -44,10 +44,22 @@ describe('gt exec WebSocket Streaming Integration', () => {
         return;
       }
 
-      // Detached execution endpoint
+      // Detached and Polled execution endpoints
       if (req.method === 'POST' && url.pathname === '/api/terminal/exec/node-ws-1') {
         res.statusCode = 202;
-        res.end(JSON.stringify({ success: true, taskId: 'task-detached-99' }));
+        res.end(JSON.stringify({ success: true, taskId: 'task-poll-99' }));
+        return;
+      }
+
+      if (req.method === 'GET' && url.pathname.startsWith('/api/terminal/exec/node-ws-1/task-poll-99')) {
+        res.statusCode = 200;
+        res.end(JSON.stringify({
+          success: true,
+          status: 'completed',
+          exitCode: 0,
+          stdout: 'polled output line\n',
+          offset: 19,
+        }));
         return;
       }
 
@@ -184,7 +196,17 @@ describe('gt exec WebSocket Streaming Integration', () => {
     });
 
     expect(res.code).toBe(0);
-    expect(res.stdout).toContain('task-detached-99');
+    expect(res.stdout).toContain('task-poll-99');
+    expect(wsConnectionCount).toBe(0);
+  });
+
+  it('supports --poll flag using HTTP polling without initiating WebSocket connection', async () => {
+    const res = await runGt(['exec', '--poll', 'node-ws-1', 'echo', 'via-poll'], {
+      GT_SERVER: `http://localhost:${serverPort}`,
+    });
+
+    expect(res.code).toBe(0);
+    expect(res.stdout).toContain('polled output line');
     expect(wsConnectionCount).toBe(0);
   });
 });

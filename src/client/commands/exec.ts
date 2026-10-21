@@ -14,6 +14,7 @@ export interface ExecParsedArgs {
     env: Record<string, string>;
     interactive: boolean;
     tty: boolean;
+    mode: 'stream' | 'poll';
   };
 }
 
@@ -25,6 +26,8 @@ export function parseExecArgs(args: string[]): ExecParsedArgs {
   let pollInterval = 500;
   let interactive = false;
   let tty = false;
+  const rawModeEnv = (process.env.GT_EXEC_MODE || '').trim().toLowerCase();
+  let mode: 'stream' | 'poll' = rawModeEnv === 'poll' || rawModeEnv === 'http' ? 'poll' : 'stream';
   const envVars: Record<string, string> = {};
   let host = '';
   const commandParts: string[] = [];
@@ -43,6 +46,28 @@ export function parseExecArgs(args: string[]): ExecParsedArgs {
     }
     if (a === '-d' || a === '--detach' || a === '-a' || a === '--async') {
       detach = true;
+    } else if (a === '--poll' || a === '--http') {
+      mode = 'poll';
+    } else if (a === '--stream' || a === '--ws') {
+      mode = 'stream';
+    } else if (a === '--mode') {
+      const nextArg = (args[++i] || '').toLowerCase();
+      if (nextArg === 'poll' || nextArg === 'http') {
+        mode = 'poll';
+      } else if (nextArg === 'stream' || nextArg === 'ws') {
+        mode = 'stream';
+      } else {
+        throw new Error(`Invalid execution mode: "${nextArg}". Expected "stream" or "poll".`);
+      }
+    } else if (a.startsWith('--mode=')) {
+      const val = a.slice(7).toLowerCase();
+      if (val === 'poll' || val === 'http') {
+        mode = 'poll';
+      } else if (val === 'stream' || val === 'ws') {
+        mode = 'stream';
+      } else {
+        throw new Error(`Invalid execution mode: "${val}". Expected "stream" or "poll".`);
+      }
     } else if (a === '--verbose') {
       verbose = true;
     } else if (a === '-q' || a === '--quiet') {
@@ -112,7 +137,7 @@ export function parseExecArgs(args: string[]): ExecParsedArgs {
     host,
     fullCommand,
     commandParts,
-    options: { detach, workdir, timeoutMs, verbose, pollInterval, env: envVars, interactive, tty },
+    options: { detach, workdir, timeoutMs, verbose, pollInterval, env: envVars, interactive, tty, mode },
   };
 }
 
@@ -287,6 +312,10 @@ export function runStreamExec({
       } else if (!exitResolved) {
         if (code !== 1000 && code !== 1005) {
           const reasonStr = reason ? reason.toString() : '';
+          if (code === 1001 || reasonStr.includes('Server shutting down')) {
+            reject(new Error(`WebSocket closed by server (${reasonStr || `code ${code}`})`));
+            return;
+          }
           if (reasonStr && !reasonStr.includes('Host is offline')) {
             process.stderr.write(`\n[${hostId}] Connection closed: ${reasonStr}\n`);
           }
@@ -518,6 +547,30 @@ export async function runExecCommand({
       startTime,
       pollInterval,
     });
+    return;
+  }
+
+  if (options.mode === 'poll') {
+    try {
+      await runHttpPollExec({
+        server,
+        key,
+        targetHost,
+        fullCommand,
+        workdir,
+        timeoutMs,
+        envVars,
+        stdinPayload,
+        detach: false,
+        jsonOutput,
+        verbose,
+        startTime,
+        pollInterval,
+      });
+    } catch (err: any) {
+      console.error(`Failed to execute on [${targetHost}]: ${err.message}`);
+      process.exit(1);
+    }
     return;
   }
 
