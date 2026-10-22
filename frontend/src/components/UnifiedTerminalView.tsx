@@ -34,6 +34,7 @@ import {
   toggleBrowserFullscreen,
   onFullscreenChange,
 } from '../utils/browserFullscreenHelper';
+import { formatTimezoneOffset } from '../utils/timeHelpers';
 
 export interface UnifiedTerminalViewProps {
   adminKey?: string;
@@ -411,40 +412,14 @@ export default function UnifiedTerminalView({
             </button>
           </div>
 
-          {/* Connection Status Badge (when in interactive tab, wide desktop only) */}
-          {subTab === 'interactive' && (
-            <div className="hidden sm:flex items-center space-x-1 max-xl:hidden px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg bg-black/30 border border-white/[0.06] text-slate-300 font-mono text-[11px] shrink-0 whitespace-nowrap">
-              <div
-                className={`w-1.5 h-1.5 rounded-full ${
-                  !activeHostId
-                    ? 'bg-slate-500'
-                    : connectionStatus.isConnected
-                    ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.6)]'
-                    : connectionStatus.isConnecting
-                    ? 'bg-amber-400 animate-ping'
-                    : 'bg-rose-400'
-                }`}
-              />
-              <span className="hidden sm:inline text-[10px]">
-                {!activeHostId
-                  ? t('webTerminal.emptyState.noOnlineHosts', '无在线节点')
-                  : connectionStatus.isConnected
-                  ? t('webTerminal.connected')
-                  : connectionStatus.isConnecting
-                  ? t('webTerminal.connecting')
-                  : t('webTerminal.disconnected')}
-              </span>
-            </div>
-          )}
-
-          {/* Global Server Timezone Badge */}
+          {/* Global Server Timezone Badge (Concise UTC Offset format, e.g. UTC+8) */}
           {serverTimezone && (
             <div
-              className="hidden 2xl:flex items-center space-x-1 px-2 py-1 rounded-lg bg-black/30 border border-white/[0.06] text-slate-300 font-mono text-[11px] shrink-0 whitespace-nowrap"
+              className="hidden sm:flex items-center space-x-1 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg bg-black/30 border border-white/[0.06] text-slate-300 font-mono text-[11px] shrink-0 whitespace-nowrap cursor-default"
               title={`${t('common.serverTimezone', '服务器时区')}: ${serverTimezone}`}
             >
               <span className="text-xs">🌐</span>
-              <span>{serverTimezone}</span>
+              <span>{formatTimezoneOffset(serverTimezone)}</span>
             </div>
           )}
         </div>

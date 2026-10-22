@@ -30,3 +30,40 @@ export function formatRelativeTime(
   }
   return lang === 'zh' ? `离线于 ${diffDay}天前` : `Offline ${diffDay}d ago`;
 }
+
+/**
+ * 将 IANA 时区标识符（如 "Asia/Shanghai"、"America/New_York"）转换为简洁的 UTC 偏移形式（如 "UTC+8"、"UTC-5"）
+ *
+ * @param timezone IANA 时区字符串
+ * @returns 简洁时区字符串，解析失败时安全回退至原始时区名称
+ */
+export function formatTimezoneOffset(timezone: string): string {
+  if (!timezone || typeof timezone !== 'string') return '';
+  const trimmed = timezone.trim();
+  if (!trimmed) return '';
+
+  // 常见特殊与缩写快速匹配
+  if (trimmed.toUpperCase() === 'UTC' || trimmed.toUpperCase() === 'GMT') {
+    return 'UTC+0';
+  }
+
+  try {
+    const now = new Date();
+    // 尝试使用 Intl.DateTimeFormat 获取 shortOffset (如 "GMT+8" 或 "GMT-4")
+    const dtf = new Intl.DateTimeFormat('en-US', {
+      timeZone: trimmed,
+      timeZoneName: 'shortOffset',
+    });
+    const formatted = dtf.format(now);
+    const offsetMatch = formatted.match(/GMT([+-]?\d+(?::\d+)?)/);
+    if (offsetMatch) {
+      const offset = offsetMatch[1];
+      return offset.startsWith('+') || offset.startsWith('-') ? `UTC${offset}` : `UTC+${offset}`;
+    }
+    if (formatted.includes('GMT')) {
+      return 'UTC+0';
+    }
+  } catch {}
+
+  return trimmed;
+}
