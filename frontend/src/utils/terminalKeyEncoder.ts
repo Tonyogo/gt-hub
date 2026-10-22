@@ -22,10 +22,12 @@ export function encodeNavigationKey(
   key: 'PageUp' | 'PageDown' | 'Home' | 'End' | 'Delete' | 'Del' | 'ArrowUp' | 'ArrowDown' | 'ArrowLeft' | 'ArrowRight' | string,
   ctrl: boolean = false,
   alt: boolean = false,
-  shift: boolean = false
+  shift: boolean = false,
+  applicationCursorKeysMode: boolean = false
 ): string {
   const mod = calculateAnsiModifier(ctrl, alt, shift);
   const isModified = mod > 1;
+  const prefix = !isModified && applicationCursorKeysMode ? '\x1bO' : '\x1b[';
 
   if (key === 'PageUp') {
     return isModified ? `\x1b[5;${mod}~` : '\x1b[5~';
@@ -34,10 +36,10 @@ export function encodeNavigationKey(
     return isModified ? `\x1b[6;${mod}~` : '\x1b[6~';
   }
   if (key === 'Home') {
-    return isModified ? `\x1b[1;${mod}H` : '\x1b[H';
+    return isModified ? `\x1b[1;${mod}H` : `${prefix}H`;
   }
   if (key === 'End') {
-    return isModified ? `\x1b[1;${mod}F` : '\x1b[F';
+    return isModified ? `\x1b[1;${mod}F` : `${prefix}F`;
   }
   if (key === 'Delete' || key === 'Del') {
     return isModified ? `\x1b[3;${mod}~` : '\x1b[3~';
@@ -52,10 +54,29 @@ export function encodeNavigationKey(
 
   const code = arrowCodes[key];
   if (code) {
-    return isModified ? `\x1b[1;${mod}${code}` : `\x1b[${code}`;
+    return isModified ? `\x1b[1;${mod}${code}` : `${prefix}${code}`;
   }
 
   return '';
+}
+
+const CSI_TO_SS3_NAVIGATION_MAP: Record<string, string> = {
+  '\x1b[A': '\x1bOA',
+  '\x1b[B': '\x1bOB',
+  '\x1b[C': '\x1bOC',
+  '\x1b[D': '\x1bOD',
+  '\x1b[H': '\x1bOH',
+  '\x1b[F': '\x1bOF',
+};
+
+export function adaptNavigationSequenceToMode(
+  data: string,
+  applicationCursorKeysMode: boolean = false
+): string {
+  if (!applicationCursorKeysMode) {
+    return data;
+  }
+  return CSI_TO_SS3_NAVIGATION_MAP[data] ?? data;
 }
 
 export function encodeModifierKey(

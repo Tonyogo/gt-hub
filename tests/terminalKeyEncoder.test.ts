@@ -2,6 +2,7 @@ import {
   calculateAnsiModifier,
   encodeNavigationKey,
   encodeModifierKey,
+  adaptNavigationSequenceToMode,
 } from '../frontend/src/utils/terminalKeyEncoder';
 
 describe('terminalKeyEncoder', () => {
@@ -70,6 +71,45 @@ describe('terminalKeyEncoder', () => {
 
     it('returns empty string for unrecognized keys', () => {
       expect(encodeNavigationKey('InvalidKey')).toBe('');
+    });
+
+    it('encodes unmodified arrow and home/end keys as SS3 sequences when applicationCursorKeysMode is true', () => {
+      expect(encodeNavigationKey('ArrowUp', false, false, false, true)).toBe('\x1bOA');
+      expect(encodeNavigationKey('ArrowDown', false, false, false, true)).toBe('\x1bOB');
+      expect(encodeNavigationKey('ArrowRight', false, false, false, true)).toBe('\x1bOC');
+      expect(encodeNavigationKey('ArrowLeft', false, false, false, true)).toBe('\x1bOD');
+      expect(encodeNavigationKey('Home', false, false, false, true)).toBe('\x1bOH');
+      expect(encodeNavigationKey('End', false, false, false, true)).toBe('\x1bOF');
+      // PageUp, PageDown, Delete remain CSI ~ sequences even in applicationCursorKeysMode
+      expect(encodeNavigationKey('PageUp', false, false, false, true)).toBe('\x1b[5~');
+      expect(encodeNavigationKey('PageDown', false, false, false, true)).toBe('\x1b[6~');
+      expect(encodeNavigationKey('Delete', false, false, false, true)).toBe('\x1b[3~');
+    });
+
+    it('keeps CSI modifier format when modifiers are active even if applicationCursorKeysMode is true', () => {
+      expect(encodeNavigationKey('ArrowUp', true, false, false, true)).toBe('\x1b[1;5A');
+      expect(encodeNavigationKey('ArrowDown', false, false, true, true)).toBe('\x1b[1;2B');
+      expect(encodeNavigationKey('Home', false, true, false, true)).toBe('\x1b[1;3H');
+      expect(encodeNavigationKey('End', true, false, false, true)).toBe('\x1b[1;5F');
+    });
+  });
+
+  describe('adaptNavigationSequenceToMode', () => {
+    it('converts unmodified CSI cursor/home/end sequences to SS3 when applicationCursorKeysMode is true', () => {
+      expect(adaptNavigationSequenceToMode('\x1b[A', true)).toBe('\x1bOA');
+      expect(adaptNavigationSequenceToMode('\x1b[B', true)).toBe('\x1bOB');
+      expect(adaptNavigationSequenceToMode('\x1b[C', true)).toBe('\x1bOC');
+      expect(adaptNavigationSequenceToMode('\x1b[D', true)).toBe('\x1bOD');
+      expect(adaptNavigationSequenceToMode('\x1b[H', true)).toBe('\x1bOH');
+      expect(adaptNavigationSequenceToMode('\x1b[F', true)).toBe('\x1bOF');
+    });
+
+    it('leaves sequences unchanged when applicationCursorKeysMode is false or sequence is modified/non-cursor', () => {
+      expect(adaptNavigationSequenceToMode('\x1b[A', false)).toBe('\x1b[A');
+      expect(adaptNavigationSequenceToMode('\x1b[B', false)).toBe('\x1b[B');
+      expect(adaptNavigationSequenceToMode('\x1b[1;5A', true)).toBe('\x1b[1;5A');
+      expect(adaptNavigationSequenceToMode('\x1b[5~', true)).toBe('\x1b[5~');
+      expect(adaptNavigationSequenceToMode('ls -la\r', true)).toBe('ls -la\r');
     });
   });
 

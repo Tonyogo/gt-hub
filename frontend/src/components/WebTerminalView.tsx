@@ -29,7 +29,10 @@ import {
   isSyntheticTerminalReport,
   isUnsolicitedShellDeviceReport,
 } from '../utils/terminalFilter';
-import { encodeModifierKey } from '../utils/terminalKeyEncoder';
+import {
+  encodeModifierKey,
+  adaptNavigationSequenceToMode,
+} from '../utils/terminalKeyEncoder';
 import {
   calculateKeyboardTranslateY,
   shouldBlockPtyResize,
@@ -1816,7 +1819,8 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
   const handleSendInput = (data: string, shouldFocus = false) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(data);
+      const isAppCursorMode = Boolean(xtermRef.current?.modes?.applicationCursorKeysMode);
+      wsRef.current.send(adaptNavigationSequenceToMode(data, isAppCursorMode));
     }
     if (shouldFocus) {
       xtermRef.current?.focus();

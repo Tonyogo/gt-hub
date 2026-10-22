@@ -108,6 +108,13 @@ describe('TerminalAccessoryBar and Anti-Keyboard-Popup Controls', () => {
     expect(content).toContain('handleSendInput(data, false)');
   });
 
+  test('WebTerminalView handleSendInput adapts navigation sequences to xterm applicationCursorKeysMode', () => {
+    const content = fs.readFileSync(webTerminalPath, 'utf-8');
+
+    expect(content).toContain('adaptNavigationSequenceToMode');
+    expect(content).toContain('applicationCursorKeysMode');
+  });
+
   test('WebTerminalView manages isShiftActive state and auto-resets on input send', () => {
     const content = fs.readFileSync(webTerminalPath, 'utf-8');
 
