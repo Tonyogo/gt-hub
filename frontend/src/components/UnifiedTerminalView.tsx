@@ -328,18 +328,18 @@ export default function UnifiedTerminalView({
       }`}
     >
       {/* Top Window Bar */}
-      <div ref={headerRef} className="bg-[var(--bg-surface-sub)] border-b border-[var(--border-subtle)] px-2 sm:px-4 py-1.5 sm:py-2 flex items-center justify-between select-none shrink-0 sticky top-0 z-30">
-        <div className="flex items-center space-x-1.5 sm:space-x-2 min-w-0">
+      <div ref={headerRef} className="bg-[var(--bg-surface-sub)] border-b border-[var(--border-subtle)] px-2 sm:px-4 py-1.5 sm:py-2 flex items-center justify-between gap-1.5 sm:gap-2 select-none shrink-0 sticky top-0 z-30">
+        <div className="flex items-center space-x-1 sm:space-x-2 min-w-0 flex-1 overflow-hidden">
           {/* Back to Console (Standalone Mode) */}
           {isStandalone && onExitStandalone && (
             <button
               type="button"
               onClick={onExitStandalone}
-              className="mr-1 px-1.5 sm:px-2 py-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-slate-300 hover:text-white border border-white/[0.08] transition-all flex items-center space-x-1 text-xs active:scale-95"
+              className="mr-1 px-1.5 sm:px-2 py-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-slate-300 hover:text-white border border-white/[0.08] transition-all flex items-center space-x-1 text-xs active:scale-95 shrink-0"
               title={t('webTerminal.backToDashboard')}
             >
               <ArrowLeft className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline font-sans text-[11px]">{t('webTerminal.backToDashboard')}</span>
+              <span className="hidden lg:inline font-sans text-[11px]">{t('webTerminal.backToDashboard')}</span>
             </button>
           )}
 
@@ -353,63 +353,67 @@ export default function UnifiedTerminalView({
             connectionStatus={connectionStatus}
           />
 
-          <div className="h-4 w-px bg-[var(--border-subtle)] hidden sm:block" />
+          <div className="h-4 w-px bg-[var(--border-subtle)] hidden sm:block shrink-0" />
 
           {/* SubTab Toggle Pills */}
           <div className="flex items-center p-0.5 rounded-xl bg-[var(--bg-surface-sub)] border border-[var(--border-subtle)] shrink-0">
             <button
               type="button"
               onClick={() => handleSubTabChange('interactive')}
-              className={`flex items-center space-x-1.5 px-2 sm:px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+              title={t('terminal.interactiveTab', '命令行终端')}
+              className={`flex items-center space-x-1 lg:space-x-1.5 px-2 lg:px-2.5 py-1 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
                 subTab === 'interactive'
                   ? 'bg-indigo-600 text-white shadow-xs'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <TerminalSquare className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">{t('terminal.interactiveTab', '命令行终端')}</span>
+              <TerminalSquare className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden md:inline">{t('terminal.interactiveTab', '命令行终端')}</span>
             </button>
             <button
               type="button"
               onClick={() => handleSubTabChange('files')}
-              className={`flex items-center space-x-1.5 px-2 sm:px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+              title={t('files.title', '文件管理')}
+              className={`flex items-center space-x-1 lg:space-x-1.5 px-2 lg:px-2.5 py-1 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
                 subTab === 'files'
                   ? 'bg-indigo-600 text-white shadow-xs'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <FolderOpen className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">{t('files.title', '文件管理')}</span>
+              <FolderOpen className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden md:inline">{t('files.title', '文件管理')}</span>
             </button>
             <button
               type="button"
               onClick={() => handleSubTabChange('cron')}
-              className={`flex items-center space-x-1.5 px-2 sm:px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+              title={t('cron.title', '定时任务')}
+              className={`flex items-center space-x-1 lg:space-x-1.5 px-2 lg:px-2.5 py-1 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
                 subTab === 'cron'
                   ? 'bg-indigo-600 text-white shadow-xs'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <Clock className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">{t('cron.title', '定时任务')}</span>
+              <Clock className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden md:inline">{t('cron.title', '定时任务')}</span>
             </button>
             <button
               type="button"
               onClick={() => handleSubTabChange('tasks')}
-              className={`flex items-center space-x-1.5 px-2 sm:px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+              title={t('tasks.tabName', '任务管理')}
+              className={`flex items-center space-x-1 lg:space-x-1.5 px-2 lg:px-2.5 py-1 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
                 subTab === 'tasks'
                   ? 'bg-indigo-600 text-white shadow-xs'
                   : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              <Activity className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">{t('tasks.tabName', '任务管理')}</span>
+              <Activity className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden md:inline">{t('tasks.tabName', '任务管理')}</span>
             </button>
           </div>
 
-          {/* Connection Status Badge (when in interactive tab, desktop only) */}
+          {/* Connection Status Badge (when in interactive tab, wide desktop only) */}
           {subTab === 'interactive' && (
-            <div className="hidden sm:flex items-center space-x-1 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg bg-black/30 border border-white/[0.06] text-slate-300 font-mono text-[11px] shrink-0">
+            <div className="hidden sm:flex max-xl:hidden items-center space-x-1 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg bg-black/30 border border-white/[0.06] text-slate-300 font-mono text-[11px] shrink-0 whitespace-nowrap">
               <div
                 className={`w-1.5 h-1.5 rounded-full ${
                   !activeHostId
@@ -436,7 +440,7 @@ export default function UnifiedTerminalView({
           {/* Global Server Timezone Badge */}
           {serverTimezone && (
             <div
-              className="hidden sm:flex items-center space-x-1 px-2 py-1 rounded-lg bg-black/30 border border-white/[0.06] text-slate-300 font-mono text-[11px] shrink-0"
+              className="hidden 2xl:flex items-center space-x-1 px-2 py-1 rounded-lg bg-black/30 border border-white/[0.06] text-slate-300 font-mono text-[11px] shrink-0 whitespace-nowrap"
               title={`${t('common.serverTimezone', '服务器时区')}: ${serverTimezone}`}
             >
               <span className="text-xs">🌐</span>
@@ -447,14 +451,14 @@ export default function UnifiedTerminalView({
 
 
         {/* Action Buttons */}
-        <div className="flex items-center space-x-0.5 sm:space-x-1.5 shrink-0">
+        <div className="flex items-center space-x-0.5 sm:space-x-1 lg:space-x-1.5 shrink-0">
           {subTab === 'interactive' && (
             <>
               {/* Zoom Out */}
               <button
                 type="button"
                 onClick={() => terminalRef.current?.zoomOut()}
-                className="hidden sm:inline-flex p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border border-white/[0.06] transition-all"
+                className="hidden lg:inline-flex p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border border-white/[0.06] transition-all"
                 title="Zoom Out"
               >
                 <ZoomOut className="w-3.5 h-3.5" />
@@ -464,7 +468,7 @@ export default function UnifiedTerminalView({
               <button
                 type="button"
                 onClick={() => terminalRef.current?.zoomIn()}
-                className="hidden sm:inline-flex p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border border-white/[0.06] transition-all"
+                className="hidden lg:inline-flex p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border border-white/[0.06] transition-all"
                 title="Zoom In"
               >
                 <ZoomIn className="w-3.5 h-3.5" />
@@ -494,12 +498,12 @@ export default function UnifiedTerminalView({
               <button
                 type="button"
                 data-testid="unified-open-scripts-btn"
-                className="hidden sm:inline-flex p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border border-white/[0.06] transition-all items-center space-x-1 text-xs"
+                className="hidden sm:inline-flex p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border border-white/[0.06] transition-all items-center space-x-1 text-xs whitespace-nowrap"
                 onClick={() => terminalRef.current?.openScriptDrawer()}
                 title={t('scripts.title', '常用脚本库')}
               >
-                <ScrollText className="w-3.5 h-3.5 text-indigo-400" />
-                <span className="hidden md:inline font-sans text-[11px]">{t('scripts.title', '常用脚本库')}</span>
+                <ScrollText className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                <span className="hidden xl:inline font-sans text-[11px]">{t('scripts.title', '常用脚本库')}</span>
               </button>
 
               {/* Select / Copy Mode Toggle */}

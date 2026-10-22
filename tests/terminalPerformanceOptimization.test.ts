@@ -95,6 +95,39 @@ describe('Terminal Performance Optimization', () => {
           jest.useRealTimers();
         }
       });
+
+      it('does not bypass inFlight backpressure when bufferedLength exceeds maxBatchBytes while idle', () => {
+        jest.useFakeTimers();
+        try {
+          const writtenBatches: string[] = [];
+          const pendingDoneCallbacks: Array<() => void> = [];
+
+          const scheduler = new TerminalWriteScheduler(
+            (batch, done) => {
+              writtenBatches.push(batch);
+              pendingDoneCallbacks.push(done);
+            },
+            8,
+            10, // maxBatchBytes = 10
+            4   // immediateMaxBytes = 4
+          );
+
+          // Push a 25-byte burst (> maxBatchBytes = 10) when idle
+          scheduler.push('0123456789abcdefghijUVWXY');
+
+          // Must only dispatch first 10-byte slice and remain busy (inFlight = true)
+          expect(writtenBatches).toEqual(['0123456789']);
+          expect(scheduler.isBusy()).toBe(true);
+          expect(scheduler.pendingBytes()).toBe(15);
+
+          // Subsequent push while busy must queue and NOT synchronously invoke callback
+          scheduler.push('1234567890');
+          expect(writtenBatches.length).toBe(1);
+          expect(scheduler.pendingBytes()).toBe(25);
+        } finally {
+          jest.useRealTimers();
+        }
+      });
     });
 
     describe('BackgroundBufferQueue', () => {
@@ -165,6 +198,13 @@ describe('Terminal Performance Optimization', () => {
     it('flushes backgroundQueue when transitioning from inactive to active', () => {
       expect(compContent).toContain('backgroundQueueRef');
       expect(compContent).toContain('writeSchedulerRef');
+    });
+
+    it('restores native alternate screen mode in daemon.ts by not forcing CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN to 1', () => {
+      const daemonPath = path.resolve(__dirname, '../src/agent/daemon.ts');
+      const daemonContent = fs.readFileSync(daemonPath, 'utf-8');
+      expect(daemonContent).not.toMatch(/CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN:\s*process\.env\.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN\s*\|\|\s*['"]1['"]/);
+      expect(daemonContent).toContain('delete env.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN');
     });
   });
 });

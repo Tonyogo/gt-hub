@@ -709,7 +709,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
           {/* Top Action & Breadcrumb Bar */}
           <div className="ui-card p-2 sm:p-2.5 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-subtle)] shrink-0 mb-2">
         {/* Left: Breadcrumbs / Path input */}
-        <div className="flex items-center space-x-1.5 flex-1 min-w-[240px] overflow-hidden text-xs sm:text-sm">
+        <div className="flex items-center space-x-1.5 flex-1 min-w-[160px] sm:min-w-[240px] overflow-hidden text-xs sm:text-sm">
           {parentPath !== null && (
             <button
               onClick={() => loadFiles(parentPath)}
@@ -727,7 +727,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
                 setIsEditingPath(false);
                 if (pathInput.trim()) loadFiles(pathInput.trim());
               }}
-              className="flex-1 flex items-center gap-1"
+              className="flex-1 flex items-center gap-1 min-w-0"
             >
               <input
                 type="text"
@@ -735,17 +735,17 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
                 onChange={(e) => setPathInput(e.target.value)}
                 autoFocus
                 onBlur={() => setIsEditingPath(false)}
-                className="flex-1 bg-[var(--bg-surface-sub)] border border-[var(--border-subtle)] rounded px-2 py-0.5 text-xs text-[var(--text-primary)] focus:outline-hidden focus:border-indigo-500"
+                className="flex-1 min-w-0 bg-[var(--bg-surface-sub)] border border-[var(--border-subtle)] rounded px-2 py-0.5 text-xs text-[var(--text-primary)] focus:outline-hidden focus:border-indigo-500"
               />
             </form>
           ) : (
-            <div className="flex items-center flex-wrap gap-1 overflow-x-auto py-0.5 no-scrollbar">
+            <div className="flex items-center flex-nowrap gap-1 overflow-x-auto py-0.5 no-scrollbar min-w-0">
               {breadcrumbs.map((crumb, idx) => (
                 <React.Fragment key={crumb.fullPath}>
                   {idx > 0 && <ChevronRight className="w-3.5 h-3.5 text-slate-500 shrink-0" />}
                   <button
                     onClick={() => loadFiles(crumb.fullPath)}
-                    className="hover:underline text-slate-300 hover:text-indigo-400 truncate max-w-[140px] font-medium"
+                    className="hover:underline text-slate-300 hover:text-indigo-400 truncate max-w-[100px] sm:max-w-[140px] font-medium shrink-0"
                     title={crumb.fullPath}
                   >
                     {crumb.name}
@@ -755,7 +755,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
               <button
                 onClick={() => setIsEditingPath(true)}
                 title="Edit path manually"
-                className="p-1 text-slate-400 hover:text-slate-200"
+                className="p-1 text-slate-400 hover:text-slate-200 shrink-0"
               >
                 <Edit2 className="w-3 h-3" />
               </button>
@@ -772,7 +772,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
         </div>
 
         {/* Right: Search, Refresh, Upload, New Folder */}
-        <div className="flex items-center space-x-1.5 shrink-0">
+        <div className="flex items-center space-x-1 sm:space-x-1.5 shrink-0">
           <div className="relative">
             <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
@@ -780,7 +780,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={t('files.searchPlaceholder', '过滤当前目录文件...')}
-              className="pl-7 pr-2 py-1 bg-[var(--bg-surface-sub)] border border-[var(--border-subtle)] rounded-lg text-xs w-28 sm:w-36 focus:w-48 transition-all focus:outline-hidden focus:border-indigo-500 text-[var(--text-primary)]"
+              className="pl-7 pr-2 py-1 bg-[var(--bg-surface-sub)] border border-[var(--border-subtle)] rounded-lg text-xs w-24 sm:w-36 focus:w-36 sm:focus:w-48 transition-all focus:outline-hidden focus:border-indigo-500 text-[var(--text-primary)]"
             />
           </div>
 
@@ -788,7 +788,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
             onClick={() => loadFiles(currentPath)}
             disabled={loading}
             title={t('files.refresh', '刷新')}
-            className="p-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-sub)] hover:bg-[var(--bg-surface-hover)] text-slate-300 hover:text-white transition-colors"
+            className="p-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-sub)] hover:bg-[var(--bg-surface-hover)] text-slate-300 hover:text-white transition-colors shrink-0"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           </button>
@@ -797,7 +797,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
             type="button"
             onClick={handleToggleHiddenFiles}
             title={showHiddenFiles ? t('files.hideHidden', '不显示隐藏文件') : t('files.showHidden', '显示隐藏文件')}
-            className={`p-1.5 rounded-lg border transition-colors ${
+            className={`p-1.5 rounded-lg border transition-colors shrink-0 ${
               showHiddenFiles
                 ? 'border-indigo-500/40 bg-indigo-500/15 text-indigo-400 hover:bg-indigo-500/25'
                 : 'border-[var(--border-subtle)] bg-[var(--bg-surface-sub)] hover:bg-[var(--bg-surface-hover)] text-slate-400 hover:text-slate-200'
@@ -812,23 +812,25 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
 
           <button
             onClick={() => setNewFolderOpen(true)}
-            className="flex items-center space-x-1 px-2.5 py-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-sub)] hover:bg-[var(--bg-surface-hover)] text-xs text-slate-200 hover:text-white transition-colors"
+            title={t('files.newFolder', '新建文件夹')}
+            className="flex items-center space-x-1 px-2 sm:px-2.5 py-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-sub)] hover:bg-[var(--bg-surface-hover)] text-xs text-slate-200 hover:text-white transition-colors shrink-0 whitespace-nowrap"
           >
-            <FolderPlus className="w-3.5 h-3.5 text-amber-400" />
-            <span className="hidden sm:inline">{t('files.newFolder', '新建文件夹')}</span>
+            <FolderPlus className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span className="hidden md:inline">{t('files.newFolder', '新建文件夹')}</span>
           </button>
 
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
-            className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-medium text-white shadow-xs transition-colors"
+            title={uploading ? t('files.uploading', '正在上传...') : t('files.upload', '上传文件')}
+            className="flex items-center space-x-1 px-2 sm:px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-medium text-white shadow-xs transition-colors shrink-0 whitespace-nowrap"
           >
             {uploading ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
             ) : (
-              <Upload className="w-3.5 h-3.5" />
+              <Upload className="w-3.5 h-3.5 shrink-0" />
             )}
-            <span>{uploading ? t('files.uploading', '正在上传...') : t('files.upload', '上传文件')}</span>
+            <span className="hidden sm:inline">{uploading ? t('files.uploading', '正在上传...') : t('files.upload', '上传文件')}</span>
           </button>
         </div>
       </div>

@@ -66,4 +66,29 @@ describe('TerminalHistoryBuffer Unit Tests', () => {
     expect(sanitized).not.toContain('\x1b]10;?\x07');
     expect(sanitized).toContain('Output before queryOutput after query');
   });
+
+  test('isolates alternate screen (\\x1b[?1049h ... \\x1b[?1049l) redraw floods and preserves normal shell history on exit', () => {
+    const buf = new TerminalHistoryBuffer(1024);
+    buf.push('$ echo "important shell history before claude"\r\nimportant shell history before claude\r\n');
+
+    // Enter alternate screen and flood 5000 bytes of TUI redraw frames (exceeding 1024 maxBytes)
+    buf.push('\x1b[?1049h');
+    for (let i = 0; i < 50; i++) {
+      buf.push(`\x1b[H\x1b[2JClaude Code TUI frame #${i} - ${'x'.repeat(80)}\r\n`);
+    }
+
+    // While still in alternate screen, normal history + \x1b[?1049h header must still be preserved!
+    const whileInAlt = buf.getString();
+    expect(whileInAlt).toContain('important shell history before claude');
+    expect(whileInAlt).toContain('\x1b[?1049h');
+    expect(whileInAlt).toContain('Claude Code TUI frame #49');
+
+    // Exit alternate screen -> all transient TUI frames are discarded and normal history remains intact
+    buf.push('\x1b[?1049l$ echo "after claude exit"\r\n');
+    const afterExit = buf.getString();
+    expect(afterExit).toContain('important shell history before claude');
+    expect(afterExit).toContain('$ echo "after claude exit"');
+    expect(afterExit).not.toContain('Claude Code TUI frame');
+    expect(afterExit).not.toContain('\x1b[?1049h');
+  });
 });

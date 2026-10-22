@@ -2275,8 +2275,8 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     >
       {/* Top Window Bar */}
       {!hideHeader && (
-      <div ref={headerRef} className="bg-[var(--bg-surface-sub)] border-b border-[var(--border-subtle)] px-2 sm:px-4 py-1.5 sm:py-2 flex items-center justify-between select-none shrink-0 sticky top-0 z-30">
-        <div className="flex items-center space-x-1.5 sm:space-x-2 min-w-0">
+      <div ref={headerRef} className="bg-[var(--bg-surface-sub)] border-b border-[var(--border-subtle)] px-2 sm:px-4 py-1.5 sm:py-2 flex items-center justify-between gap-1.5 sm:gap-2 select-none shrink-0 sticky top-0 z-30">
+        <div className="flex items-center space-x-1.5 sm:space-x-2 min-w-0 flex-1 overflow-hidden">
           {/* Back to Console (Standalone Mode) */}
           {standalone && onExitStandalone && (
             <button
