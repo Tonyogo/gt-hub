@@ -413,7 +413,7 @@ export default function UnifiedTerminalView({
 
           {/* Connection Status Badge (when in interactive tab, wide desktop only) */}
           {subTab === 'interactive' && (
-            <div className="hidden sm:flex max-xl:hidden items-center space-x-1 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg bg-black/30 border border-white/[0.06] text-slate-300 font-mono text-[11px] shrink-0 whitespace-nowrap">
+            <div className="hidden sm:flex items-center space-x-1 max-xl:hidden px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-lg bg-black/30 border border-white/[0.06] text-slate-300 font-mono text-[11px] shrink-0 whitespace-nowrap">
               <div
                 className={`w-1.5 h-1.5 rounded-full ${
                   !activeHostId
