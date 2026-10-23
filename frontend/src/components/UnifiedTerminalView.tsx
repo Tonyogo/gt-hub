@@ -303,8 +303,8 @@ export default function UnifiedTerminalView({
   useEffect(() => {
     if (subTab === 'interactive' && activeHostId) {
       const t1 = setTimeout(() => terminalRef.current?.fit(true), 60);
-      const t2 = setTimeout(() => terminalRef.current?.fit(true), 200);
-      const t3 = setTimeout(() => terminalRef.current?.fit(true), 500);
+      const t2 = setTimeout(() => terminalRef.current?.fit(), 200);
+      const t3 = setTimeout(() => terminalRef.current?.fit(), 500);
       return () => {
         clearTimeout(t1);
         clearTimeout(t2);
