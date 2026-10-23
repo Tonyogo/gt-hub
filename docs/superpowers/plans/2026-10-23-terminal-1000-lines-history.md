@@ -30,7 +30,7 @@
   - `export const DEFAULT_MAX_HISTORY_LINES = 1000;`
   - `class TerminalHistoryBuffer { constructor(maxBytes?: number, clearOnEd3?: boolean, maxLines?: number) }`
 
-- [ ] **Step 1: Write the failing tests in `tests/terminalHistoryBuffer.test.ts`**
+- [x] **Step 1: Write the failing tests in `tests/terminalHistoryBuffer.test.ts`**
 
 Add tests to `tests/terminalHistoryBuffer.test.ts` verifying default 1000-line eviction, custom `maxLines` eviction across single/multiple chunks, and prefix preservation when a chunk is split mid-line:
 
@@ -57,12 +57,12 @@ Add tests to `tests/terminalHistoryBuffer.test.ts` verifying default 1000-line e
   });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm test -- tests/terminalHistoryBuffer.test.ts`
 Expected: FAIL — `expect(lines.length).toBe(1000)` receives `1500`.
 
-- [ ] **Step 3: Implement incremental line counting and trimming in `src/agent/pty/terminalHistoryBuffer.ts`**
+- [x] **Step 3: Implement incremental line counting and trimming in `src/agent/pty/terminalHistoryBuffer.ts`**
 
 Update `src/agent/pty/terminalHistoryBuffer.ts` with `DEFAULT_MAX_HISTORY_BYTES`, `DEFAULT_MAX_HISTORY_LINES`, `chunkLineCounts`, `totalLines`, and line-eviction logic inside `pushNormal` and `clear`:
 
@@ -308,12 +308,12 @@ export class TerminalHistoryBuffer {
 }
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npm test -- tests/terminalHistoryBuffer.test.ts tests/terminalDeflateAndBufferLimit.test.ts tests/terminalPersistence.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/agent/pty/terminalHistoryBuffer.ts tests/terminalHistoryBuffer.test.ts
@@ -337,7 +337,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>"
   - `class BackgroundBufferQueue { constructor(maxBytes?: number, maxLines?: number) }` (default `maxLines = 1000`)
   - `MAX_SCROLLBACK_LINES = 1000` in `WebTerminalView.tsx`
 
-- [ ] **Step 1: Write the failing tests in `tests/terminalPerformanceOptimization.test.ts`**
+- [x] **Step 1: Write the failing tests in `tests/terminalPerformanceOptimization.test.ts`**
 
 Update `tests/terminalPerformanceOptimization.test.ts`:
 1. Add unit tests under `describe('BackgroundBufferQueue')` for the 1000-line default cap and custom `maxLines` cap.
@@ -374,12 +374,12 @@ And update line 180 in `tests/terminalPerformanceOptimization.test.ts`:
     });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm test -- tests/terminalPerformanceOptimization.test.ts`
 Expected: FAIL — `BackgroundBufferQueue` does not yet trim at 1000 lines and `WebTerminalView.tsx` does not contain `MAX_SCROLLBACK_LINES = 1000`.
 
-- [ ] **Step 3: Implement 1000-line cap in `BackgroundBufferQueue` and `WebTerminalView.tsx`**
+- [x] **Step 3: Implement 1000-line cap in `BackgroundBufferQueue` and `WebTerminalView.tsx`**
 
 In `frontend/src/utils/terminalStreamHelper.ts`, update `BackgroundBufferQueue`:
 
@@ -530,12 +530,12 @@ In `frontend/src/components/WebTerminalView.tsx` (lines 815-822), replace the `d
       : defaultScrollback;
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npm test -- tests/terminalPerformanceOptimization.test.ts tests/terminalNonFullscreenStability.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/utils/terminalStreamHelper.ts frontend/src/components/WebTerminalView.tsx tests/terminalPerformanceOptimization.test.ts
