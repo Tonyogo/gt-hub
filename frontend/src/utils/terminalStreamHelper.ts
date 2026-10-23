@@ -190,14 +190,37 @@ export class TerminalWriteScheduler {
   }
 }
 
+function countStringNewlines(str: string): number {
+  let count = 0;
+  for (let i = 0; i < str.length; i++) {
+    if (str.charCodeAt(i) === 10) count++;
+  }
+  return count;
+}
+
+function findNthStringNewlineIndex(str: string, n: number): number {
+  let seen = 0;
+  for (let i = 0; i < str.length; i++) {
+    if (str.charCodeAt(i) === 10) {
+      seen++;
+      if (seen === n) return i;
+    }
+  }
+  return -1;
+}
+
 export class BackgroundBufferQueue {
   private chunks: string[] = [];
+  private chunkLineCounts: number[] = [];
   private totalBytes: number = 0;
+  private totalLines: number = 0;
   private readonly maxBytes: number;
+  private readonly maxLines: number;
   private decoder: TextDecoder = new TextDecoder('utf-8');
 
-  constructor(maxBytes: number = 2 * 1024 * 1024) {
+  constructor(maxBytes: number = 2 * 1024 * 1024, maxLines: number = 1000) {
     this.maxBytes = Math.max(1, maxBytes);
+    this.maxLines = Math.max(1, maxLines);
   }
 
   public push(data: string | Uint8Array | ArrayBuffer): void {
@@ -209,33 +232,80 @@ export class BackgroundBufferQueue {
     }
     if (!str) return;
 
+    const lines = countStringNewlines(str);
     this.chunks.push(str);
+    this.chunkLineCounts.push(lines);
     this.totalBytes += str.length;
+    this.totalLines += lines;
 
+    // 1. Enforce maxBytes cap
     while (this.totalBytes > this.maxBytes && this.chunks.length > 0) {
       const head = this.chunks[0];
       const excess = this.totalBytes - this.maxBytes;
       if (head.length <= excess) {
         this.totalBytes -= head.length;
+        this.totalLines -= this.chunkLineCounts.shift()!;
         this.chunks.shift();
       } else {
-        this.chunks[0] = head.slice(excess);
+        const slicedHead = head.slice(excess);
+        const newHeadLines = countStringNewlines(slicedHead);
+        this.totalLines -= (this.chunkLineCounts[0] - newHeadLines);
+        this.chunkLineCounts[0] = newHeadLines;
+        this.chunks[0] = slicedHead;
         this.totalBytes -= excess;
         break;
       }
+    }
+
+    // 2. Enforce maxLines cap
+    while (this.totalLines > this.maxLines && this.chunks.length > 0) {
+      const head = this.chunks[0];
+      const headLines = this.chunkLineCounts[0];
+      const excessLines = this.totalLines - this.maxLines;
+
+      if (headLines === 0) {
+        this.totalBytes -= head.length;
+        this.chunkLineCounts.shift();
+        this.chunks.shift();
+        continue;
+      }
+
+      if (headLines < excessLines) {
+        this.totalBytes -= head.length;
+        this.totalLines -= headLines;
+        this.chunkLineCounts.shift();
+        this.chunks.shift();
+        continue;
+      }
+
+      const cutIdx = findNthStringNewlineIndex(head, excessLines);
+      if (cutIdx === -1 || cutIdx === head.length - 1) {
+        this.totalBytes -= head.length;
+        this.totalLines -= headLines;
+        this.chunkLineCounts.shift();
+        this.chunks.shift();
+      } else {
+        const remaining = head.slice(cutIdx + 1);
+        this.totalBytes -= (cutIdx + 1);
+        this.totalLines -= excessLines;
+        this.chunkLineCounts[0] = headLines - excessLines;
+        this.chunks[0] = remaining;
+      }
+      break;
     }
   }
 
   public drain(): string {
     const tail = this.decoder.decode();
     if (tail) {
-      this.chunks.push(tail);
-      this.totalBytes += tail.length;
+      this.push(tail);
     }
     if (this.chunks.length === 0) return '';
     const combined = this.chunks.length === 1 ? this.chunks[0] : this.chunks.join('');
     this.chunks = [];
+    this.chunkLineCounts = [];
     this.totalBytes = 0;
+    this.totalLines = 0;
     return combined;
   }
 
@@ -246,6 +316,8 @@ export class BackgroundBufferQueue {
   public clear(): void {
     this.decoder.decode();
     this.chunks = [];
+    this.chunkLineCounts = [];
     this.totalBytes = 0;
+    this.totalLines = 0;
   }
 }

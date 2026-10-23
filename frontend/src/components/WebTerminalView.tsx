@@ -812,12 +812,13 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
   useEffect(() => {
     if (!terminalContainerRef.current) return;
 
-    const defaultScrollback = isMobile ? 3000 : 8000;
+    const MAX_SCROLLBACK_LINES = 1000;
+    const defaultScrollback = MAX_SCROLLBACK_LINES;
     const configuredScrollback = typeof localStorage !== 'undefined'
       ? parseInt(localStorage.getItem('terminal_scrollback_lines') || '', 10)
       : NaN;
     const scrollback = !isNaN(configuredScrollback) && configuredScrollback > 0
-      ? configuredScrollback
+      ? Math.min(configuredScrollback, MAX_SCROLLBACK_LINES)
       : defaultScrollback;
 
     const term = new Terminal({

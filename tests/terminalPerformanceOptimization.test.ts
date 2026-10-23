@@ -163,6 +163,26 @@ describe('Terminal Performance Optimization', () => {
 
         expect(queue.drain()).toBe('你好');
       });
+
+      it('caps buffered lines to 1000 by default and trims oldest lines', () => {
+        const queue = new BackgroundBufferQueue();
+        for (let i = 1; i <= 1250; i++) {
+          queue.push(`Line ${i}\n`);
+        }
+        const drained = queue.drain();
+        const lines = drained.trimEnd().split('\n');
+        expect(lines.length).toBe(1000);
+        expect(lines[0]).toBe('Line 251');
+        expect(lines[999]).toBe('Line 1250');
+      });
+
+      it('supports custom maxLines and preserves partial line prefix across chunks', () => {
+        const queue = new BackgroundBufferQueue(1024 * 1024, 2);
+        queue.push('old-prefix-');
+        queue.push('1\nkeep-prefix-');
+        queue.push('2\nkeep-3\n');
+        expect(queue.drain()).toBe('keep-prefix-2\nkeep-3\n');
+      });
     });
   });
 
@@ -177,11 +197,10 @@ describe('Terminal Performance Optimization', () => {
       unifiedContent = fs.readFileSync(unifiedPath, 'utf-8');
     });
 
-    it('defines responsive scrollback with 8000 desktop and 3000 mobile fallback', () => {
+    it('defines unified 1000-line scrollback cap for terminal performance', () => {
       expect(compContent).toContain('scrollback:');
       expect(compContent).not.toMatch(/scrollback:\s*30000/);
-      expect(compContent).toMatch(/8000/);
-      expect(compContent).toMatch(/3000/);
+      expect(compContent).toContain('MAX_SCROLLBACK_LINES = 1000');
     });
 
     it('does not import or instantiate webgl addon', () => {
