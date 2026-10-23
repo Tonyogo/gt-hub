@@ -91,4 +91,25 @@ describe('TerminalHistoryBuffer Unit Tests', () => {
     expect(afterExit).not.toContain('Claude Code TUI frame');
     expect(afterExit).not.toContain('\x1b[?1049h');
   });
+
+  test('enforces default 1000-line history cap when more than 1000 lines are pushed', () => {
+    const buf = new TerminalHistoryBuffer();
+    for (let i = 1; i <= 1500; i++) {
+      buf.push(`Line ${i}\r\n`);
+    }
+    const result = buf.getString();
+    const lines = result.trimEnd().split('\r\n');
+    expect(lines.length).toBe(1000);
+    expect(lines[0]).toBe('Line 501');
+    expect(lines[999]).toBe('Line 1500');
+  });
+
+  test('evicts oldest lines accurately across multi-line and partial-line chunks with custom maxLines', () => {
+    const buf = new TerminalHistoryBuffer(1024 * 1024, true, 3);
+    buf.push('part1-');
+    buf.push('line1\nline2\npart2-');
+    buf.push('line3\nline4\nline5\n');
+
+    expect(buf.getString()).toBe('part2-line3\nline4\nline5\n');
+  });
 });
