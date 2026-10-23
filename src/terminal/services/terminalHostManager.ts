@@ -57,6 +57,7 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
   private currentCols: number = 0;
   private currentRows: number = 0;
   private pendingAttachRefresh: boolean = false;
+  private nudgeTimer: NodeJS.Timeout | null = null;
   private broadcastBatcher: StreamBatcher;
   private utf8Decoder: StringDecoder = new StringDecoder('utf8');
   private idleEvictionTimer: NodeJS.Timeout | null = null;
@@ -94,6 +95,7 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
   }
 
   public updateAgentWs(agentWs: any): void {
+    this.cancelNudgeTimer();
     const prevCols = this.currentCols;
     const prevRows = this.currentRows;
     this.agentWs = agentWs;
@@ -194,6 +196,13 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
     }
   }
 
+  private cancelNudgeTimer(): void {
+    if (this.nudgeTimer) {
+      clearTimeout(this.nudgeTimer);
+      this.nudgeTimer = null;
+    }
+  }
+
   public resize(cols: number, rows: number, force: boolean = false): void {
     if (cols <= 0 || rows <= 0) return;
     const isSameDimensions = this.currentCols === cols && this.currentRows === rows;
@@ -202,6 +211,7 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
     }
     const shouldNudge = isSameDimensions && (force || this.pendingAttachRefresh);
     this.pendingAttachRefresh = false;
+    this.cancelNudgeTimer();
     this.currentCols = cols;
     this.currentRows = rows;
     if (this.agentWs && this.agentWs.readyState === 1) {
@@ -209,7 +219,19 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
         if (shouldNudge) {
           const nudgeCols = cols > 10 ? cols - 1 : cols + 1;
           this.agentWs.send(`JSON:${JSON.stringify({ type: 'resize', cols: nudgeCols, rows })}`);
-          this.agentWs.send(`JSON:${JSON.stringify({ type: 'resize', cols, rows })}`);
+          this.nudgeTimer = setTimeout(() => {
+            this.nudgeTimer = null;
+            if (this.agentWs && this.agentWs.readyState === 1) {
+              try {
+                this.agentWs.send(`JSON:${JSON.stringify({ type: 'resize', cols: this.currentCols, rows: this.currentRows })}`);
+              } catch (err: any) {
+                logger.warn(`[RemoteAgentTerminal:${this.hostId}] Failed to send restore resize to agent: ${err.message}`);
+              }
+            }
+          }, 60);
+          if (this.nudgeTimer && typeof this.nudgeTimer.unref === 'function') {
+            this.nudgeTimer.unref();
+          }
         } else {
           this.agentWs.send(`JSON:${JSON.stringify({ type: 'resize', cols, rows })}`);
         }
@@ -281,6 +303,7 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
 
   public reset(notifyClients: boolean = true, resetAgentPty: boolean = false): void {
     this.cancelIdleEviction();
+    this.cancelNudgeTimer();
     if (this.broadcastBatcher) {
       this.broadcastBatcher.flush();
     }
@@ -313,6 +336,7 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
 
   public destroy(): void {
     this.cancelIdleEviction();
+    this.cancelNudgeTimer();
     if (this.broadcastBatcher) {
       this.broadcastBatcher.flush();
     }

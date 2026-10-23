@@ -634,7 +634,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         if (!safeFit(true)) {
           setTimeout(() => safeFit(true), 80);
         }
-        setTimeout(() => safeFit(false), 250);
+        setTimeout(() => safeFit(true), 250);
         setTimeout(() => safeFit(false), 600);
       };
 

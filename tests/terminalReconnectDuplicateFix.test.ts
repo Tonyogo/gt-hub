@@ -165,7 +165,7 @@ describe('Terminal Reconnect Duplicate Information Fix Tests', () => {
       expect(session.getCurrentDimensions()).toEqual({ cols: 0, rows: 0 });
     });
 
-    test('triggers SIGWINCH dimension refresh when a client attaches to a session with history and sends matching dimensions', () => {
+    test('triggers SIGWINCH dimension refresh when a client attaches to a session with history and sends matching dimensions', async () => {
       const mockAgentWs = { readyState: 1, send: jest.fn() };
       const session = new RemoteAgentTerminalSession('test-tui-reattach-refresh', mockAgentWs);
 
@@ -179,9 +179,12 @@ describe('Terminal Reconnect Duplicate Information Fix Tests', () => {
       session.attach(clientWs as any);
       session.resize(180, 44);
 
-      // Must nudge and restore dimensions so PTY delivers SIGWINCH to Claude Code for full redraw
-      expect(mockAgentWs.send).toHaveBeenCalledTimes(2);
+      // Must nudge first and restore dimensions after delay so Node.js/PTY delivers process.stdout resize event
+      expect(mockAgentWs.send).toHaveBeenCalledTimes(1);
       expect(mockAgentWs.send).toHaveBeenNthCalledWith(1, 'JSON:{"type":"resize","cols":179,"rows":44}');
+
+      await new Promise((r) => setTimeout(r, 80));
+      expect(mockAgentWs.send).toHaveBeenCalledTimes(2);
       expect(mockAgentWs.send).toHaveBeenNthCalledWith(2, 'JSON:{"type":"resize","cols":180,"rows":44}');
 
       // Subsequent identical resize from the same client must still be deduplicated
@@ -226,7 +229,7 @@ describe('Terminal Reconnect Duplicate Information Fix Tests', () => {
       expect(daemonContent).toContain('let lastPtyRows = 24;');
     });
 
-    test('force resize triggers nudge dimension refresh even when dimensions match currentCols and currentRows', () => {
+    test('force resize triggers nudge dimension refresh even when dimensions match currentCols and currentRows', async () => {
       const mockAgentWs = { readyState: 1, send: jest.fn() };
       const session = new RemoteAgentTerminalSession('test-force-resize-nudge', mockAgentWs);
 
@@ -239,10 +242,13 @@ describe('Terminal Reconnect Duplicate Information Fix Tests', () => {
       session.resize(180, 44, false);
       expect(mockAgentWs.send).not.toHaveBeenCalled();
 
-      // Force resize with identical dimensions (e.g. switching back to tab/window) triggers nudge to excite SIGWINCH
+      // Force resize with identical dimensions (e.g. switching back to tab/window) triggers delayed nudge to excite process.stdout resize
       session.resize(180, 44, true);
-      expect(mockAgentWs.send).toHaveBeenCalledTimes(2);
+      expect(mockAgentWs.send).toHaveBeenCalledTimes(1);
       expect(mockAgentWs.send).toHaveBeenNthCalledWith(1, 'JSON:{"type":"resize","cols":179,"rows":44}');
+
+      await new Promise((r) => setTimeout(r, 80));
+      expect(mockAgentWs.send).toHaveBeenCalledTimes(2);
       expect(mockAgentWs.send).toHaveBeenNthCalledWith(2, 'JSON:{"type":"resize","cols":180,"rows":44}');
     });
   });
