@@ -310,7 +310,7 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
           ) {
             const cols = Math.max(10, Math.min(500, Math.floor(control.cols)));
             const rows = Math.max(5, Math.min(200, Math.floor(control.rows)));
-            session.resize(cols, rows);
+            session.resize(cols, rows, Boolean(control.force));
             return;
           }
           if (control.type === 'reset') {

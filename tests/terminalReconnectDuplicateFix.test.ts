@@ -225,6 +225,26 @@ describe('Terminal Reconnect Duplicate Information Fix Tests', () => {
       expect(daemonContent).toContain('let lastPtyCols = 80;');
       expect(daemonContent).toContain('let lastPtyRows = 24;');
     });
+
+    test('force resize triggers nudge dimension refresh even when dimensions match currentCols and currentRows', () => {
+      const mockAgentWs = { readyState: 1, send: jest.fn() };
+      const session = new RemoteAgentTerminalSession('test-force-resize-nudge', mockAgentWs);
+
+      session.resize(180, 44, false);
+      expect(mockAgentWs.send).toHaveBeenCalledTimes(1);
+      expect(mockAgentWs.send).toHaveBeenCalledWith('JSON:{"type":"resize","cols":180,"rows":44}');
+      mockAgentWs.send.mockClear();
+
+      // Normal resize with identical dimensions is deduplicated
+      session.resize(180, 44, false);
+      expect(mockAgentWs.send).not.toHaveBeenCalled();
+
+      // Force resize with identical dimensions (e.g. switching back to tab/window) triggers nudge to excite SIGWINCH
+      session.resize(180, 44, true);
+      expect(mockAgentWs.send).toHaveBeenCalledTimes(2);
+      expect(mockAgentWs.send).toHaveBeenNthCalledWith(1, 'JSON:{"type":"resize","cols":179,"rows":44}');
+      expect(mockAgentWs.send).toHaveBeenNthCalledWith(2, 'JSON:{"type":"resize","cols":180,"rows":44}');
+    });
   });
 
   describe('Direct XTerm Buffer Behavioral Verification', () => {

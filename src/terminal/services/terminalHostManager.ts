@@ -194,29 +194,25 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
     }
   }
 
-  public resize(cols: number, rows: number): void {
+  public resize(cols: number, rows: number, force: boolean = false): void {
     if (cols <= 0 || rows <= 0) return;
-    if (this.currentCols === cols && this.currentRows === rows) {
-      if (this.pendingAttachRefresh) {
-        this.pendingAttachRefresh = false;
-        if (this.agentWs && this.agentWs.readyState === 1) {
-          try {
-            const nudgeCols = cols > 10 ? cols - 1 : cols + 1;
-            this.agentWs.send(`JSON:${JSON.stringify({ type: 'resize', cols: nudgeCols, rows })}`);
-            this.agentWs.send(`JSON:${JSON.stringify({ type: 'resize', cols, rows })}`);
-          } catch (err: any) {
-            logger.warn(`[RemoteAgentTerminal:${this.hostId}] Failed to send attach refresh resize to agent: ${err.message}`);
-          }
-        }
-      }
+    const isSameDimensions = this.currentCols === cols && this.currentRows === rows;
+    if (isSameDimensions && !force && !this.pendingAttachRefresh) {
       return;
     }
+    const shouldNudge = isSameDimensions && (force || this.pendingAttachRefresh);
     this.pendingAttachRefresh = false;
     this.currentCols = cols;
     this.currentRows = rows;
     if (this.agentWs && this.agentWs.readyState === 1) {
       try {
-        this.agentWs.send(`JSON:${JSON.stringify({ type: 'resize', cols, rows })}`);
+        if (shouldNudge) {
+          const nudgeCols = cols > 10 ? cols - 1 : cols + 1;
+          this.agentWs.send(`JSON:${JSON.stringify({ type: 'resize', cols: nudgeCols, rows })}`);
+          this.agentWs.send(`JSON:${JSON.stringify({ type: 'resize', cols, rows })}`);
+        } else {
+          this.agentWs.send(`JSON:${JSON.stringify({ type: 'resize', cols, rows })}`);
+        }
       } catch (err: any) {
         logger.warn(`[RemoteAgentTerminal:${this.hostId}] Failed to send resize to agent: ${err.message}`);
       }

@@ -1107,12 +1107,13 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
           if (control.type === 'resize') {
             const cols = Math.max(10, Math.min(500, Math.floor(control.cols || 80)));
             const rows = Math.max(5, Math.min(200, Math.floor(control.rows || 24)));
+            const force = Boolean(control.force);
             lastPtyCols = cols;
             lastPtyRows = rows;
             if (ptyProcess) {
               const currentCols = ptyProcess.cols;
               const currentRows = ptyProcess.rows;
-              if (typeof currentCols === 'number' && typeof currentRows === 'number' && currentCols === cols && currentRows === rows) {
+              if (!force && typeof currentCols === 'number' && typeof currentRows === 'number' && currentCols === cols && currentRows === rows) {
                 return;
               }
               try {

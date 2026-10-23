@@ -278,8 +278,11 @@ export default function UnifiedTerminalView({
     setSubTab(newTab);
     if (newTab === 'interactive') {
       setTimeout(() => {
-        terminalRef.current?.fit();
+        terminalRef.current?.fit(true);
       }, 50);
+      setTimeout(() => {
+        terminalRef.current?.fit(true);
+      }, 200);
     }
   }, []);
 
@@ -299,9 +302,9 @@ export default function UnifiedTerminalView({
 
   useEffect(() => {
     if (subTab === 'interactive' && activeHostId) {
-      const t1 = setTimeout(() => terminalRef.current?.fit(), 60);
-      const t2 = setTimeout(() => terminalRef.current?.fit(), 200);
-      const t3 = setTimeout(() => terminalRef.current?.fit(), 500);
+      const t1 = setTimeout(() => terminalRef.current?.fit(true), 60);
+      const t2 = setTimeout(() => terminalRef.current?.fit(true), 200);
+      const t3 = setTimeout(() => terminalRef.current?.fit(true), 500);
       return () => {
         clearTimeout(t1);
         clearTimeout(t2);

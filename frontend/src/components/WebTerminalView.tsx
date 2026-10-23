@@ -460,8 +460,8 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       lastSentColsRef.current = cols;
       lastSentRowsRef.current = rows;
-      console.debug(`[WebTerminal] Sending resize to backend: ${cols}x${rows}`);
-      wsRef.current.send(`JSON:${JSON.stringify({ type: 'resize', cols, rows })}`);
+      console.debug(`[WebTerminal] Sending resize to backend: ${cols}x${rows} (force=${force})`);
+      wsRef.current.send(`JSON:${JSON.stringify({ type: 'resize', cols, rows, force })}`);
     }
   }, []);
 
@@ -1389,6 +1389,16 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         try {
           wsRef.current.send(`JSON:${JSON.stringify({ type: 'ping' })}`);
         } catch {}
+        if (isActiveRef.current) {
+          safeFit(true);
+          setTimeout(() => safeFit(true), 120);
+        }
+      }
+    };
+
+    const handleWindowFocus = () => {
+      if (isActiveRef.current && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        safeFit(true);
       }
     };
 
@@ -1397,6 +1407,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     }
     if (typeof window !== 'undefined') {
       window.addEventListener('online', handleVisibilityOrOnline);
+      window.addEventListener('focus', handleWindowFocus);
     }
 
     // Resize observer & Visual Viewport updater
@@ -1682,6 +1693,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       }
       if (typeof window !== 'undefined') {
         window.removeEventListener('online', handleVisibilityOrOnline);
+        window.removeEventListener('focus', handleWindowFocus);
       }
       term.dispose();
     };
@@ -1714,6 +1726,8 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           scrollToBottomSafe(xtermRef.current);
         }
       }
+      const t1 = setTimeout(() => safeFit(true), 120);
+      return () => clearTimeout(t1);
     }
   }, [isActive, safeFit]);
 
