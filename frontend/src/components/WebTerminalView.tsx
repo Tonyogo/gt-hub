@@ -507,6 +507,12 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       if (!proposed || proposed.cols <= 2 || proposed.rows <= 1) {
         return false;
       }
+      if (!forceResize && isMobileDevice && lastSentRowsRef.current > 0) {
+        const isColsStable = Math.abs(proposed.cols - lastSentColsRef.current) <= 2;
+        if (isColsStable && (proposed.rows < lastSentRowsRef.current || isKeyboardActive)) {
+          return false;
+        }
+      }
       fitAddonRef.current.fit();
       const { cols, rows } = term;
       if (cols > 2 && rows > 1) {
@@ -514,6 +520,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         if (shouldScrollToBottom({ isReplaying: isReplayingRef.current, wasAtBottom, bufferType: term.buffer.active.type })) {
           scrollToBottomSafe(term);
         }
+        term.refresh(0, Math.max(0, rows - 1));
         return true;
       }
     } catch (err) {
@@ -627,8 +634,8 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         if (!safeFit(true)) {
           setTimeout(() => safeFit(true), 80);
         }
-        setTimeout(() => safeFit(true), 250);
-        setTimeout(() => safeFit(true), 600);
+        setTimeout(() => safeFit(false), 250);
+        setTimeout(() => safeFit(false), 600);
       };
 
       ws.onmessage = (event) => {
@@ -1543,13 +1550,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         // On mobile, never resize terminal rows on viewport changes unless width changes (screen rotation)
         const isWidthChanged = Math.abs(window.innerWidth - baseWidthRef.current) > 20;
         if ((!mobile || isWidthChanged) && !wasKeyboardShowing && fitAddonRef.current && xtermRef.current) {
-          const term = xtermRef.current;
-          const wasAtBottom = isUserAtBottom(term);
-          fitAddonRef.current.fit();
-          sendResize(term.cols, term.rows);
-          if (shouldScrollToBottom({ isReplaying: isReplayingRef.current, wasAtBottom, bufferType: term.buffer.active.type })) {
-            scrollToBottomSafe(term);
-          }
+          safeFit(false);
         }
       }
     }

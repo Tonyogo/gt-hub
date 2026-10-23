@@ -56,6 +56,7 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
   private readonly maxBufferSize: number = 1 * 1024 * 1024; // 1MB scrollback
   private currentCols: number = 0;
   private currentRows: number = 0;
+  private pendingAttachRefresh: boolean = false;
   private broadcastBatcher: StreamBatcher;
   private utf8Decoder: StringDecoder = new StringDecoder('utf8');
   private idleEvictionTimer: NodeJS.Timeout | null = null;
@@ -93,19 +94,26 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
   }
 
   public updateAgentWs(agentWs: any): void {
+    const prevCols = this.currentCols;
+    const prevRows = this.currentRows;
     this.agentWs = agentWs;
     this.currentCols = 0;
     this.currentRows = 0;
-    if (this.agentWs && this.agentWs.readyState === 1 && this.pendingInputBuffer.length > 0) {
-      for (const item of this.pendingInputBuffer) {
-        try {
-          this.agentWs.send(item);
-        } catch (err: any) {
-          logger.warn(`[RemoteAgentTerminal:${this.hostId}] Failed to flush buffered input: ${err.message}`);
-        }
+    if (this.agentWs && this.agentWs.readyState === 1) {
+      if (this.activeSockets.size > 0 && prevCols > 0 && prevRows > 0) {
+        this.resize(prevCols, prevRows);
       }
-      this.pendingInputBuffer = [];
-      this.pendingInputBytes = 0;
+      if (this.pendingInputBuffer.length > 0) {
+        for (const item of this.pendingInputBuffer) {
+          try {
+            this.agentWs.send(item);
+          } catch (err: any) {
+            logger.warn(`[RemoteAgentTerminal:${this.hostId}] Failed to flush buffered input: ${err.message}`);
+          }
+        }
+        this.pendingInputBuffer = [];
+        this.pendingInputBytes = 0;
+      }
     }
   }
 
@@ -137,6 +145,9 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
     }
     this.activeSockets.add(ws);
     this.cancelIdleEviction();
+    if (this.currentCols > 0 && this.currentRows > 0 && this.history.getSize() > 0) {
+      this.pendingAttachRefresh = true;
+    }
 
     // Replay history buffer atomically as a single combined stream with query sequences stripped to prevent echo storms
     if (this.history.getSize() > 0 && ws.readyState === 1) {
@@ -185,10 +196,22 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
 
   public resize(cols: number, rows: number): void {
     if (cols <= 0 || rows <= 0) return;
-    // Suppress redundant PTY resizes to prevent unnecessary SIGWINCH and prompt duplicates
     if (this.currentCols === cols && this.currentRows === rows) {
+      if (this.pendingAttachRefresh) {
+        this.pendingAttachRefresh = false;
+        if (this.agentWs && this.agentWs.readyState === 1) {
+          try {
+            const nudgeCols = cols > 10 ? cols - 1 : cols + 1;
+            this.agentWs.send(`JSON:${JSON.stringify({ type: 'resize', cols: nudgeCols, rows })}`);
+            this.agentWs.send(`JSON:${JSON.stringify({ type: 'resize', cols, rows })}`);
+          } catch (err: any) {
+            logger.warn(`[RemoteAgentTerminal:${this.hostId}] Failed to send attach refresh resize to agent: ${err.message}`);
+          }
+        }
+      }
       return;
     }
+    this.pendingAttachRefresh = false;
     this.currentCols = cols;
     this.currentRows = rows;
     if (this.agentWs && this.agentWs.readyState === 1) {

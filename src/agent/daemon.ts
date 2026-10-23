@@ -595,6 +595,8 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
 
   let ptyProcess: any = null;
   let ptyBatcher: StreamBatcher | null = null;
+  let lastPtyCols = 80;
+  let lastPtyRows = 24;
   let ws: any = null;
   let streamSessionManager: StreamSessionManager | null = null;
   let reconnectAttempts = 0;
@@ -759,8 +761,8 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     delete env.WINDOW;
     delete env.TERM_SESSION_ID;
 
-    const cols = 80;
-    const rows = 24;
+    const cols = lastPtyCols;
+    const rows = lastPtyRows;
 
     const sendToWs = (data: any) => {
       const buf = Buffer.isBuffer(data) ? data : Buffer.from(data, 'utf-8');
@@ -1105,6 +1107,8 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
           if (control.type === 'resize') {
             const cols = Math.max(10, Math.min(500, Math.floor(control.cols || 80)));
             const rows = Math.max(5, Math.min(200, Math.floor(control.rows || 24)));
+            lastPtyCols = cols;
+            lastPtyRows = rows;
             if (ptyProcess) {
               const currentCols = ptyProcess.cols;
               const currentRows = ptyProcess.rows;

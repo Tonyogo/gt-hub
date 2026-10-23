@@ -164,6 +164,67 @@ describe('Terminal Reconnect Duplicate Information Fix Tests', () => {
       expect(mockAgentWs.send).not.toHaveBeenCalled();
       expect(session.getCurrentDimensions()).toEqual({ cols: 0, rows: 0 });
     });
+
+    test('triggers SIGWINCH dimension refresh when a client attaches to a session with history and sends matching dimensions', () => {
+      const mockAgentWs = { readyState: 1, send: jest.fn() };
+      const session = new RemoteAgentTerminalSession('test-tui-reattach-refresh', mockAgentWs);
+
+      // Initial client sets dimensions 180x44 and TUI outputs data
+      session.resize(180, 44);
+      session.handleData('Claude Code TUI box frame');
+      mockAgentWs.send.mockClear();
+
+      // Client refreshes or re-attaches at the same 180x44 window size
+      const clientWs = { readyState: 1, send: jest.fn() };
+      session.attach(clientWs as any);
+      session.resize(180, 44);
+
+      // Must nudge and restore dimensions so PTY delivers SIGWINCH to Claude Code for full redraw
+      expect(mockAgentWs.send).toHaveBeenCalledTimes(2);
+      expect(mockAgentWs.send).toHaveBeenNthCalledWith(1, 'JSON:{"type":"resize","cols":179,"rows":44}');
+      expect(mockAgentWs.send).toHaveBeenNthCalledWith(2, 'JSON:{"type":"resize","cols":180,"rows":44}');
+
+      // Subsequent identical resize from the same client must still be deduplicated
+      session.resize(180, 44);
+      expect(mockAgentWs.send).toHaveBeenCalledTimes(2);
+    });
+
+    test('immediately re-syncs active client dimensions to agent when agent reconnects via updateAgentWs', () => {
+      const mockAgentWs1 = { readyState: 1, send: jest.fn() };
+      const session = new RemoteAgentTerminalSession('test-agent-reconnect-dims', mockAgentWs1);
+
+      const clientWs = { readyState: 1, send: jest.fn() };
+      session.attach(clientWs as any);
+      session.resize(180, 44);
+      expect(mockAgentWs1.send).toHaveBeenCalledWith('JSON:{"type":"resize","cols":180,"rows":44}');
+
+      // Agent reconnects while browser client is still attached
+      const mockAgentWs2 = { readyState: 1, send: jest.fn() };
+      session.updateAgentWs(mockAgentWs2);
+
+      // New agent socket must immediately receive the active 180x44 dimensions without waiting for window resize
+      expect(mockAgentWs2.send).toHaveBeenCalledWith('JSON:{"type":"resize","cols":180,"rows":44}');
+      expect(session.getCurrentDimensions()).toEqual({ cols: 180, rows: 44 });
+    });
+
+    test('safeFit in WebTerminalView guards proposed.rows shrink before calling fitAddon.fit() and daemon preserves lastCols/lastRows', () => {
+      const safeFitStart = webTerminalContent.indexOf('const safeFit = useCallback');
+      const safeFitEnd = webTerminalContent.indexOf('const safeFitRef =', safeFitStart);
+      const safeFitBlock = webTerminalContent.slice(safeFitStart, safeFitEnd);
+
+      const proposedIdx = safeFitBlock.indexOf('const proposed = fitAddonRef.current.proposeDimensions()');
+      const fitCallIdx = safeFitBlock.indexOf('fitAddonRef.current.fit()');
+      const guardIdx = safeFitBlock.indexOf('proposed.rows < lastSentRowsRef.current');
+
+      expect(proposedIdx).toBeGreaterThan(0);
+      expect(guardIdx).toBeGreaterThan(proposedIdx);
+      expect(guardIdx).toBeLessThan(fitCallIdx);
+
+      const daemonPath = path.resolve(__dirname, '../src/agent/daemon.ts');
+      const daemonContent = fs.readFileSync(daemonPath, 'utf-8');
+      expect(daemonContent).toContain('let lastPtyCols = 80;');
+      expect(daemonContent).toContain('let lastPtyRows = 24;');
+    });
   });
 
   describe('Direct XTerm Buffer Behavioral Verification', () => {
