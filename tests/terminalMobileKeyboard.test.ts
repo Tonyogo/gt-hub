@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { en } from '../frontend/src/i18n/locales/en';
 import { zh } from '../frontend/src/i18n/locales/zh';
+import { isTouchOnCursorLine } from '../frontend/src/utils/mobileViewportHelper';
 
 describe('Mobile Keyboard Dismissal and Checkmark Controls', () => {
   const accessoryBarPath = path.resolve(__dirname, '../frontend/src/components/terminal/TerminalAccessoryBar.tsx');
@@ -117,6 +118,43 @@ describe('Mobile Keyboard Dismissal and Checkmark Controls', () => {
 
     expect(hostEffectBlock).toContain('setTimeout(() => { safeFit(true); }, 500)');
     expect(webTerminalContent).toMatch(/document\.fonts\.ready[\s\S]*?safeFit\(true\)/);
+  });
+});
+
+describe('Mobile Cursor-Line Keyboard Trigger Helper (isTouchOnCursorLine)', () => {
+  test('returns true when touchBufferRow exactly matches cursorBufferRow', () => {
+    expect(isTouchOnCursorLine({ touchBufferRow: 25, cursorBufferRow: 25 })).toBe(true);
+  });
+
+  test('returns true when touchBufferRow is within default ±1 row tolerance', () => {
+    expect(isTouchOnCursorLine({ touchBufferRow: 24, cursorBufferRow: 25 })).toBe(true);
+    expect(isTouchOnCursorLine({ touchBufferRow: 26, cursorBufferRow: 25 })).toBe(true);
+  });
+
+  test('returns false when touchBufferRow is outside ±1 row tolerance', () => {
+    expect(isTouchOnCursorLine({ touchBufferRow: 23, cursorBufferRow: 25 })).toBe(false);
+    expect(isTouchOnCursorLine({ touchBufferRow: 27, cursorBufferRow: 25 })).toBe(false);
+    expect(isTouchOnCursorLine({ touchBufferRow: 0, cursorBufferRow: 25 })).toBe(false);
+  });
+
+  test('returns false when user is scrolled up viewing history far from active cursor line', () => {
+    const baseY = 500;
+    const cursorY = 20;
+    const viewportY = 100;
+    const touchedViewportRow = 15;
+    expect(
+      isTouchOnCursorLine({
+        touchBufferRow: viewportY + touchedViewportRow,
+        cursorBufferRow: baseY + cursorY,
+      })
+    ).toBe(false);
+  });
+
+  test('supports custom tolerance and guards non-finite or negative rows', () => {
+    expect(isTouchOnCursorLine({ touchBufferRow: 24, cursorBufferRow: 25, tolerance: 0 })).toBe(false);
+    expect(isTouchOnCursorLine({ touchBufferRow: 25, cursorBufferRow: 25, tolerance: 0 })).toBe(true);
+    expect(isTouchOnCursorLine({ touchBufferRow: -1, cursorBufferRow: 0 })).toBe(false);
+    expect(isTouchOnCursorLine({ touchBufferRow: NaN, cursorBufferRow: 10 })).toBe(false);
   });
 });
 

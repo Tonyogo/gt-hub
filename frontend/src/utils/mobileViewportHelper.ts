@@ -70,3 +70,33 @@ export function shouldBlockPtyResize({
   // While keyboard is showing on mobile, block PTY resize
   return isKeyboardShowing;
 }
+
+export interface CursorLineHitOptions {
+  touchBufferRow: number;
+  cursorBufferRow: number;
+  tolerance?: number;
+}
+
+/**
+ * Determines whether a mobile touch coordinate falls on or directly adjacent
+ * to the terminal's active cursor line (within tolerance, default 1 row).
+ * Guards against non-finite or negative row indexes.
+ */
+export function isTouchOnCursorLine({
+  touchBufferRow,
+  cursorBufferRow,
+  tolerance = 1,
+}: CursorLineHitOptions): boolean {
+  if (
+    !Number.isFinite(touchBufferRow) ||
+    !Number.isFinite(cursorBufferRow) ||
+    !Number.isFinite(tolerance) ||
+    touchBufferRow < 0 ||
+    cursorBufferRow < 0
+  ) {
+    return false;
+  }
+
+  const effectiveTolerance = Math.max(0, tolerance);
+  return Math.abs(touchBufferRow - cursorBufferRow) <= effectiveTolerance;
+}
