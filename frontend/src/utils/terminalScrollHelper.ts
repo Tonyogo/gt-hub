@@ -152,3 +152,66 @@ export function stepMomentumVelocity(
   return Math.abs(next) < minVelocity ? 0 : next;
 }
 
+export interface ViewportScrollElementLike {
+  scrollTop: number;
+  scrollHeight: number;
+  clientHeight: number;
+}
+
+export interface ViewportTouchScrollResult {
+  usedNativeScrollTop: boolean;
+  nextScrollTop: number;
+  subLineOffsetPx: number;
+  hitBoundary: boolean;
+  linesToScroll: number;
+  remainderDeltaY: number;
+}
+
+/**
+ * Applies a touch scroll pixel delta directly to the native xterm viewport scroll position.
+ * Mutates viewportEl.scrollTop directly when scrollable content exists, eliminating forced reflows
+ * and calculating sub-line pixel offsets for GPU translate3d compensation.
+ * Falls back to discrete stepTouchScrollLines when viewportEl is absent or not scrollable.
+ */
+export function applyViewportTouchScrollDelta(options: {
+  viewportEl: ViewportScrollElementLike | null | undefined;
+  deltaY: number;
+  lineHeight: number;
+  accumulatedDeltaY?: number;
+}): ViewportTouchScrollResult {
+  const { viewportEl, deltaY, lineHeight, accumulatedDeltaY = 0 } = options;
+  const safeLineHeight = Number.isFinite(lineHeight) && lineHeight >= 6 ? lineHeight : 16;
+
+  if (viewportEl && Number.isFinite(viewportEl.scrollHeight) && Number.isFinite(viewportEl.clientHeight) && viewportEl.scrollHeight > viewportEl.clientHeight) {
+    const maxScrollTop = Math.max(0, viewportEl.scrollHeight - viewportEl.clientHeight);
+    const rawNext = viewportEl.scrollTop + (Number.isFinite(deltaY) ? deltaY : 0);
+    const nextScrollTop = Math.max(0, Math.min(maxScrollTop, rawNext));
+    const hitBoundary = (deltaY < 0 && nextScrollTop <= 0) || (deltaY > 0 && nextScrollTop >= maxScrollTop);
+    viewportEl.scrollTop = nextScrollTop;
+    const snappedScrollTop = Math.round(nextScrollTop / safeLineHeight) * safeLineHeight;
+    const subLineOffsetPx = hitBoundary ? 0 : nextScrollTop - snappedScrollTop;
+    return {
+      usedNativeScrollTop: true,
+      nextScrollTop,
+      subLineOffsetPx,
+      hitBoundary,
+      linesToScroll: 0,
+      remainderDeltaY: 0,
+    };
+  }
+
+  const step = stepTouchScrollLines(
+    (Number.isFinite(accumulatedDeltaY) ? accumulatedDeltaY : 0) + (Number.isFinite(deltaY) ? deltaY : 0),
+    safeLineHeight
+  );
+  return {
+    usedNativeScrollTop: false,
+    nextScrollTop: 0,
+    subLineOffsetPx: 0,
+    hitBoundary: false,
+    linesToScroll: step.linesToScroll,
+    remainderDeltaY: step.remainderDeltaY,
+  };
+}
+
+

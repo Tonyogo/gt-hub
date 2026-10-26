@@ -5,6 +5,7 @@ import {
   stepTouchScrollLines,
   computeTouchVelocity,
   stepMomentumVelocity,
+  applyViewportTouchScrollDelta,
 } from '../frontend/src/utils/terminalScrollHelper';
 
 describe('terminalScrollHelper', () => {
@@ -224,6 +225,56 @@ describe('terminalScrollHelper', () => {
       // Below minimum threshold snaps to 0
       expect(stepMomentumVelocity(0.05, 16)).toBe(0);
       expect(stepMomentumVelocity(-0.05, 16)).toBe(0);
+    });
+
+    it('applyViewportTouchScrollDelta drives viewportEl.scrollTop directly and computes sub-line offset', () => {
+      const viewportEl = { scrollTop: 160, scrollHeight: 1600, clientHeight: 400 };
+      // Move down by 5px with 16px lineHeight -> scrollTop = 165, nearest row = 10 (160px), subLineOffsetPx = +5
+      const res = applyViewportTouchScrollDelta({
+        viewportEl,
+        deltaY: 5,
+        lineHeight: 16,
+      });
+      expect(res.usedNativeScrollTop).toBe(true);
+      expect(viewportEl.scrollTop).toBe(165);
+      expect(res.subLineOffsetPx).toBe(5);
+      expect(res.hitBoundary).toBe(false);
+    });
+
+    it('applyViewportTouchScrollDelta clamps at top and bottom boundaries and reports hitBoundary', () => {
+      const viewportEl = { scrollTop: 4, scrollHeight: 1600, clientHeight: 400 };
+      const topRes = applyViewportTouchScrollDelta({
+        viewportEl,
+        deltaY: -20,
+        lineHeight: 16,
+      });
+      expect(topRes.usedNativeScrollTop).toBe(true);
+      expect(viewportEl.scrollTop).toBe(0);
+      expect(topRes.hitBoundary).toBe(true);
+      expect(topRes.subLineOffsetPx).toBe(0);
+
+      viewportEl.scrollTop = 1195; // maxScrollTop = 1200
+      const bottomRes = applyViewportTouchScrollDelta({
+        viewportEl,
+        deltaY: 20,
+        lineHeight: 16,
+      });
+      expect(viewportEl.scrollTop).toBe(1200);
+      expect(bottomRes.hitBoundary).toBe(true);
+      expect(bottomRes.subLineOffsetPx).toBe(0);
+    });
+
+    it('applyViewportTouchScrollDelta falls back to stepTouchScrollLines when viewportEl is not scrollable', () => {
+      const unscrollableViewport = { scrollTop: 0, scrollHeight: 400, clientHeight: 400 };
+      const fallbackRes = applyViewportTouchScrollDelta({
+        viewportEl: unscrollableViewport,
+        deltaY: 20,
+        lineHeight: 16,
+        accumulatedDeltaY: 0,
+      });
+      expect(fallbackRes.usedNativeScrollTop).toBe(false);
+      expect(fallbackRes.linesToScroll).toBe(1);
+      expect(fallbackRes.remainderDeltaY).toBe(4);
     });
   });
 });
