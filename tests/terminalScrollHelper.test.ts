@@ -2,6 +2,9 @@ import {
   isUserAtBottom,
   shouldScrollToBottom,
   scrollToBottomSafe,
+  stepTouchScrollLines,
+  computeTouchVelocity,
+  stepMomentumVelocity,
 } from '../frontend/src/utils/terminalScrollHelper';
 
 describe('terminalScrollHelper', () => {
@@ -182,6 +185,45 @@ describe('terminalScrollHelper', () => {
     it('handles null/undefined gracefully', () => {
       expect(() => scrollToBottomSafe(null)).not.toThrow();
       expect(() => scrollToBottomSafe(undefined)).not.toThrow();
+    });
+  });
+
+  describe('mobile touch momentum & step helpers', () => {
+    it('stepTouchScrollLines extracts integer lines and preserves sub-line pixel remainder', () => {
+      const step1 = stepTouchScrollLines(10, 16);
+      expect(step1).toEqual({ linesToScroll: 0, remainderDeltaY: 10 });
+
+      const step2 = stepTouchScrollLines(step1.remainderDeltaY + 12, 16);
+      expect(step2).toEqual({ linesToScroll: 1, remainderDeltaY: 6 });
+
+      const stepNeg = stepTouchScrollLines(-35, 15);
+      expect(stepNeg).toEqual({ linesToScroll: -2, remainderDeltaY: -5 });
+
+      // Edge cases: non-finite or non-positive lineHeight
+      expect(stepTouchScrollLines(20, 0)).toEqual({ linesToScroll: 1, remainderDeltaY: 4 });
+      expect(stepTouchScrollLines(NaN, 16)).toEqual({ linesToScroll: 0, remainderDeltaY: 0 });
+    });
+
+    it('computeTouchVelocity smooths and clamps velocity in px/ms', () => {
+      const v1 = computeTouchVelocity(0, 32, 16); // 2 px/ms instantaneous
+      expect(v1).toBeGreaterThan(1.0);
+      expect(v1).toBeLessThanOrEqual(2.0);
+
+      // Clamps extreme spike
+      const vSpike = computeTouchVelocity(0, 500, 5);
+      expect(vSpike).toBeLessThanOrEqual(6);
+      expect(vSpike).toBeGreaterThanOrEqual(-6);
+    });
+
+    it('stepMomentumVelocity decays velocity smoothly and stops below threshold', () => {
+      const v = 2.0;
+      const nextV = stepMomentumVelocity(v, 16);
+      expect(nextV).toBeLessThan(v);
+      expect(nextV).toBeGreaterThan(0);
+
+      // Below minimum threshold snaps to 0
+      expect(stepMomentumVelocity(0.05, 16)).toBe(0);
+      expect(stepMomentumVelocity(-0.05, 16)).toBe(0);
     });
   });
 });

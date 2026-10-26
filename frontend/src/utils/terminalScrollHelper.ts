@@ -97,3 +97,58 @@ export function scrollToBottomSafe(term: TerminalLike | null | undefined): void 
     pendingRafMap.set(term, handle);
   }
 }
+
+export interface TouchScrollStepResult {
+  linesToScroll: number;
+  remainderDeltaY: number;
+}
+
+/**
+ * Converts accumulated touch pixel delta into discrete integer terminal lines to scroll
+ * and preserves the sub-line pixel remainder for smooth frame-by-frame continuous movement.
+ */
+export function stepTouchScrollLines(accumulatedDeltaY: number, lineHeight: number): TouchScrollStepResult {
+  if (!Number.isFinite(accumulatedDeltaY)) {
+    return { linesToScroll: 0, remainderDeltaY: 0 };
+  }
+  const safeLineHeight = Number.isFinite(lineHeight) && lineHeight >= 6 ? lineHeight : 16;
+  if (Math.abs(accumulatedDeltaY) < safeLineHeight) {
+    return { linesToScroll: 0, remainderDeltaY: accumulatedDeltaY };
+  }
+  const linesToScroll = Math.trunc(accumulatedDeltaY / safeLineHeight);
+  return {
+    linesToScroll,
+    remainderDeltaY: accumulatedDeltaY - linesToScroll * safeLineHeight,
+  };
+}
+
+/**
+ * Calculates smoothed touch velocity in px/ms using an exponential moving average
+ * to avoid abrupt noise while tracking finger flicks.
+ */
+export function computeTouchVelocity(prevVelocity: number, deltaY: number, dtMs: number): number {
+  const dt = Math.max(4, Math.min(100, dtMs || 16));
+  const instantV = deltaY / dt;
+  const blended = prevVelocity === 0 ? instantV : prevVelocity * 0.35 + instantV * 0.65;
+  // Clamp extreme spikes to ±6 px/ms (~360 lines/sec)
+  return Math.max(-6, Math.min(6, blended));
+}
+
+/**
+ * Applies exponential friction decay to momentum velocity over elapsed frame time (dtMs).
+ * Snaps to 0 when velocity falls below minVelocity threshold.
+ */
+export function stepMomentumVelocity(
+  velocityPxPerMs: number,
+  dtMs = 16,
+  friction = 0.95,
+  minVelocity = 0.08
+): number {
+  if (!Number.isFinite(velocityPxPerMs) || Math.abs(velocityPxPerMs) < minVelocity) {
+    return 0;
+  }
+  const frameFactor = Math.max(0.5, Math.min(3, (dtMs || 16) / 16));
+  const next = velocityPxPerMs * Math.pow(friction, frameFactor);
+  return Math.abs(next) < minVelocity ? 0 : next;
+}
+
