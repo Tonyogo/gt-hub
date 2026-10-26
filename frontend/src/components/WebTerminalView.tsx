@@ -42,6 +42,9 @@ import {
   isUserAtBottom,
   shouldScrollToBottom,
   scrollToBottomSafe,
+  stepTouchScrollLines,
+  computeTouchVelocity,
+  stepMomentumVelocity,
 } from '../utils/terminalScrollHelper';
 import {
   calculateMagnifierPosition,
@@ -1102,14 +1105,88 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       resizeObserver.observe(terminalContainerRef.current);
     }
 
-    // Mobile Touch Gesture & Vim Navigation Bridge (code-server / VS Code style)
+    // Mobile Touch Gesture & Kinetic Momentum Scrolling
     let touchStartY = 0;
     let touchStartX = 0;
+    let lastTouchY = 0;
     let touchStartTime = 0;
+    let lastTouchMoveTime = 0;
+    let touchVelocityY = 0;
     let isDragging = false;
     let accumulatedDeltaY = 0;
+    let momentumRaf: number | null = null;
     let selectionStartPos: { col: number; viewportRow: number; bufferRow: number } | null = null;
     const container = terminalContainerRef.current;
+
+    const stopMomentumScroll = () => {
+      if (momentumRaf !== null) {
+        if (typeof cancelAnimationFrame !== 'undefined') {
+          cancelAnimationFrame(momentumRaf);
+        }
+        momentumRaf = null;
+      }
+      touchVelocityY = 0;
+    };
+
+    const getTouchLineHeight = () => {
+      const renderService = (term as any)._core?._renderService;
+      const cssCellHeight = renderService?.dimensions?.css?.cell?.height;
+      if (typeof cssCellHeight === 'number' && cssCellHeight > 4) {
+        return cssCellHeight;
+      }
+      const screenEl = container?.querySelector('.xterm-screen') as HTMLElement | null;
+      if (screenEl && term.rows > 0 && screenEl.clientHeight > 0) {
+        return screenEl.clientHeight / term.rows;
+      }
+      return Math.max(12, fontSizeRef.current * 1.3);
+    };
+
+    const startMomentumScroll = (initialVelocity: number) => {
+      if (typeof requestAnimationFrame === 'undefined') return;
+      let velocity = initialVelocity;
+      let lastFrameTime = Date.now();
+
+      const stepFrame = () => {
+        if (!isMountedRef.current || isSelectModeRef.current) {
+          momentumRaf = null;
+          return;
+        }
+        const now = Date.now();
+        const dt = Math.max(8, Math.min(48, now - lastFrameTime));
+        lastFrameTime = now;
+
+        velocity = stepMomentumVelocity(velocity, dt);
+        if (velocity === 0) {
+          momentumRaf = null;
+          return;
+        }
+
+        const lineHeight = getTouchLineHeight();
+        const step = stepTouchScrollLines(accumulatedDeltaY + velocity * dt, lineHeight);
+        accumulatedDeltaY = step.remainderDeltaY;
+
+        if (step.linesToScroll !== 0) {
+          const active = term.buffer?.active;
+          if (active) {
+            if (step.linesToScroll < 0 && active.viewportY <= 0) {
+              accumulatedDeltaY = 0;
+              momentumRaf = null;
+              return;
+            }
+            if (step.linesToScroll > 0 && active.viewportY >= active.baseY) {
+              accumulatedDeltaY = 0;
+              momentumRaf = null;
+              return;
+            }
+          }
+          term.scrollLines(step.linesToScroll);
+        }
+
+        momentumRaf = requestAnimationFrame(stepFrame);
+      };
+
+      momentumRaf = requestAnimationFrame(stepFrame);
+    };
 
     // Desktop Copy on Select: automatically copy selected text on mouseup
     const handleMouseUp = () => {
@@ -1203,10 +1280,14 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     };
 
     const handleTouchStart = (e: TouchEvent) => {
+      stopMomentumScroll();
       if (e.touches.length === 1) {
         touchStartY = e.touches[0].clientY;
         touchStartX = e.touches[0].clientX;
+        lastTouchY = touchStartY;
         touchStartTime = Date.now();
+        lastTouchMoveTime = touchStartTime;
+        touchVelocityY = 0;
         isDragging = false;
         accumulatedDeltaY = 0;
 
@@ -1250,43 +1331,45 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
       const deltaY = touchStartY - currentY;
       const deltaX = touchStartX - currentX;
+      const frameDeltaY = lastTouchY - currentY;
+      const now = Date.now();
+      const dt = Math.max(4, now - lastTouchMoveTime);
+      lastTouchY = currentY;
+      lastTouchMoveTime = now;
+
+      // Prevent browser native pan-y gesture from hijacking touch stream during initial movement
+      if (e.cancelable) {
+        e.preventDefault();
+      }
+      e.stopPropagation();
 
       // When virtual keyboard is showing on mobile, swipe down to dismiss
       if (isKeyboardShowingRef.current && deltaY < -25) {
         handleHideKeyboard();
       }
 
-      if (!isDragging && (Math.abs(deltaY) > 8 || Math.abs(deltaX) > 8)) {
+      if (!isDragging && (Math.abs(deltaY) > 6 || Math.abs(deltaX) > 6)) {
         isDragging = true;
       }
 
       if (!isDragging) return;
 
-      if (e.cancelable) {
-        e.preventDefault();
-      }
-      e.stopPropagation();
+      // STANDARD MODE: terminal scrolling with velocity tracking
+      touchVelocityY = computeTouchVelocity(touchVelocityY, frameDeltaY, dt);
+      const lineHeight = getTouchLineHeight();
+      const step = stepTouchScrollLines(accumulatedDeltaY + frameDeltaY, lineHeight);
+      accumulatedDeltaY = step.remainderDeltaY;
 
-      // STANDARD MODE: terminal scrolling
-      touchStartY = currentY;
-      touchStartX = currentX;
-      accumulatedDeltaY += deltaY;
-
-      // Approximate line height based on current font size (e.g. ~18px per line)
-      const currentFontSize = fontSizeRef.current;
-      const lineHeight = Math.max(12, currentFontSize * 1.3);
-
-      if (Math.abs(accumulatedDeltaY) >= lineHeight) {
-        const linesToScroll = Math.trunc(accumulatedDeltaY / lineHeight);
-        accumulatedDeltaY -= linesToScroll * lineHeight;
-
+      if (step.linesToScroll !== 0) {
+        const linesToScroll = step.linesToScroll;
         // Standard terminal scrollback buffer scrolling (pure touch-based viewport scrolling)
         term.scrollLines(linesToScroll);
       }
     };
 
     const handleTouchEnd = (e: TouchEvent) => {
-      const elapsed = Date.now() - touchStartTime;
+      const now = Date.now();
+      const elapsed = now - touchStartTime;
 
       if (isSelectModeRef.current) {
         if (e.cancelable) {
@@ -1294,6 +1377,16 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         }
         e.stopPropagation();
         selectionStartPos = null;
+        return;
+      }
+
+      if (isDragging) {
+        const timeSinceLastMove = now - lastTouchMoveTime;
+        if (timeSinceLastMove < 80 && Math.abs(touchVelocityY) >= 0.12) {
+          startMomentumScroll(touchVelocityY);
+        } else {
+          touchVelocityY = 0;
+        }
         return;
       }
 
@@ -1319,10 +1412,17 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       }
     };
 
+    const handleTouchCancel = () => {
+      isDragging = false;
+      selectionStartPos = null;
+      stopMomentumScroll();
+    };
+
     if (container) {
       container.addEventListener('touchstart', handleTouchStart, { passive: false, capture: true });
       container.addEventListener('touchmove', handleTouchMove, { passive: false, capture: true });
       container.addEventListener('touchend', handleTouchEnd, { passive: false, capture: true });
+      container.addEventListener('touchcancel', handleTouchCancel, { passive: false, capture: true });
     }
 
     term.onData((data) => {
@@ -1641,10 +1741,12 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         if (handleBlur) helperTextarea.removeEventListener('blur', handleBlur);
       }
       imeController?.dispose();
+      stopMomentumScroll();
       if (container) {
         container.removeEventListener('touchstart', handleTouchStart, { capture: true } as any);
         container.removeEventListener('touchmove', handleTouchMove, { capture: true } as any);
         container.removeEventListener('touchend', handleTouchEnd, { capture: true } as any);
+        container.removeEventListener('touchcancel', handleTouchCancel, { capture: true } as any);
         container.removeEventListener('mouseup', handleMouseUp);
       }
       if (cursorShiftRaf !== null) {
@@ -1807,6 +1909,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     if (!container) return;
     const xtermScreen = container.querySelector('.xterm-screen') as HTMLElement | null;
     const xtermEl = container.querySelector('.xterm') as HTMLElement | null;
+    const defaultTouchAction = isMobile ? 'none' : '';
     if (isSelectMode) {
       container.style.touchAction = 'none';
       if (xtermScreen) {
@@ -1820,19 +1923,19 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         xtermEl.style.webkitUserSelect = 'none';
       }
     } else {
-      container.style.touchAction = '';
+      container.style.touchAction = defaultTouchAction;
       if (xtermScreen) {
-        xtermScreen.style.touchAction = '';
+        xtermScreen.style.touchAction = defaultTouchAction;
         xtermScreen.style.userSelect = '';
         xtermScreen.style.webkitUserSelect = '';
       }
       if (xtermEl) {
-        xtermEl.style.touchAction = '';
+        xtermEl.style.touchAction = defaultTouchAction;
         xtermEl.style.userSelect = '';
         xtermEl.style.webkitUserSelect = '';
       }
     }
-  }, [isSelectMode]);
+  }, [isSelectMode, isMobile]);
 
   const handleScrollToBottom = useCallback(() => {
     if (xtermRef.current) {
@@ -2498,7 +2601,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           isSelectMode ? 'cursor-crosshair select-none' : 'cursor-text'
         } ${isRefitting ? 'opacity-40 select-none pointer-events-none' : 'opacity-100'} transition-opacity duration-150`}
         style={{
-          touchAction: isSelectMode ? 'none' : 'pan-y',
+          touchAction: isSelectMode || isMobile ? 'none' : 'pan-y',
           userSelect: isSelectMode ? 'none' : undefined,
           WebkitUserSelect: isSelectMode ? 'none' : undefined,
         }}

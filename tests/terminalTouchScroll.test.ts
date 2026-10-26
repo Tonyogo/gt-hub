@@ -13,4 +13,16 @@ describe('Terminal Mobile Touch Scroll Parity Tests', () => {
     expect(touchMoveSection).not.toContain("linesToScroll > 0 ? '\\x1b[B' : '\\x1b[A'");
     expect(touchMoveSection).not.toContain('arrowSequence');
   });
+
+  test('implements kinetic momentum scrolling and cancels on touchstart', () => {
+    expect(content).toContain('computeTouchVelocity');
+    expect(content).toContain('stepMomentumVelocity');
+    expect(content).toContain('stepTouchScrollLines');
+    expect(content).toContain('stopMomentumScroll');
+  });
+
+  test('prevents browser pan-y gesture hijacking on mobile terminal canvas', () => {
+    expect(content).toContain("touchAction: isSelectMode || isMobile ? 'none' : 'pan-y'");
+  });
 });
+
