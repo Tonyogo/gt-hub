@@ -36,6 +36,7 @@ import {
 import {
   calculateKeyboardTranslateY,
   shouldBlockPtyResize,
+  isTouchOnCursorLine,
 } from '../utils/mobileViewportHelper';
 import {
   isUserAtBottom,
@@ -1297,14 +1298,23 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       }
 
       if (!isDragging && elapsed < 350) {
-        // Pure single tap -> Focus terminal & wake on-screen virtual keyboard synchronously
-        if (isMobile && standalone) {
-          isKeyboardShowingRef.current = true;
-        }
-        term.focus();
-        const textarea = container?.querySelector('textarea');
-        if (textarea) {
-          textarea.focus({ preventScroll: true });
+        const cell = getCellCoordsFromTouch(touchStartX, touchStartY);
+        const cursorBufferRow = (term.buffer.active.baseY || 0) + (term.buffer.active.cursorY || 0);
+        if (cell && isTouchOnCursorLine({ touchBufferRow: cell.bufferRow, cursorBufferRow })) {
+          // Single tap on cursor input line -> Focus terminal & wake on-screen virtual keyboard synchronously
+          if (isMobileRef.current && standaloneRef.current) {
+            isKeyboardShowingRef.current = true;
+          }
+          term.focus();
+          const textarea = container?.querySelector('textarea');
+          if (textarea) {
+            textarea.focus({ preventScroll: true });
+          }
+        } else {
+          // Tapped outside cursor input line on mobile: suppress synthetic click/mousedown focus
+          if (e.cancelable) {
+            e.preventDefault();
+          }
         }
       }
     };
@@ -2480,7 +2490,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         {/* xterm.js Canvas Container */}
       <div
         onClick={() => {
-          if (!isSelectModeRef.current) {
+          if (!isSelectModeRef.current && !isMobileRef.current) {
             xtermRef.current?.focus();
           }
         }}

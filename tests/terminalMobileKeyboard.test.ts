@@ -119,6 +119,25 @@ describe('Mobile Keyboard Dismissal and Checkmark Controls', () => {
     expect(hostEffectBlock).toContain('setTimeout(() => { safeFit(true); }, 500)');
     expect(webTerminalContent).toMatch(/document\.fonts\.ready[\s\S]*?safeFit\(true\)/);
   });
+
+  test('WebTerminalView restricts mobile tap keyboard wake-up to the active cursor line', () => {
+    const content = fs.readFileSync(webTerminalPath, 'utf-8');
+
+    expect(content).toMatch(
+      /import\s*\{[^}]*isTouchOnCursorLine[^}]*\}\s*from\s*['"]\.\.\/utils\/mobileViewportHelper['"]/
+    );
+
+    const touchEndStart = content.indexOf('const handleTouchEnd = (e: TouchEvent) => {');
+    const touchEndEnd = content.indexOf('if (container) {', touchEndStart);
+    const touchEndBlock = content.slice(touchEndStart, touchEndEnd);
+
+    expect(touchEndBlock).toContain('getCellCoordsFromTouch(touchStartX, touchStartY)');
+    expect(touchEndBlock).toContain('isTouchOnCursorLine');
+    expect(touchEndBlock).toContain('textarea.focus({ preventScroll: true })');
+    expect(touchEndBlock).toContain('e.preventDefault()');
+
+    expect(content).toContain('if (!isSelectModeRef.current && !isMobileRef.current)');
+  });
 });
 
 describe('Mobile Cursor-Line Keyboard Trigger Helper (isTouchOnCursorLine)', () => {
