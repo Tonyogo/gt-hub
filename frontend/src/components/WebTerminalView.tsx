@@ -45,6 +45,7 @@ import {
   stepTouchScrollLines,
   computeTouchVelocity,
   stepMomentumVelocity,
+  applyViewportTouchScrollDelta,
 } from '../utils/terminalScrollHelper';
 import {
   calculateMagnifierPosition,
@@ -252,6 +253,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
   const hasFirstDataFittedRef = useRef<boolean>(false);
   const [isAtBottom, setIsAtBottom] = useState<boolean>(true);
   const isAtBottomRef = useRef<boolean>(true);
+  const isTouchScrollingActiveRef = useRef<boolean>(false);
 
   const lastSentColsRef = useRef<number>(0);
   const lastSentRowsRef = useRef<number>(0);
@@ -932,6 +934,10 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       const wasAtBottom = isAtBottomRef.current;
       t.write(batch, () => {
         done();
+        const screenEl = container?.querySelector('.xterm-screen') as HTMLElement | null;
+        if (screenEl && screenEl.style.transform) {
+          screenEl.style.transform = '';
+        }
         if (!isRefittingRef.current && shouldScrollToBottom({ isReplaying: isReplayingRef.current, wasAtBottom, bufferType: t?.buffer.active.type })) {
           scrollToBottomSafe(t);
         }
@@ -978,12 +984,34 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       }
       const atBottom = isUserAtBottom(term);
       isAtBottomRef.current = atBottom;
+      if (isTouchScrollingActiveRef.current) {
+        return;
+      }
       if (scrollDebounceTimer) clearTimeout(scrollDebounceTimer);
       scrollDebounceTimer = setTimeout(() => {
         if (!isMountedRef.current) return;
         setIsAtBottom((prev) => (prev !== isAtBottomRef.current ? isAtBottomRef.current : prev));
       }, 100);
     });
+
+    const syncAtBottomAfterTouchScroll = () => {
+      isTouchScrollingActiveRef.current = false;
+      if (scrollDebounceTimer) {
+        clearTimeout(scrollDebounceTimer);
+        scrollDebounceTimer = null;
+      }
+      if (!term || !isMountedRef.current) return;
+      if (term.buffer.active.type === 'alternate') {
+        if (!isAtBottomRef.current) {
+          isAtBottomRef.current = true;
+          setIsAtBottom(true);
+        }
+        return;
+      }
+      const atBottom = isUserAtBottom(term);
+      isAtBottomRef.current = atBottom;
+      setIsAtBottom((prev) => (prev !== isAtBottomRef.current ? isAtBottomRef.current : prev));
+    };
 
     // Virtual modifier keyboard event handler (CTRL/ALT key combination interception & auto-release)
     term.attachCustomKeyEventHandler((domEvent: KeyboardEvent) => {
@@ -1114,11 +1142,32 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     let touchVelocityY = 0;
     let isDragging = false;
     let accumulatedDeltaY = 0;
+    let pendingTouchDeltaY = 0;
+    let touchScrollRaf: number | null = null;
     let momentumRaf: number | null = null;
     let selectionStartPos: { col: number; viewportRow: number; bufferRow: number } | null = null;
     const container = terminalContainerRef.current;
 
+    const setSubLineTransform = (offsetPx: number) => {
+      const screenEl = container?.querySelector('.xterm-screen') as HTMLElement | null;
+      if (screenEl) {
+        const nextTransform = Number.isFinite(offsetPx) && offsetPx !== 0
+          ? `translate3d(0, ${-offsetPx}px, 0)`
+          : '';
+        if (screenEl.style.transform !== nextTransform) {
+          screenEl.style.transform = nextTransform;
+        }
+      }
+    };
+
     const stopMomentumScroll = () => {
+      if (touchScrollRaf !== null) {
+        if (typeof cancelAnimationFrame !== 'undefined') {
+          cancelAnimationFrame(touchScrollRaf);
+        }
+        touchScrollRaf = null;
+      }
+      pendingTouchDeltaY = 0;
       if (momentumRaf !== null) {
         if (typeof cancelAnimationFrame !== 'undefined') {
           cancelAnimationFrame(momentumRaf);
@@ -1141,14 +1190,64 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       return Math.max(12, fontSizeRef.current * 1.3);
     };
 
+    const applyScrollDelta = (deltaPx: number): boolean => {
+      if (!term || !isMountedRef.current) return true;
+      const viewportEl = container?.querySelector('.xterm-viewport') as HTMLElement | null;
+      const lineHeight = getTouchLineHeight();
+      const res = applyViewportTouchScrollDelta({
+        viewportEl,
+        deltaY: deltaPx,
+        lineHeight,
+        accumulatedDeltaY,
+      });
+
+      if (res.usedNativeScrollTop) {
+        setSubLineTransform(res.subLineOffsetPx);
+        return res.hitBoundary;
+      }
+
+      accumulatedDeltaY = res.remainderDeltaY;
+      if (res.linesToScroll !== 0) {
+        const linesToScroll = res.linesToScroll;
+        term.scrollLines(linesToScroll);
+        const active = term.buffer?.active;
+        if (active) {
+          if (linesToScroll < 0 && active.viewportY <= 0) return true;
+          if (linesToScroll > 0 && active.viewportY >= active.baseY) return true;
+        }
+      }
+      return false;
+    };
+
+    const flushPendingTouchScroll = () => {
+      touchScrollRaf = null;
+      if (pendingTouchDeltaY === 0) return;
+      const deltaToApply = pendingTouchDeltaY;
+      pendingTouchDeltaY = 0;
+      applyScrollDelta(deltaToApply);
+    };
+
+    const scheduleTouchScrollFlush = (deltaY: number) => {
+      pendingTouchDeltaY += deltaY;
+      if (touchScrollRaf !== null) return;
+      if (typeof requestAnimationFrame !== 'undefined') {
+        touchScrollRaf = requestAnimationFrame(flushPendingTouchScroll);
+      } else {
+        flushPendingTouchScroll();
+      }
+    };
+
     const startMomentumScroll = (initialVelocity: number) => {
       if (typeof requestAnimationFrame === 'undefined') return;
+      isTouchScrollingActiveRef.current = true;
       let velocity = initialVelocity;
       let lastFrameTime = Date.now();
 
       const stepFrame = () => {
         if (!isMountedRef.current || isSelectModeRef.current) {
           momentumRaf = null;
+          setSubLineTransform(0);
+          syncAtBottomAfterTouchScroll();
           return;
         }
         const now = Date.now();
@@ -1158,28 +1257,18 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         velocity = stepMomentumVelocity(velocity, dt);
         if (velocity === 0) {
           momentumRaf = null;
+          setSubLineTransform(0);
+          syncAtBottomAfterTouchScroll();
           return;
         }
 
-        const lineHeight = getTouchLineHeight();
-        const step = stepTouchScrollLines(accumulatedDeltaY + velocity * dt, lineHeight);
-        accumulatedDeltaY = step.remainderDeltaY;
-
-        if (step.linesToScroll !== 0) {
-          const active = term.buffer?.active;
-          if (active) {
-            if (step.linesToScroll < 0 && active.viewportY <= 0) {
-              accumulatedDeltaY = 0;
-              momentumRaf = null;
-              return;
-            }
-            if (step.linesToScroll > 0 && active.viewportY >= active.baseY) {
-              accumulatedDeltaY = 0;
-              momentumRaf = null;
-              return;
-            }
-          }
-          term.scrollLines(step.linesToScroll);
+        const hitBoundary = applyScrollDelta(velocity * dt);
+        if (hitBoundary) {
+          accumulatedDeltaY = 0;
+          momentumRaf = null;
+          setSubLineTransform(0);
+          syncAtBottomAfterTouchScroll();
+          return;
         }
 
         momentumRaf = requestAnimationFrame(stepFrame);
@@ -1281,6 +1370,8 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
     const handleTouchStart = (e: TouchEvent) => {
       stopMomentumScroll();
+      setSubLineTransform(0);
+      syncAtBottomAfterTouchScroll();
       if (e.touches.length === 1) {
         touchStartY = e.touches[0].clientY;
         touchStartX = e.touches[0].clientX;
@@ -1290,6 +1381,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         touchVelocityY = 0;
         isDragging = false;
         accumulatedDeltaY = 0;
+        pendingTouchDeltaY = 0;
 
         if (isSelectModeRef.current) {
           if (e.cancelable) {
@@ -1350,21 +1442,15 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
       if (!isDragging && (Math.abs(deltaY) > 6 || Math.abs(deltaX) > 6)) {
         isDragging = true;
+        isTouchScrollingActiveRef.current = true;
       }
 
       if (!isDragging) return;
 
-      // STANDARD MODE: terminal scrolling with velocity tracking
+      // STANDARD MODE: terminal scrolling with velocity tracking and RAF coalescing
       touchVelocityY = computeTouchVelocity(touchVelocityY, frameDeltaY, dt);
-      const lineHeight = getTouchLineHeight();
-      const step = stepTouchScrollLines(accumulatedDeltaY + frameDeltaY, lineHeight);
-      accumulatedDeltaY = step.remainderDeltaY;
-
-      if (step.linesToScroll !== 0) {
-        const linesToScroll = step.linesToScroll;
-        // Standard terminal scrollback buffer scrolling (pure touch-based viewport scrolling)
-        term.scrollLines(linesToScroll);
-      }
+      scheduleTouchScrollFlush(frameDeltaY);
+      // Fallback path via applyScrollDelta / term.scrollLines(linesToScroll) when .xterm-viewport is not scrollable
     };
 
     const handleTouchEnd = (e: TouchEvent) => {
@@ -1381,12 +1467,21 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       }
 
       if (isDragging) {
+        if (touchScrollRaf !== null) {
+          if (typeof cancelAnimationFrame !== 'undefined') {
+            cancelAnimationFrame(touchScrollRaf);
+          }
+          flushPendingTouchScroll();
+        }
         const timeSinceLastMove = now - lastTouchMoveTime;
         if (timeSinceLastMove < 80 && Math.abs(touchVelocityY) >= 0.12) {
           startMomentumScroll(touchVelocityY);
         } else {
           touchVelocityY = 0;
+          setSubLineTransform(0);
+          syncAtBottomAfterTouchScroll();
         }
+        isDragging = false;
         return;
       }
 
@@ -1416,6 +1511,8 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       isDragging = false;
       selectionStartPos = null;
       stopMomentumScroll();
+      setSubLineTransform(0);
+      syncAtBottomAfterTouchScroll();
     };
 
     if (container) {
@@ -1742,6 +1839,8 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       }
       imeController?.dispose();
       stopMomentumScroll();
+      setSubLineTransform(0);
+      isTouchScrollingActiveRef.current = false;
       if (container) {
         container.removeEventListener('touchstart', handleTouchStart, { capture: true } as any);
         container.removeEventListener('touchmove', handleTouchMove, { capture: true } as any);
@@ -1939,6 +2038,10 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
   const handleScrollToBottom = useCallback(() => {
     if (xtermRef.current) {
+      const screenEl = terminalContainerRef.current?.querySelector('.xterm-screen') as HTMLElement | null;
+      if (screenEl && screenEl.style.transform) {
+        screenEl.style.transform = '';
+      }
       isAtBottomRef.current = true;
       setIsAtBottom(true);
       scrollToBottomSafe(xtermRef.current);

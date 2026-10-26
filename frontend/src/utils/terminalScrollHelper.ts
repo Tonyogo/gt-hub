@@ -70,7 +70,17 @@ export function scrollToBottomSafe(term: TerminalLike | null | undefined): void 
     return;
   }
 
+  const resetScreenTransform = () => {
+    try {
+      const screenEl = (term as any).element?.querySelector?.('.xterm-screen') as HTMLElement | null;
+      if (screenEl && screenEl.style && screenEl.style.transform) {
+        screenEl.style.transform = '';
+      }
+    } catch {}
+  };
+
   try {
+    resetScreenTransform();
     term.scrollToBottom();
   } catch {}
 
@@ -90,6 +100,7 @@ export function scrollToBottomSafe(term: TerminalLike | null | undefined): void 
       pendingRafMap.delete(term);
       try {
         if (term && term.buffer?.active?.type !== 'alternate' && typeof term.scrollToBottom === 'function') {
+          resetScreenTransform();
           term.scrollToBottom();
         }
       } catch {}

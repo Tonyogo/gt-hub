@@ -24,5 +24,16 @@ describe('Terminal Mobile Touch Scroll Parity Tests', () => {
   test('prevents browser pan-y gesture hijacking on mobile terminal canvas', () => {
     expect(content).toContain("touchAction: isSelectMode || isMobile ? 'none' : 'pan-y'");
   });
+
+  test('drives .xterm-viewport scrollTop directly with RAF coalescing and sub-line translate3d', () => {
+    expect(content).toContain('applyViewportTouchScrollDelta');
+    expect(content).toContain('.xterm-viewport');
+    expect(content).toContain('pendingTouchDeltaY');
+    expect(content).toContain('translate3d(0,');
+  });
+
+  test('defers setIsAtBottom React re-renders while touch scrolling or momentum is active', () => {
+    expect(content).toContain('isTouchScrollingActiveRef');
+  });
 });
 
