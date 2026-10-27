@@ -269,37 +269,56 @@ export function applyViewportTouchScrollDelta(options: {
  * Prevents @xterm/xterm SelectionService from triggering a full-screen DOM rebuild
  * (DomRenderer.handleSelectionChanged -> renderRows(0, rows - 1)) on every scroll event
  * when no selection is active before or after the event.
+ * Also suppresses noop core.scrollLines(0, true, 1) fired by Viewport when native scroll
+ * stops after _ignoreNextScrollEvent.
  */
 export function patchXtermNoopSelectionRefresh(term: any): void {
-  const renderService = term?._core?._renderService;
-  if (!renderService || typeof renderService.handleSelectionChanged !== 'function' || renderService.__noopSelectionPatched) {
+  const core = term?._core;
+  if (!core) {
     return;
   }
-  const origHandleSelectionChanged = renderService.handleSelectionChanged.bind(renderService);
-  let hadActiveSelection = false;
 
-  renderService.handleSelectionChanged = (
-    start: [number, number] | undefined,
-    end: [number, number] | undefined,
-    columnSelectMode: boolean
-  ) => {
-    const hasActiveSelection = Boolean(
-      start &&
-      end &&
-      (start[0] !== end[0] || start[1] !== end[1])
-    );
-    if (!hasActiveSelection && !hadActiveSelection) {
-      return;
-    }
-    hadActiveSelection = hasActiveSelection;
-    origHandleSelectionChanged(start, end, columnSelectMode);
-  };
-  renderService.__noopSelectionPatched = true;
+  const renderService = core._renderService;
+  if (renderService && typeof renderService.handleSelectionChanged === 'function' && !renderService.__noopSelectionPatched) {
+    const origHandleSelectionChanged = renderService.handleSelectionChanged.bind(renderService);
+    let hadActiveSelection = false;
+
+    renderService.handleSelectionChanged = (
+      start: [number, number] | undefined,
+      end: [number, number] | undefined,
+      columnSelectMode: boolean
+    ) => {
+      const hasActiveSelection = Boolean(
+        start &&
+        end &&
+        (start[0] !== end[0] || start[1] !== end[1])
+      );
+      if (!hasActiveSelection && !hadActiveSelection) {
+        return;
+      }
+      hadActiveSelection = hasActiveSelection;
+      origHandleSelectionChanged(start, end, columnSelectMode);
+    };
+    renderService.__noopSelectionPatched = true;
+  }
+
+  if (typeof core.scrollLines === 'function' && !core.__noopViewportScrollPatched) {
+    const origScrollLines = core.scrollLines.bind(core);
+    core.scrollLines = (disp: number, suppressScrollEvent?: boolean, source?: number) => {
+      if (disp === 0 && source === 1) {
+        return;
+      }
+      return origScrollLines(disp, suppressScrollEvent, source);
+    };
+    core.__noopViewportScrollPatched = true;
+  }
 }
 
 /**
- * Synchronously flushes xterm's RenderDebouncer and Viewport scroll area within the
+ * Synchronously flushes xterm's Viewport scroll area and RenderDebouncer within the
  * current requestAnimationFrame callback to eliminate the 1-frame nested-rAF lag.
+ * Viewport is refreshed first so layout reads (offsetHeight / scrollTop) occur before
+ * RenderDebouncer mutates DOM rows, avoiding forced synchronous reflows.
  */
 export function flushXtermScrollFrameSync(term: any): void {
   const core = term?._core;
@@ -307,17 +326,6 @@ export function flushXtermScrollFrameSync(term: any): void {
   const cancelRaf =
     core._coreBrowserService?.window?.cancelAnimationFrame?.bind(core._coreBrowserService.window) ||
     (typeof cancelAnimationFrame === 'function' ? cancelAnimationFrame : null);
-
-  const debouncer = core._renderService?._renderDebouncer;
-  if (debouncer && debouncer._animationFrame !== undefined && debouncer._animationFrame !== null) {
-    if (cancelRaf) {
-      cancelRaf(debouncer._animationFrame);
-    }
-    debouncer._animationFrame = undefined;
-    if (typeof debouncer._innerRefresh === 'function') {
-      debouncer._innerRefresh();
-    }
-  }
 
   const viewport = core.viewport;
   if (viewport && viewport._refreshAnimationFrame !== null && viewport._refreshAnimationFrame !== undefined) {
@@ -327,6 +335,17 @@ export function flushXtermScrollFrameSync(term: any): void {
     viewport._refreshAnimationFrame = null;
     if (typeof viewport._innerRefresh === 'function') {
       viewport._innerRefresh();
+    }
+  }
+
+  const debouncer = core._renderService?._renderDebouncer;
+  if (debouncer && debouncer._animationFrame !== undefined && debouncer._animationFrame !== null) {
+    if (cancelRaf) {
+      cancelRaf(debouncer._animationFrame);
+    }
+    debouncer._animationFrame = undefined;
+    if (typeof debouncer._innerRefresh === 'function') {
+      debouncer._innerRefresh();
     }
   }
 }

@@ -425,6 +425,53 @@ describe('terminalScrollHelper', () => {
       expect(mockTerm._core.viewport._refreshAnimationFrame).toBeNull();
     });
 
+    it('flushXtermScrollFrameSync runs viewport._innerRefresh before _renderDebouncer._innerRefresh to avoid layout thrashing', () => {
+      const callOrder: string[] = [];
+      const mockTerm = {
+        _core: {
+          _renderService: {
+            _renderDebouncer: {
+              _animationFrame: 11,
+              _innerRefresh: () => callOrder.push('debouncer'),
+            },
+          },
+          viewport: {
+            _refreshAnimationFrame: 22,
+            _innerRefresh: () => callOrder.push('viewport'),
+          },
+        },
+      };
+
+      flushXtermScrollFrameSync(mockTerm);
+      expect(callOrder).toEqual(['viewport', 'debouncer']);
+    });
+
+    it('patchXtermNoopSelectionRefresh skips noop core.scrollLines(0, true, 1) from ignored viewport scroll events', () => {
+      const origScrollLines = jest.fn();
+      const mockTerm = {
+        _core: {
+          scrollLines: origScrollLines,
+          _renderService: {
+            handleSelectionChanged: jest.fn(),
+          },
+        },
+      };
+
+      patchXtermNoopSelectionRefresh(mockTerm);
+
+      // Noop viewport scroll event (amount=0, source=1) -> skipped!
+      mockTerm._core.scrollLines(0, true, 1);
+      expect(origScrollLines).not.toHaveBeenCalled();
+
+      // Real viewport scroll (amount=2, source=1) -> forwarded!
+      mockTerm._core.scrollLines(2, true, 1);
+      expect(origScrollLines).toHaveBeenCalledWith(2, true, 1);
+
+      // Programmatic scrollLines (amount=0, source=0/undefined) -> forwarded!
+      mockTerm._core.scrollLines(0, false);
+      expect(origScrollLines).toHaveBeenCalledTimes(2);
+    });
+
     it('applyViewportTouchScrollDelta falls back to stepTouchScrollLines when viewportEl is not scrollable', () => {
       const unscrollableViewport = { scrollTop: 0, scrollHeight: 400, clientHeight: 400 };
       const fallbackRes = applyViewportTouchScrollDelta({
