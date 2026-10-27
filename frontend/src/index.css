@@ -181,6 +181,7 @@
 /* Terminal Selection Mode: Disable all browser native text drag & magnifier callouts */
 .terminal-select-mode,
 .terminal-select-mode .xterm,
+.terminal-select-mode .xterm-viewport,
 .terminal-select-mode .xterm-screen,
 .terminal-select-mode .xterm-rows,
 .terminal-select-mode .xterm-rows * {

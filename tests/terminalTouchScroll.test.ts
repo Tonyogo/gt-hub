@@ -36,5 +36,15 @@ describe('Terminal Mobile Touch Scroll Parity Tests', () => {
   test('defers setIsAtBottom React re-renders while touch scrolling or momentum is active', () => {
     expect(content).toContain('isTouchScrollingActiveRef');
   });
+
+  test('preserves initial pre-drag displacement and locks touch-action on .xterm-viewport', () => {
+    const touchMoveSection = content.slice(content.indexOf('const handleTouchMove'), content.indexOf('const handleTouchEnd'));
+    const notDraggingGuardIdx = touchMoveSection.indexOf('if (!isDragging) return;');
+    const lastTouchUpdateIdx = touchMoveSection.indexOf('lastTouchY = currentY;');
+
+    expect(notDraggingGuardIdx).toBeGreaterThan(-1);
+    expect(lastTouchUpdateIdx).toBeGreaterThan(notDraggingGuardIdx);
+    expect(content).toContain("xtermViewport.style.touchAction = defaultTouchAction");
+  });
 });
 

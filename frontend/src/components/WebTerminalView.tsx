@@ -858,6 +858,15 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     term.open(terminalContainerRef.current);
     patchCompositionHelper(term);
 
+    if (isMobileRef.current && terminalContainerRef.current) {
+      const initialViewport = terminalContainerRef.current.querySelector('.xterm-viewport') as HTMLElement | null;
+      const initialScreen = terminalContainerRef.current.querySelector('.xterm-screen') as HTMLElement | null;
+      const initialXterm = terminalContainerRef.current.querySelector('.xterm') as HTMLElement | null;
+      if (initialViewport) initialViewport.style.touchAction = 'none';
+      if (initialScreen) initialScreen.style.touchAction = 'none';
+      if (initialXterm) initialXterm.style.touchAction = 'none';
+    }
+
     // Code-server mobile textarea optimization
     const helperTextarea = terminalContainerRef.current.querySelector('textarea');
     let handleFocus: (() => void) | null = null;
@@ -1405,11 +1414,6 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
       const deltaY = touchStartY - currentY;
       const deltaX = touchStartX - currentX;
-      const frameDeltaY = lastTouchY - currentY;
-      const now = getNow();
-      const dt = Math.max(4, now - lastTouchMoveTime);
-      lastTouchY = currentY;
-      lastTouchMoveTime = now;
 
       // Prevent browser native pan-y gesture from hijacking touch stream during initial movement
       if (e.cancelable) {
@@ -1422,12 +1426,18 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         handleHideKeyboard();
       }
 
-      if (!isDragging && (Math.abs(deltaY) > 6 || Math.abs(deltaX) > 6)) {
+      if (!isDragging && (Math.abs(deltaY) > 3 || Math.abs(deltaX) > 3)) {
         isDragging = true;
         isTouchScrollingActiveRef.current = true;
       }
 
       if (!isDragging) return;
+
+      const frameDeltaY = lastTouchY - currentY;
+      const now = getNow();
+      const dt = Math.max(4, now - lastTouchMoveTime);
+      lastTouchY = currentY;
+      lastTouchMoveTime = now;
 
       // STANDARD MODE: terminal scrolling with velocity tracking and RAF coalescing
       touchVelocityY = computeTouchVelocity(touchVelocityY, frameDeltaY, dt);
@@ -1985,11 +1995,15 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
   useEffect(() => {
     const container = terminalContainerRef.current;
     if (!container) return;
+    const xtermViewport = container.querySelector('.xterm-viewport') as HTMLElement | null;
     const xtermScreen = container.querySelector('.xterm-screen') as HTMLElement | null;
     const xtermEl = container.querySelector('.xterm') as HTMLElement | null;
     const defaultTouchAction = isMobile ? 'none' : '';
     if (isSelectMode) {
       container.style.touchAction = 'none';
+      if (xtermViewport) {
+        xtermViewport.style.touchAction = 'none';
+      }
       if (xtermScreen) {
         xtermScreen.style.touchAction = 'none';
         xtermScreen.style.userSelect = 'none';
@@ -2002,6 +2016,9 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       }
     } else {
       container.style.touchAction = defaultTouchAction;
+      if (xtermViewport) {
+        xtermViewport.style.touchAction = defaultTouchAction;
+      }
       if (xtermScreen) {
         xtermScreen.style.touchAction = defaultTouchAction;
         xtermScreen.style.userSelect = '';
