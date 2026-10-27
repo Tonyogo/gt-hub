@@ -148,7 +148,16 @@ export const zh: Translations = {
     loading: "加载中...",
     searchPlaceholder: "过滤当前目录文件...",
     showHidden: "显示隐藏文件",
-    hideHidden: "不显示隐藏文件"
+    hideHidden: "不显示隐藏文件",
+    previewMode: "预览",
+    editMode: "编辑",
+    openInNewTab: "新窗口打开",
+    emptyMarkdown: "文档内容为空，点击右上角「编辑」开始编写",
+    copyCode: "复制代码",
+    codeCopied: "已复制",
+    retry: "重试",
+    maximize: "最大化",
+    restore: "还原"
   },
   'scripts.title': '常用脚本库',
   'scripts.searchPlaceholder': '搜索脚本名称、描述或标签...',

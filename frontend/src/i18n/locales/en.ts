@@ -146,7 +146,16 @@ export const en = {
     loading: "Loading...",
     searchPlaceholder: "Filter files in current directory...",
     showHidden: "Show hidden files",
-    hideHidden: "Hide hidden files"
+    hideHidden: "Hide hidden files",
+    previewMode: "Preview",
+    editMode: "Edit",
+    openInNewTab: "Open in New Tab",
+    emptyMarkdown: "Document is empty. Click 'Edit' above to start writing.",
+    copyCode: "Copy code",
+    codeCopied: "Copied",
+    retry: "Retry",
+    maximize: "Maximize",
+    restore: "Restore"
   },
   'scripts.title': 'Script Library',
   'scripts.searchPlaceholder': 'Search scripts by name, description or tag...',
