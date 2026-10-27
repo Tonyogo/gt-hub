@@ -8,6 +8,7 @@ import { ticketManager, TicketManager } from '../src/server/modules/auth/ticketM
 import { terminalHostManager } from '../src/terminal/services/terminalHostManager';
 
 describe('Origin HTTP Compression, Reusable Preview Tickets & Inline PDF Stream', () => {
+  const originalSecretKey = config.adminSecretKey;
   const secretKey = config.adminSecretKey || 'test-admin-key';
   const hostId = 'http-compress-test-node';
   const largeContent = 'Cloudflare Tunnel Origin Gzip Compression Payload Line\n'.repeat(200);
@@ -60,6 +61,7 @@ describe('Origin HTTP Compression, Reusable Preview Tickets & Inline PDF Stream'
 
   afterAll(() => {
     terminalHostManager.unregisterAgent(hostId);
+    config.adminSecretKey = originalSecretKey;
   });
 
   test('TicketManager supports reusable tickets for multi-request streaming within TTL', () => {
