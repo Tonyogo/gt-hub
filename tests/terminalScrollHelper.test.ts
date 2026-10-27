@@ -244,42 +244,41 @@ describe('terminalScrollHelper', () => {
       expect(stepMomentumVelocity(-0.05, 16)).toBe(0);
     });
 
-    it('applyViewportTouchScrollDelta drives viewportEl.scrollTop directly without sub-line transform offset and preserves fractional remainder', () => {
-      let internalScrollTop = 160;
-      const viewportEl = {
-        get scrollTop() {
-          return internalScrollTop;
-        },
-        set scrollTop(v: number) {
-          // Simulate browser integer truncation on scrollTop assignment
-          internalScrollTop = Math.trunc(v);
-        },
-        scrollHeight: 1600,
-        clientHeight: 400,
-      };
+    it('applyViewportTouchScrollDelta accumulates sub-line deltas into deterministic linesToScroll without snap-back loss', () => {
+      const viewportEl = { scrollTop: 160, scrollHeight: 1600, clientHeight: 400 };
 
+      // Frame 1: +6px (< 16px lineHeight) -> 0 lines, +6px remainder preserved
       const res1 = applyViewportTouchScrollDelta({
         viewportEl,
-        deltaY: 0.6,
+        deltaY: 6,
         lineHeight: 16,
         accumulatedDeltaY: 0,
       });
-      expect(res1.usedNativeScrollTop).toBe(true);
-      expect(viewportEl.scrollTop).toBe(160);
+      expect(res1.linesToScroll).toBe(0);
+      expect(res1.remainderDeltaY).toBe(6);
       expect(res1.subLineOffsetPx).toBe(0);
-      expect(res1.remainderDeltaY).toBeCloseTo(0.6, 5);
       expect(res1.hitBoundary).toBe(false);
 
+      // Frame 2: +6px (total 12px < 16px) -> 0 lines, +12px remainder preserved even if xterm kept scrollTop at 160
       const res2 = applyViewportTouchScrollDelta({
         viewportEl,
-        deltaY: 0.7,
+        deltaY: 6,
         lineHeight: 16,
         accumulatedDeltaY: res1.remainderDeltaY,
       });
-      expect(res2.usedNativeScrollTop).toBe(true);
-      expect(viewportEl.scrollTop).toBe(161);
-      expect(res2.subLineOffsetPx).toBe(0);
-      expect(res2.remainderDeltaY).toBeCloseTo(0.3, 5);
+      expect(res2.linesToScroll).toBe(0);
+      expect(res2.remainderDeltaY).toBe(12);
+
+      // Frame 3: +6px (total 18px >= 16px) -> 1 line to scroll, +2px remainder preserved
+      const res3 = applyViewportTouchScrollDelta({
+        viewportEl,
+        deltaY: 6,
+        lineHeight: 16,
+        accumulatedDeltaY: res2.remainderDeltaY,
+      });
+      expect(res3.linesToScroll).toBe(1);
+      expect(res3.remainderDeltaY).toBe(2);
+      expect(res3.hitBoundary).toBe(false);
     });
 
     it('applyViewportTouchScrollDelta clamps at top and bottom boundaries and reports hitBoundary', () => {

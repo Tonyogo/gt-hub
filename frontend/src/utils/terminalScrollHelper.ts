@@ -200,33 +200,41 @@ export function applyViewportTouchScrollDelta(options: {
   const safeDeltaY = Number.isFinite(deltaY) ? deltaY : 0;
   const prevRemainder = Number.isFinite(accumulatedDeltaY) ? (accumulatedDeltaY as number) : 0;
   const totalDeltaY = prevRemainder + safeDeltaY;
+  const step = stepTouchScrollLines(totalDeltaY, safeLineHeight);
 
-  if (viewportEl && Number.isFinite(viewportEl.scrollHeight) && Number.isFinite(viewportEl.clientHeight) && viewportEl.scrollHeight > viewportEl.clientHeight) {
+  if (
+    viewportEl &&
+    Number.isFinite(viewportEl.scrollHeight) &&
+    Number.isFinite(viewportEl.clientHeight) &&
+    viewportEl.scrollHeight > viewportEl.clientHeight
+  ) {
     const maxScrollTop = Math.max(0, viewportEl.scrollHeight - viewportEl.clientHeight);
-    const rawNext = viewportEl.scrollTop + totalDeltaY;
+    const rawNext = viewportEl.scrollTop + step.linesToScroll * safeLineHeight;
     const nextScrollTop = Math.max(0, Math.min(maxScrollTop, rawNext));
     const hitBoundary =
-      (totalDeltaY < 0 && nextScrollTop <= 0) ||
-      (totalDeltaY > 0 && nextScrollTop >= maxScrollTop);
+      (totalDeltaY < 0 && viewportEl.scrollTop <= 0) ||
+      (totalDeltaY > 0 && viewportEl.scrollTop >= maxScrollTop) ||
+      (step.linesToScroll < 0 && nextScrollTop <= 0) ||
+      (step.linesToScroll > 0 && nextScrollTop >= maxScrollTop);
 
-    viewportEl.scrollTop = nextScrollTop;
-    const actualScrollTop = viewportEl.scrollTop;
-    const remainderDeltaY = hitBoundary ? 0 : nextScrollTop - actualScrollTop;
+    if (step.linesToScroll !== 0 || hitBoundary) {
+      viewportEl.scrollTop = hitBoundary
+        ? totalDeltaY < 0
+          ? 0
+          : maxScrollTop
+        : nextScrollTop;
+    }
 
     return {
       usedNativeScrollTop: true,
-      nextScrollTop: actualScrollTop,
+      nextScrollTop: viewportEl.scrollTop,
       subLineOffsetPx: 0,
       hitBoundary,
-      linesToScroll: 0,
-      remainderDeltaY,
+      linesToScroll: step.linesToScroll,
+      remainderDeltaY: hitBoundary ? 0 : step.remainderDeltaY,
     };
   }
 
-  const step = stepTouchScrollLines(
-    totalDeltaY,
-    safeLineHeight
-  );
   return {
     usedNativeScrollTop: false,
     nextScrollTop: 0,
