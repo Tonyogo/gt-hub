@@ -70,17 +70,7 @@ export function scrollToBottomSafe(term: TerminalLike | null | undefined): void 
     return;
   }
 
-  const resetScreenTransform = () => {
-    try {
-      const screenEl = (term as any).element?.querySelector?.('.xterm-screen') as HTMLElement | null;
-      if (screenEl && screenEl.style && screenEl.style.transform) {
-        screenEl.style.transform = '';
-      }
-    } catch {}
-  };
-
   try {
-    resetScreenTransform();
     term.scrollToBottom();
   } catch {}
 
@@ -100,7 +90,6 @@ export function scrollToBottomSafe(term: TerminalLike | null | undefined): void 
       pendingRafMap.delete(term);
       try {
         if (term && term.buffer?.active?.type !== 'alternate' && typeof term.scrollToBottom === 'function') {
-          resetScreenTransform();
           term.scrollToBottom();
         }
       } catch {}
@@ -180,8 +169,8 @@ export interface ViewportTouchScrollResult {
 
 /**
  * Applies a touch scroll pixel delta directly to the native xterm viewport scroll position.
- * Mutates viewportEl.scrollTop directly when scrollable content exists, eliminating forced reflows
- * and calculating sub-line pixel offsets for GPU translate3d compensation.
+ * Mutates viewportEl.scrollTop directly when scrollable content exists, preserving fractional
+ * remainder across frames when viewportEl.scrollTop truncates to integer pixels.
  * Falls back to discrete stepTouchScrollLines when viewportEl is absent or not scrollable.
  */
 export function applyViewportTouchScrollDelta(options: {
@@ -192,27 +181,34 @@ export function applyViewportTouchScrollDelta(options: {
 }): ViewportTouchScrollResult {
   const { viewportEl, deltaY, lineHeight, accumulatedDeltaY = 0 } = options;
   const safeLineHeight = Number.isFinite(lineHeight) && lineHeight >= 6 ? lineHeight : 16;
+  const safeDeltaY = Number.isFinite(deltaY) ? deltaY : 0;
+  const prevRemainder = Number.isFinite(accumulatedDeltaY) ? (accumulatedDeltaY as number) : 0;
+  const totalDeltaY = prevRemainder + safeDeltaY;
 
   if (viewportEl && Number.isFinite(viewportEl.scrollHeight) && Number.isFinite(viewportEl.clientHeight) && viewportEl.scrollHeight > viewportEl.clientHeight) {
     const maxScrollTop = Math.max(0, viewportEl.scrollHeight - viewportEl.clientHeight);
-    const rawNext = viewportEl.scrollTop + (Number.isFinite(deltaY) ? deltaY : 0);
+    const rawNext = viewportEl.scrollTop + totalDeltaY;
     const nextScrollTop = Math.max(0, Math.min(maxScrollTop, rawNext));
-    const hitBoundary = (deltaY < 0 && nextScrollTop <= 0) || (deltaY > 0 && nextScrollTop >= maxScrollTop);
+    const hitBoundary =
+      (totalDeltaY < 0 && nextScrollTop <= 0) ||
+      (totalDeltaY > 0 && nextScrollTop >= maxScrollTop);
+
     viewportEl.scrollTop = nextScrollTop;
-    const snappedScrollTop = Math.round(nextScrollTop / safeLineHeight) * safeLineHeight;
-    const subLineOffsetPx = hitBoundary ? 0 : nextScrollTop - snappedScrollTop;
+    const actualScrollTop = viewportEl.scrollTop;
+    const remainderDeltaY = hitBoundary ? 0 : nextScrollTop - actualScrollTop;
+
     return {
       usedNativeScrollTop: true,
-      nextScrollTop,
-      subLineOffsetPx,
+      nextScrollTop: actualScrollTop,
+      subLineOffsetPx: 0,
       hitBoundary,
       linesToScroll: 0,
-      remainderDeltaY: 0,
+      remainderDeltaY,
     };
   }
 
   const step = stepTouchScrollLines(
-    (Number.isFinite(accumulatedDeltaY) ? accumulatedDeltaY : 0) + (Number.isFinite(deltaY) ? deltaY : 0),
+    totalDeltaY,
     safeLineHeight
   );
   return {

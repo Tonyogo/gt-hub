@@ -227,22 +227,56 @@ describe('terminalScrollHelper', () => {
       expect(stepMomentumVelocity(-0.05, 16)).toBe(0);
     });
 
-    it('applyViewportTouchScrollDelta drives viewportEl.scrollTop directly and computes sub-line offset', () => {
-      const viewportEl = { scrollTop: 160, scrollHeight: 1600, clientHeight: 400 };
-      // Move down by 5px with 16px lineHeight -> scrollTop = 165, nearest row = 10 (160px), subLineOffsetPx = +5
-      const res = applyViewportTouchScrollDelta({
+    it('applyViewportTouchScrollDelta drives viewportEl.scrollTop directly without sub-line transform offset and preserves fractional remainder', () => {
+      let internalScrollTop = 160;
+      const viewportEl = {
+        get scrollTop() {
+          return internalScrollTop;
+        },
+        set scrollTop(v: number) {
+          // Simulate browser integer truncation on scrollTop assignment
+          internalScrollTop = Math.trunc(v);
+        },
+        scrollHeight: 1600,
+        clientHeight: 400,
+      };
+
+      const res1 = applyViewportTouchScrollDelta({
         viewportEl,
-        deltaY: 5,
+        deltaY: 0.6,
         lineHeight: 16,
+        accumulatedDeltaY: 0,
       });
-      expect(res.usedNativeScrollTop).toBe(true);
-      expect(viewportEl.scrollTop).toBe(165);
-      expect(res.subLineOffsetPx).toBe(5);
-      expect(res.hitBoundary).toBe(false);
+      expect(res1.usedNativeScrollTop).toBe(true);
+      expect(viewportEl.scrollTop).toBe(160);
+      expect(res1.subLineOffsetPx).toBe(0);
+      expect(res1.remainderDeltaY).toBeCloseTo(0.6, 5);
+      expect(res1.hitBoundary).toBe(false);
+
+      const res2 = applyViewportTouchScrollDelta({
+        viewportEl,
+        deltaY: 0.7,
+        lineHeight: 16,
+        accumulatedDeltaY: res1.remainderDeltaY,
+      });
+      expect(res2.usedNativeScrollTop).toBe(true);
+      expect(viewportEl.scrollTop).toBe(161);
+      expect(res2.subLineOffsetPx).toBe(0);
+      expect(res2.remainderDeltaY).toBeCloseTo(0.3, 5);
     });
 
     it('applyViewportTouchScrollDelta clamps at top and bottom boundaries and reports hitBoundary', () => {
-      const viewportEl = { scrollTop: 4, scrollHeight: 1600, clientHeight: 400 };
+      let internalScrollTop = 4;
+      const viewportEl = {
+        get scrollTop() {
+          return internalScrollTop;
+        },
+        set scrollTop(v: number) {
+          internalScrollTop = Math.trunc(v);
+        },
+        scrollHeight: 1600,
+        clientHeight: 400,
+      };
       const topRes = applyViewportTouchScrollDelta({
         viewportEl,
         deltaY: -20,
@@ -252,6 +286,7 @@ describe('terminalScrollHelper', () => {
       expect(viewportEl.scrollTop).toBe(0);
       expect(topRes.hitBoundary).toBe(true);
       expect(topRes.subLineOffsetPx).toBe(0);
+      expect(topRes.remainderDeltaY).toBe(0);
 
       viewportEl.scrollTop = 1195; // maxScrollTop = 1200
       const bottomRes = applyViewportTouchScrollDelta({
@@ -262,6 +297,7 @@ describe('terminalScrollHelper', () => {
       expect(viewportEl.scrollTop).toBe(1200);
       expect(bottomRes.hitBoundary).toBe(true);
       expect(bottomRes.subLineOffsetPx).toBe(0);
+      expect(bottomRes.remainderDeltaY).toBe(0);
     });
 
     it('applyViewportTouchScrollDelta falls back to stepTouchScrollLines when viewportEl is not scrollable', () => {
