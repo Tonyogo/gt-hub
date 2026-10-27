@@ -6,6 +6,8 @@ import {
   computeTouchVelocity,
   stepMomentumVelocity,
   applyViewportTouchScrollDelta,
+  patchXtermNoopSelectionRefresh,
+  flushXtermScrollFrameSync,
 } from '../frontend/src/utils/terminalScrollHelper';
 
 describe('terminalScrollHelper', () => {
@@ -314,6 +316,113 @@ describe('terminalScrollHelper', () => {
       expect(bottomRes.hitBoundary).toBe(true);
       expect(bottomRes.subLineOffsetPx).toBe(0);
       expect(bottomRes.remainderDeltaY).toBe(0);
+    });
+
+    it('computeTouchVelocity preserves velocity on small same-direction lift-off micro-deltas (<= 2.5px)', () => {
+      const vFast = computeTouchVelocity(0, 48, 16); // 3 px/ms
+      expect(vFast).toBe(3);
+
+      // Trailing 1.5px micro-delta during finger release within 12ms preserves velocity
+      const vAfterMicroLift = computeTouchVelocity(vFast, 1.5, 12);
+      expect(vAfterMicroLift).toBe(3);
+
+      // Genuine slow drag after long interval (45ms) blends velocity downward
+      const vSlowDrag = computeTouchVelocity(vFast, 1.5, 45);
+      expect(vSlowDrag).toBeLessThan(vFast);
+      expect(vSlowDrag).toBeGreaterThan(0);
+    });
+
+    it('applyViewportTouchScrollDelta skips DOM scrollTop mutation when syncViewportScrollTop is false', () => {
+      let scrollTopWrites = 0;
+      const viewportEl = {
+        get scrollTop() {
+          return 160;
+        },
+        set scrollTop(_v: number) {
+          scrollTopWrites += 1;
+        },
+        scrollHeight: 1600,
+        clientHeight: 400,
+      };
+
+      const res = applyViewportTouchScrollDelta({
+        viewportEl,
+        deltaY: 36,
+        lineHeight: 16,
+        accumulatedDeltaY: 0,
+        syncViewportScrollTop: false,
+      });
+
+      expect(res.linesToScroll).toBe(2);
+      expect(res.remainderDeltaY).toBe(4);
+      expect(res.usedNativeScrollTop).toBe(false);
+      expect(scrollTopWrites).toBe(0);
+    });
+
+    it('patchXtermNoopSelectionRefresh suppresses redundant empty selection redraws while preserving active and clear redraws', () => {
+      const handleSelectionChanged = jest.fn();
+      const mockTerm = {
+        _core: {
+          _renderService: {
+            handleSelectionChanged,
+          },
+        },
+      };
+
+      patchXtermNoopSelectionRefresh(mockTerm);
+      const rs = mockTerm._core._renderService;
+
+      // 1. Repeated empty selection refreshes during scroll -> skipped!
+      rs.handleSelectionChanged(undefined, undefined, false);
+      rs.handleSelectionChanged(undefined, undefined, false);
+      expect(handleSelectionChanged).toHaveBeenCalledTimes(0);
+
+      // 2. Active selection -> forwarded!
+      rs.handleSelectionChanged([0, 1], [5, 1], false);
+      expect(handleSelectionChanged).toHaveBeenCalledTimes(1);
+
+      // 3. Clearing active selection -> forwarded once to clear highlight!
+      rs.handleSelectionChanged(undefined, undefined, false);
+      expect(handleSelectionChanged).toHaveBeenCalledTimes(2);
+
+      // 4. Subsequent empty selection refreshes -> skipped again!
+      rs.handleSelectionChanged(undefined, undefined, false);
+      expect(handleSelectionChanged).toHaveBeenCalledTimes(2);
+    });
+
+    it('flushXtermScrollFrameSync flushes RenderDebouncer and Viewport in the same animation frame', () => {
+      const cancelRaf = jest.fn();
+      const debouncerInnerRefresh = jest.fn();
+      const viewportInnerRefresh = jest.fn();
+
+      const mockTerm = {
+        _core: {
+          _coreBrowserService: {
+            window: {
+              cancelAnimationFrame: cancelRaf,
+            },
+          },
+          _renderService: {
+            _renderDebouncer: {
+              _animationFrame: 42,
+              _innerRefresh: debouncerInnerRefresh,
+            },
+          },
+          viewport: {
+            _refreshAnimationFrame: 99,
+            _innerRefresh: viewportInnerRefresh,
+          },
+        },
+      };
+
+      flushXtermScrollFrameSync(mockTerm);
+
+      expect(cancelRaf).toHaveBeenCalledWith(42);
+      expect(cancelRaf).toHaveBeenCalledWith(99);
+      expect(debouncerInnerRefresh).toHaveBeenCalledTimes(1);
+      expect(viewportInnerRefresh).toHaveBeenCalledTimes(1);
+      expect(mockTerm._core._renderService._renderDebouncer._animationFrame).toBeUndefined();
+      expect(mockTerm._core.viewport._refreshAnimationFrame).toBeNull();
     });
 
     it('applyViewportTouchScrollDelta falls back to stepTouchScrollLines when viewportEl is not scrollable', () => {

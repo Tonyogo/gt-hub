@@ -131,8 +131,16 @@ export function computeTouchVelocity(prevVelocity: number, deltaY: number, dtMs:
   const safeDelta = Number.isFinite(deltaY) ? deltaY : 0;
   const rawDt = Number.isFinite(dtMs) && dtMs > 0 ? dtMs : 16;
 
-  // Ignore sub-pixel zero-delta samples within <32ms (high-refresh duplicate sample or finger lift-off jitter)
+  // Ignore sub-pixel zero-delta samples or tiny same-direction finger lift-off micro-deltas within <28ms
   if (Math.abs(safeDelta) < 0.5 && rawDt < 32) {
+    return safePrev;
+  }
+  if (
+    Math.abs(safePrev) >= 0.4 &&
+    Math.abs(safeDelta) <= 2.5 &&
+    rawDt < 28 &&
+    safePrev * safeDelta >= 0
+  ) {
     return safePrev;
   }
 
@@ -144,8 +152,8 @@ export function computeTouchVelocity(prevVelocity: number, deltaY: number, dtMs:
     return Math.max(-6, Math.min(6, instantV));
   }
 
-  // Weight faster flick acceleration higher (0.75) so short 2-frame flicks reach full velocity
-  const weight = Math.abs(instantV) > Math.abs(safePrev) ? 0.75 : 0.6;
+  // Weight acceleration higher (0.75) and deceleration lighter (0.3) so lift-off retains kinetic energy
+  const weight = Math.abs(instantV) > Math.abs(safePrev) ? 0.75 : 0.3;
   const blended = safePrev * (1 - weight) + instantV * weight;
   return Math.max(-6, Math.min(6, blended));
 }
@@ -157,8 +165,8 @@ export function computeTouchVelocity(prevVelocity: number, deltaY: number, dtMs:
 export function stepMomentumVelocity(
   velocityPxPerMs: number,
   dtMs = 16,
-  friction = 0.95,
-  minVelocity = 0.08
+  friction = 0.96,
+  minVelocity = 0.16
 ): number {
   if (!Number.isFinite(velocityPxPerMs) || Math.abs(velocityPxPerMs) < minVelocity) {
     return 0;
@@ -194,13 +202,25 @@ export function applyViewportTouchScrollDelta(options: {
   deltaY: number;
   lineHeight: number;
   accumulatedDeltaY?: number;
+  syncViewportScrollTop?: boolean;
 }): ViewportTouchScrollResult {
-  const { viewportEl, deltaY, lineHeight, accumulatedDeltaY = 0 } = options;
+  const { viewportEl, deltaY, lineHeight, accumulatedDeltaY = 0, syncViewportScrollTop = true } = options;
   const safeLineHeight = Number.isFinite(lineHeight) && lineHeight >= 6 ? lineHeight : 16;
   const safeDeltaY = Number.isFinite(deltaY) ? deltaY : 0;
   const prevRemainder = Number.isFinite(accumulatedDeltaY) ? (accumulatedDeltaY as number) : 0;
   const totalDeltaY = prevRemainder + safeDeltaY;
   const step = stepTouchScrollLines(totalDeltaY, safeLineHeight);
+
+  if (!syncViewportScrollTop) {
+    return {
+      usedNativeScrollTop: false,
+      nextScrollTop: 0,
+      subLineOffsetPx: 0,
+      hitBoundary: false,
+      linesToScroll: step.linesToScroll,
+      remainderDeltaY: step.remainderDeltaY,
+    };
+  }
 
   if (
     viewportEl &&
@@ -244,5 +264,72 @@ export function applyViewportTouchScrollDelta(options: {
     remainderDeltaY: step.remainderDeltaY,
   };
 }
+
+/**
+ * Prevents @xterm/xterm SelectionService from triggering a full-screen DOM rebuild
+ * (DomRenderer.handleSelectionChanged -> renderRows(0, rows - 1)) on every scroll event
+ * when no selection is active before or after the event.
+ */
+export function patchXtermNoopSelectionRefresh(term: any): void {
+  const renderService = term?._core?._renderService;
+  if (!renderService || typeof renderService.handleSelectionChanged !== 'function' || renderService.__noopSelectionPatched) {
+    return;
+  }
+  const origHandleSelectionChanged = renderService.handleSelectionChanged.bind(renderService);
+  let hadActiveSelection = false;
+
+  renderService.handleSelectionChanged = (
+    start: [number, number] | undefined,
+    end: [number, number] | undefined,
+    columnSelectMode: boolean
+  ) => {
+    const hasActiveSelection = Boolean(
+      start &&
+      end &&
+      (start[0] !== end[0] || start[1] !== end[1])
+    );
+    if (!hasActiveSelection && !hadActiveSelection) {
+      return;
+    }
+    hadActiveSelection = hasActiveSelection;
+    origHandleSelectionChanged(start, end, columnSelectMode);
+  };
+  renderService.__noopSelectionPatched = true;
+}
+
+/**
+ * Synchronously flushes xterm's RenderDebouncer and Viewport scroll area within the
+ * current requestAnimationFrame callback to eliminate the 1-frame nested-rAF lag.
+ */
+export function flushXtermScrollFrameSync(term: any): void {
+  const core = term?._core;
+  if (!core) return;
+  const cancelRaf =
+    core._coreBrowserService?.window?.cancelAnimationFrame?.bind(core._coreBrowserService.window) ||
+    (typeof cancelAnimationFrame === 'function' ? cancelAnimationFrame : null);
+
+  const debouncer = core._renderService?._renderDebouncer;
+  if (debouncer && debouncer._animationFrame !== undefined && debouncer._animationFrame !== null) {
+    if (cancelRaf) {
+      cancelRaf(debouncer._animationFrame);
+    }
+    debouncer._animationFrame = undefined;
+    if (typeof debouncer._innerRefresh === 'function') {
+      debouncer._innerRefresh();
+    }
+  }
+
+  const viewport = core.viewport;
+  if (viewport && viewport._refreshAnimationFrame !== null && viewport._refreshAnimationFrame !== undefined) {
+    if (cancelRaf) {
+      cancelRaf(viewport._refreshAnimationFrame);
+    }
+    viewport._refreshAnimationFrame = null;
+    if (typeof viewport._innerRefresh === 'function') {
+      viewport._innerRefresh();
+    }
+  }
+}
+
 
 
