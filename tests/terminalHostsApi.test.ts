@@ -223,4 +223,17 @@ describe('Terminal Hosts API (Dual-Route)', () => {
       'sort-offline-z',
     ]);
   });
+
+  test('returns serverStartTime and serverUptimeMs in GET /api/terminal/hosts', async () => {
+    const res = await request(app)
+      .get('/api/terminal/hosts')
+      .set('x-admin-key', key);
+
+    expect(res.status).toBe(200);
+    expect(typeof res.body.serverStartTime).toBe('number');
+    expect(res.body.serverStartTime).toBeGreaterThan(0);
+    expect(res.body.serverStartTime).toBeLessThanOrEqual(Date.now());
+    expect(typeof res.body.serverUptimeMs).toBe('number');
+    expect(res.body.serverUptimeMs).toBeGreaterThanOrEqual(0);
+  });
 });

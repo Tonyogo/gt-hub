@@ -646,19 +646,24 @@ export class TerminalHostManager {
         platform: metadata.platform || 'linux',
         status: 'online',
         lastSeen: Date.now(),
-        startTime: metadata.startTime,
+        startTime: metadata.startTime ?? Date.now(),
         type: 'agent',
         machineId,
         version: metadata.version,
       };
       this.hosts.set(id, host);
     } else {
+      const wasOffline = host.status === 'offline';
       host.status = 'online';
       host.lastSeen = Date.now();
       host.name = targetName;
       host.machineId = machineId;
       delete (host as any).agentWs;
-      if (metadata.startTime !== undefined) host.startTime = metadata.startTime;
+      if (metadata.startTime !== undefined) {
+        host.startTime = metadata.startTime;
+      } else if (wasOffline || host.startTime === undefined) {
+        host.startTime = Date.now();
+      }
       if (metadata.hostname) host.hostname = metadata.hostname;
       if (metadata.ip) host.ip = metadata.ip;
       if (metadata.platform) host.platform = metadata.platform;
@@ -764,14 +769,17 @@ export class TerminalHostManager {
       return;
     }
 
+    const wasOffline = host.status !== 'online';
     host.lastSeen = Date.now();
     if (metadata?.startTime !== undefined) {
       host.startTime = metadata.startTime;
+    } else if (wasOffline || host.startTime === undefined) {
+      host.startTime = Date.now();
     }
     if (metadata?.version) {
       host.version = metadata.version;
     }
-    if (host.status !== 'online') {
+    if (wasOffline) {
       host.status = 'online';
       logger.info(`[TerminalHostManager] Agent status restored to online via message: ${canonicalId}`);
     }

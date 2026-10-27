@@ -161,4 +161,30 @@ describe('TerminalHostManager (Pure Dynamic Agent)', () => {
     });
     expect(manager.getHost('agent-uptime-test')?.startTime).toBe(newStartTime);
   });
+
+  test('defaults startTime to Date.now() when omitted on registration or offline reconnect', () => {
+    const mockWs = { readyState: 1, send: jest.fn() };
+    const before = Date.now();
+    const res = manager.registerAgent({
+      hostId: 'agent-default-starttime',
+      name: 'Default-StartTime-Node',
+      agentWs: mockWs,
+    });
+    const after = Date.now();
+    expect(res.host?.startTime).toBeGreaterThanOrEqual(before);
+    expect(res.host?.startTime).toBeLessThanOrEqual(after);
+
+    // Backdate startTime, mark offline, then reconnect without startTime
+    const hostRef = manager.getHost('agent-default-starttime')!;
+    hostRef.startTime = before - 60000;
+    manager.unregisterAgent('agent-default-starttime');
+
+    const reconnectBefore = Date.now();
+    manager.registerAgent({
+      hostId: 'agent-default-starttime',
+      name: 'Default-StartTime-Node',
+      agentWs: mockWs,
+    });
+    expect(manager.getHost('agent-default-starttime')?.startTime).toBeGreaterThanOrEqual(reconnectBefore);
+  });
 });

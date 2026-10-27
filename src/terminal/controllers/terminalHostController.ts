@@ -6,7 +6,14 @@ import config from '../../server/config/default';
 class TerminalHostController {
   public async getHosts(req: Request, res: Response): Promise<void> {
     const hosts = terminalHostManager.getHosts();
-    res.json({ hosts, timezone: config.timeZone });
+    const serverUptimeMs = Math.floor(process.uptime() * 1000);
+    const serverStartTime = Date.now() - serverUptimeMs;
+    res.json({
+      hosts,
+      timezone: config.timeZone,
+      serverStartTime,
+      serverUptimeMs,
+    });
   }
 
   public async pruneOfflineHosts(req: Request, res: Response): Promise<void> {
