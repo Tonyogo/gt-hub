@@ -1,11 +1,14 @@
 import path from 'path';
 import zlib from 'zlib';
+import { promisify } from 'util';
 import { Readable } from 'stream';
 import logger from '../../utils/logger';
 import { terminalHostManager } from './terminalHostManager';
 
-export const DEFAULT_DOWNLOAD_CHUNK_SIZE = 1024 * 1024; // 1MB
-export const DEFAULT_PREFETCH_CONCURRENCY = 4;
+const gunzipAsync = promisify(zlib.gunzip);
+
+export const DEFAULT_DOWNLOAD_CHUNK_SIZE = 512 * 1024; // 512KB
+export const DEFAULT_PREFETCH_CONCURRENCY = 2;
 
 export function decodeAgentChunkBuffer(resData: any): Buffer {
   if (!resData) return Buffer.alloc(0);
@@ -16,6 +19,19 @@ export function decodeAgentChunkBuffer(resData: any): Buffer {
   const buf = Buffer.from(base64Str, 'base64');
   if (resData.encoding === 'gzip') {
     return zlib.gunzipSync(buf);
+  }
+  return buf;
+}
+
+export async function decodeAgentChunkBufferAsync(resData: any): Promise<Buffer> {
+  if (!resData) return Buffer.alloc(0);
+  if (typeof resData === 'string') {
+    return Buffer.from(resData, 'base64');
+  }
+  const base64Str = typeof resData.data === 'string' ? resData.data : '';
+  const buf = Buffer.from(base64Str, 'base64');
+  if (resData.encoding === 'gzip') {
+    return gunzipAsync(buf);
   }
   return buf;
 }
@@ -63,7 +79,7 @@ export class TerminalFileService {
       };
     }
 
-    const res = await this.rpcAgent(hostId, 'list', inputPath || '');
+    const res = await this.rpcAgentWithRetry(hostId, 'list', inputPath || '');
     if (res && res.success && res.data) {
       return {
         success: true,
@@ -94,12 +110,12 @@ export class TerminalFileService {
       };
     }
 
-    const res = await this.rpcAgent(hostId, 'read', filePath, { acceptEncoding: 'gzip' });
+    const res = await this.rpcAgentWithRetry(hostId, 'read', filePath, { acceptEncoding: 'gzip' });
     if (res && res.success && res.data) {
       let content = res.data.content;
       if (res.data.encoding === 'gzip' && typeof content === 'string') {
         try {
-          content = zlib.gunzipSync(Buffer.from(content, 'base64')).toString('utf-8');
+          content = (await gunzipAsync(Buffer.from(content, 'base64'))).toString('utf-8');
         } catch (err: any) {
           logger.error(`Failed to decompress file content: ${err.message}`);
         }
@@ -172,7 +188,7 @@ export class TerminalFileService {
     if (!hostId || !hostId.trim()) {
       return { success: false, error: 'hostId is required' };
     }
-    const res = await this.rpcAgent(hostId, 'stat', filePath);
+    const res = await this.rpcAgentWithRetry(hostId, 'stat', filePath);
     if (res && res.success && res.data) {
       return {
         success: true,
@@ -236,17 +252,17 @@ export class TerminalFileService {
       }
     }
 
-    // Single chunk fetch for files/slices <= 1MB (or fallback when stat fails)
+    // Single chunk fetch for files/slices <= 512KB (or fallback when stat fails)
     const params = range
       ? { offset: range.offset, length: range.length, acceptEncoding: 'gzip' }
       : { acceptEncoding: 'gzip' };
-    const res = await this.rpcAgent(hostId, 'download_chunk', filePath, params, 60000);
+    const res = await this.rpcAgentWithRetry(hostId, 'download_chunk', filePath, params, 60000);
     if (!res || !res.success || res.data === undefined || res.data === null) {
       const isNotFound = res?.error && (res.error.toLowerCase().includes('not found') || res.error.toLowerCase().includes('no such file'));
       return { status: isNotFound ? 404 : 500, filename, error: res?.error || 'Failed to fetch file from agent' };
     }
 
-    const buffer = decodeAgentChunkBuffer(res.data);
+    const buffer = await decodeAgentChunkBufferAsync(res.data);
     let totalSize: number | undefined;
 
     if (typeof res.data === 'string') {
@@ -326,7 +342,7 @@ export class TerminalFileService {
         const offset = startOffset + chunkIndex * chunkSize;
         const length = Math.min(chunkSize, startOffset + totalLength - offset);
 
-        self.rpcAgent(
+        self.rpcAgentWithRetry(
           hostId,
           'download_chunk',
           filePath,
@@ -336,7 +352,7 @@ export class TerminalFileService {
             acceptEncoding: 'gzip',
           },
           60000
-        ).then((res) => {
+        ).then(async (res) => {
           if (isDestroyed) return;
 
           if (!res || !res.success || res.data === undefined || res.data === null) {
@@ -345,7 +361,7 @@ export class TerminalFileService {
             return;
           }
 
-          const buffer = decodeAgentChunkBuffer(res.data);
+          const buffer = await decodeAgentChunkBufferAsync(res.data);
           completedBuffers.set(chunkIndex, buffer);
           flush();
           pump();
@@ -468,6 +484,36 @@ export class TerminalFileService {
       path: targetPath,
       params,
     }, timeoutMs);
+  }
+
+  /**
+   * RPC bridge for Remote Agent with automatic retry for transient reconnects
+   */
+  private async rpcAgentWithRetry(
+    hostId: string,
+    action: string,
+    targetPath: string,
+    params?: any,
+    timeoutMs?: number,
+    maxRetries: number = 3
+  ): Promise<any> {
+    const RETRYABLE_PATTERN = /reconnected|previous RPC cancelled|not connected|offline/i;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const res = await this.rpcAgent(hostId, action, targetPath, params, timeoutMs);
+      if (res && res.success) {
+        return res;
+      }
+      const isRetryable = res?.error && RETRYABLE_PATTERN.test(res.error);
+      if (isRetryable && attempt < maxRetries) {
+        const delay = 400 * (attempt + 1);
+        logger.warn(
+          `[TerminalFileService] RPC ${action} on ${hostId} failed with "${res?.error}". Retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})...`
+        );
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+      return res;
+    }
   }
 }
 

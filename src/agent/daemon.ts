@@ -21,7 +21,7 @@ import { BIN_MSG_TYPE, decodeBinaryPacket, encodeBinaryPacket } from '../shared/
 
 export const HANDSHAKE_TIMEOUT_MS = 4000;
 export const HEARTBEAT_INTERVAL_MS = 15000;
-export const HEARTBEAT_TIMEOUT_MS = 20000;
+export const HEARTBEAT_TIMEOUT_MS = 60000;
 
 export function getLocalIp(): string {
   const ifaces = os.networkInterfaces();
@@ -686,9 +686,12 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     lastPongReceived = Date.now();
     heartbeatTimer = setInterval(() => {
       if (!ws || (ws.readyState !== 1 && ws.readyState !== WebSocket.OPEN)) return;
+      if (typeof ws.bufferedAmount === 'number' && ws.bufferedAmount > 0) {
+        onHeartbeatActivity();
+      }
       if (Date.now() - lastPongReceived > HEARTBEAT_TIMEOUT_MS) {
         console.warn(
-          `[Agent] Heartbeat pong timeout (>20s) on ${serverArg}. Terminating stale connection...`
+          `[Agent] Heartbeat pong timeout (>60s) on ${serverArg}. Terminating stale connection...`
         );
         if (ws) {
           try { ws.terminate(); } catch {}
@@ -697,12 +700,15 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       }
       try {
         if (typeof ws.ping === 'function') {
-          ws.ping();
-        } else {
-          ws.send(`JSON:${JSON.stringify({ type: 'ping' })}`);
+          try { ws.ping(); } catch {}
         }
+        ws.send(`JSON:${JSON.stringify({ type: 'ping' })}`);
         if (!heartbeatTimeoutTimer) {
           heartbeatTimeoutTimer = setTimeout(() => {
+            if (typeof ws?.bufferedAmount === 'number' && ws.bufferedAmount > 0) {
+              onHeartbeatActivity();
+              return;
+            }
             if (Date.now() - lastPongReceived >= HEARTBEAT_TIMEOUT_MS) {
               console.warn(
                 `[Agent] Heartbeat response timeout on ${serverArg}. Terminating connection...`
@@ -1060,11 +1066,14 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
             process.exit(1);
           }
           if (control.type === 'file_rpc') {
+            onHeartbeatActivity();
             handleFileRpc({
               ...control,
               permissionMode: control.permissionMode || permissionMode,
               workspace: control.workspace || workspace,
-            }, ws);
+            }, ws, onHeartbeatActivity).finally(() => {
+              onHeartbeatActivity();
+            });
             return;
           }
           if (control.type === 'cmd_exec') {

@@ -1,8 +1,11 @@
 import fs from 'fs';
 import path from 'path';
 import zlib from 'zlib';
+import { promisify } from 'util';
 import { resolveWorkingDir } from '../tasks/taskManager';
 import { checkPathPermission, PermissionMode } from '../security/pathGuard';
+
+const gzipAsync = promisify(zlib.gzip);
 
 export const COMPRESSED_EXTENSIONS = new Set([
   'zip', 'gz', 'tgz', '7z', 'rar', 'bz2', 'xz', 'zst',
@@ -14,9 +17,10 @@ export function isAlreadyCompressedExtension(filePath: string): boolean {
   return COMPRESSED_EXTENSIONS.has(ext);
 }
 
-export async function handleFileRpc(control: any, targetWs: any): Promise<void> {
+export async function handleFileRpc(control: any, targetWs: any, onActivity?: () => void): Promise<void> {
   const { reqId, action, path: targetPath, params = {}, permissionMode, workspace } = control;
   const reply = (success: boolean, data: any = null, error: string | null = null) => {
+    onActivity?.();
     const isOpen = targetWs && (targetWs.readyState === 1 || targetWs.readyState === (targetWs.constructor?.OPEN ?? 1));
     if (isOpen) {
       targetWs.send(`JSON:${JSON.stringify({
@@ -128,7 +132,7 @@ export async function handleFileRpc(control: any, targetWs: any): Promise<void> 
       const isBinary = buf.slice(0, 1024).includes(0);
 
       if (params?.acceptEncoding === 'gzip' && !isBinary && buf.length >= 4096) {
-        const gz = zlib.gzipSync(buf, { level: zlib.constants.Z_BEST_SPEED });
+        const gz = await gzipAsync(buf, { level: zlib.constants.Z_BEST_SPEED });
         if (gz.length < buf.length) {
           return reply(true, {
             path: resolvedPath,
@@ -251,7 +255,7 @@ export async function handleFileRpc(control: any, targetWs: any): Promise<void> 
         }
         const buf = await fs.promises.readFile(resolvedPath);
         if (params?.acceptEncoding === 'gzip' && buf.length >= 4096 && !isAlreadyCompressedExtension(resolvedPath)) {
-          const gz = zlib.gzipSync(buf, { level: zlib.constants.Z_BEST_SPEED });
+          const gz = await gzipAsync(buf, { level: zlib.constants.Z_BEST_SPEED });
           if (gz.length < buf.length) {
             return reply(true, {
               data: gz.toString('base64'),
@@ -284,7 +288,7 @@ export async function handleFileRpc(control: any, targetWs: any): Promise<void> 
         const chunk = bytesRead < safeLength ? buffer.slice(0, bytesRead) : buffer;
 
         if (params?.acceptEncoding === 'gzip' && chunk.length >= 4096 && !isAlreadyCompressedExtension(resolvedPath)) {
-          const gz = zlib.gzipSync(chunk, { level: zlib.constants.Z_BEST_SPEED });
+          const gz = await gzipAsync(chunk, { level: zlib.constants.Z_BEST_SPEED });
           if (gz.length < chunk.length) {
             return reply(true, {
               data: gz.toString('base64'),

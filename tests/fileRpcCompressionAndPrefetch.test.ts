@@ -151,4 +151,96 @@ describe('Agent File RPC Gzip Compression & Concurrent Read-Ahead Prefetch', () 
       terminalHostManager.unregisterAgent(hostId);
     }
   });
+
+  test('retries download_chunk automatically when agent briefly reconnects mid-stream', async () => {
+    const hostId = 'prefetch-retry-node';
+    const chunkSize = 512 * 1024; // 512KB
+    const totalSize = chunkSize * 3; // 1.5MB (3 chunks)
+    let chunk1Attempts = 0;
+
+    const mockWs = {
+      readyState: 1,
+      send: jest.fn((msg: string) => {
+        if (!msg.startsWith('JSON:')) return;
+        const parsed = JSON.parse(msg.slice(5));
+        const { reqId, action, params } = parsed;
+
+        if (action === 'stat') {
+          terminalHostManager.handleAgentRpcResponse({
+            reqId,
+            success: true,
+            data: { size: totalSize, mtime: Date.now(), isDirectory: false },
+          });
+          return;
+        }
+
+        if (action === 'download_chunk') {
+          const offset = Number(params.offset) || 0;
+          const length = Number(params.length) || chunkSize;
+          const chunkIndex = Math.floor(offset / chunkSize);
+
+          if (chunkIndex === 1 && chunk1Attempts === 0) {
+            chunk1Attempts++;
+            // Simulate agent reconnect mid-stream:
+            setTimeout(() => {
+              terminalHostManager.handleAgentRpcResponse({
+                reqId,
+                success: false,
+                error: `Agent ${hostId} reconnected; previous RPC cancelled`,
+              });
+            }, 10);
+            return;
+          }
+
+          if (chunkIndex === 1) {
+            chunk1Attempts++;
+          }
+
+          const rawBuf = Buffer.alloc(length, 70 + chunkIndex); // 'F', 'G', 'H'
+          const gzBuf = zlib.gzipSync(rawBuf, { level: zlib.constants.Z_BEST_SPEED });
+
+          setTimeout(() => {
+            terminalHostManager.handleAgentRpcResponse({
+              reqId,
+              success: true,
+              data: {
+                data: gzBuf.toString('base64'),
+                encoding: 'gzip',
+                size: totalSize,
+                offset,
+                length,
+              },
+            });
+          }, 10);
+        }
+      }),
+    };
+
+    terminalHostManager.registerAgent({
+      hostId,
+      name: 'Retry-Agent',
+      agentWs: mockWs,
+    });
+
+    try {
+      const service = new TerminalFileService();
+      const result = await service.getFileStream(hostId, '/remote/retry-file.bin');
+      expect(result.status).toBe(200);
+      expect(result.stream).toBeDefined();
+
+      const receivedChunks: Buffer[] = [];
+      for await (const part of result.stream!) {
+        receivedChunks.push(Buffer.isBuffer(part) ? part : Buffer.from(part));
+      }
+
+      const fullBuffer = Buffer.concat(receivedChunks);
+      expect(fullBuffer.length).toBe(totalSize);
+      expect(chunk1Attempts).toBe(2);
+      expect(fullBuffer[0]).toBe(70); // 'F'
+      expect(fullBuffer[chunkSize]).toBe(71); // 'G'
+      expect(fullBuffer[chunkSize * 2]).toBe(72); // 'H'
+    } finally {
+      terminalHostManager.unregisterAgent(hostId);
+    }
+  });
 });

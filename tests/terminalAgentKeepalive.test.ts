@@ -10,7 +10,7 @@ const {
 describe('Terminal Agent Keepalive & Control Protocol', () => {
   it('should export correct keepalive constants', () => {
     expect(HEARTBEAT_INTERVAL_MS).toBe(15000);
-    expect(HEARTBEAT_TIMEOUT_MS).toBe(20000);
+    expect(HEARTBEAT_TIMEOUT_MS).toBe(60000);
     expect(HANDSHAKE_TIMEOUT_MS).toBe(4000);
   });
 
