@@ -46,6 +46,8 @@ import {
   computeTouchVelocity,
   stepMomentumVelocity,
   applyViewportTouchScrollDelta,
+  patchXtermNoopSelectionRefresh,
+  flushXtermScrollFrameSync,
 } from '../utils/terminalScrollHelper';
 import {
   calculateMagnifierPosition,
@@ -857,6 +859,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     term.loadAddon(webLinksAddon);
     term.open(terminalContainerRef.current);
     patchCompositionHelper(term);
+    patchXtermNoopSelectionRefresh(term);
 
     if (isMobileRef.current && terminalContainerRef.current) {
       const initialViewport = terminalContainerRef.current.querySelector('.xterm-viewport') as HTMLElement | null;
@@ -1173,6 +1176,10 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     };
 
     const getTouchLineHeight = () => {
+      const viewportRowHeight = (term as any)._core?.viewport?._currentRowHeight;
+      if (typeof viewportRowHeight === 'number' && viewportRowHeight > 4) {
+        return viewportRowHeight;
+      }
       const renderService = (term as any)._core?._renderService;
       const cssCellHeight = renderService?.dimensions?.css?.cell?.height;
       if (typeof cssCellHeight === 'number' && cssCellHeight > 4) {
@@ -1194,6 +1201,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         deltaY: deltaPx,
         lineHeight,
         accumulatedDeltaY,
+        syncViewportScrollTop: false,
       });
 
       accumulatedDeltaY = res.remainderDeltaY;
@@ -1201,6 +1209,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       if (res.linesToScroll !== 0) {
         const linesToScroll = res.linesToScroll;
         term.scrollLines(linesToScroll);
+        flushXtermScrollFrameSync(term);
         const active = term.buffer?.active;
         if (active) {
           if (linesToScroll < 0 && active.viewportY <= 0) {

@@ -70,6 +70,16 @@ describe('Terminal Mobile Touch Scroll Parity Tests', () => {
     expect(firstStopPropIdx).toBeLessThan(selectModeIdx);
   });
 
+  test('suppresses redundant empty-selection full-screen redraws and flushes xterm scroll in the same animation frame', () => {
+    expect(content).toContain('patchXtermNoopSelectionRefresh(term)');
+    const applyStart = content.indexOf('const applyScrollDelta =');
+    const applyEnd = content.indexOf('const flushPendingTouchScroll =', applyStart);
+    const applyBlock = content.slice(applyStart, applyEnd);
+
+    expect(applyBlock).toContain('syncViewportScrollTop: false');
+    expect(applyBlock).toContain('flushXtermScrollFrameSync(term)');
+  });
+
   test('index.css locks touch-action and disables momentum overflow-scrolling on .xterm-viewport', () => {
     const cssPath = path.resolve(__dirname, '../frontend/src/index.css');
     const cssContent = fs.readFileSync(cssPath, 'utf-8');
