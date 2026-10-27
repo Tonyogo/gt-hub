@@ -67,3 +67,36 @@ export function formatTimezoneOffset(timezone: string): string {
 
   return trimmed;
 }
+
+/**
+ * 运行时长格式化工具函数
+ * 将启动时间戳转换为人类可读的运行时长（如 '< 1m'、'25m'、'2h'、'5h 20m'、'3d'、'3d 12h'）
+ *
+ * @param startTime 启动时间戳（毫秒）
+ * @param _lang 语言代码 ('zh' | 'en')，默认为 'zh'
+ * @param currentNow 当前时间戳（毫秒），默认为 Date.now()
+ * @returns 运行时长文本，时间戳无效时返回空字符串
+ */
+export function formatUptime(
+  startTime: number,
+  _lang: 'zh' | 'en' = 'zh',
+  currentNow: number = Date.now()
+): string {
+  if (!startTime || isNaN(startTime) || startTime <= 0) return '';
+  const diffMs = Math.max(0, currentNow - startTime);
+  const totalMin = Math.floor(diffMs / 60000);
+  if (totalMin < 1) return '< 1m';
+
+  const totalHours = Math.floor(totalMin / 60);
+  const remMin = totalMin % 60;
+  if (totalHours < 1) return `${totalMin}m`;
+
+  const totalDays = Math.floor(totalHours / 24);
+  const remHours = totalHours % 24;
+  if (totalDays < 1) {
+    return remMin > 0 ? `${totalHours}h ${remMin}m` : `${totalHours}h`;
+  }
+
+  return remHours > 0 ? `${totalDays}d ${remHours}h` : `${totalDays}d`;
+}
+
