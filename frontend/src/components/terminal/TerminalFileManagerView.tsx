@@ -30,6 +30,9 @@ import { useTranslation } from '../../i18n/LanguageContext';
 import { useTheme } from '../../theme/ThemeContext';
 import { defineGeminiProxyTheme } from '../../utils/monacoTheme';
 import { TerminalImagePreviewModal } from './TerminalImagePreviewModal';
+import { TerminalMarkdownViewer } from './TerminalMarkdownViewer';
+import { TerminalPdfPreviewModal } from './TerminalPdfPreviewModal';
+import { isMarkdownExtension, isPdfExtension } from '../../utils/markdownRenderer';
 import { apiFetch, requestAuthTicket } from '../../utils/apiClient';
 
 export interface ToastMessage {
@@ -226,8 +229,18 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
     loading: boolean;
     saving: boolean;
     savedAlert: boolean;
+    viewMode?: 'preview' | 'edit';
     error?: string;
   } | null>(null);
+
+  // PDF Preview Modal
+  const [pdfPreviewTarget, setPdfPreviewTarget] = useState<{
+    file: TerminalFileItem;
+    blobUrl: string | null;
+    loading: boolean;
+    error?: string | null;
+  } | null>(null);
+  const pdfRequestIdRef = useRef<number>(0);
 
   // Image Preview Modal
   const [imagePreviewTarget, setImagePreviewTarget] = useState<{
@@ -384,6 +397,46 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
     document.body.removeChild(a);
   }, [activeHostId, adminKey]);
 
+  // Open PDF Preview Modal
+  const handleOpenPdf = useCallback(async (file: TerminalFileItem) => {
+    if (pdfPreviewTarget?.blobUrl) {
+      URL.revokeObjectURL(pdfPreviewTarget.blobUrl);
+    }
+    const currentReqId = ++pdfRequestIdRef.current;
+    setPdfPreviewTarget({
+      file,
+      blobUrl: null,
+      loading: true,
+      error: null,
+    });
+
+    try {
+      const url = `/api/terminal/files/download?hostId=${encodeURIComponent(activeHostId)}&path=${encodeURIComponent(file.path)}`;
+      const res = await apiFetch(url, { headers: { 'x-admin-key': adminKey } });
+      if (!res.ok) throw new Error('Failed to download PDF file');
+      const rawBlob = await res.blob();
+      const pdfBlob = new Blob([rawBlob], { type: 'application/pdf' });
+      const blobUrl = URL.createObjectURL(pdfBlob);
+
+      if (pdfRequestIdRef.current === currentReqId) {
+        setPdfPreviewTarget((prev) => (prev ? { ...prev, blobUrl, loading: false } : null));
+      } else {
+        URL.revokeObjectURL(blobUrl);
+      }
+    } catch (err: any) {
+      if (pdfRequestIdRef.current === currentReqId) {
+        setPdfPreviewTarget((prev) => (prev ? { ...prev, loading: false, error: err.message } : null));
+      }
+    }
+  }, [activeHostId, adminKey, pdfPreviewTarget]);
+
+  const handleClosePdf = useCallback(() => {
+    if (pdfPreviewTarget?.blobUrl) {
+      URL.revokeObjectURL(pdfPreviewTarget.blobUrl);
+    }
+    setPdfPreviewTarget(null);
+  }, [pdfPreviewTarget]);
+
   // Open Preview / Edit
   const handleOpenFile = useCallback(async (file: TerminalFileItem) => {
     const ext = file.extension.toLowerCase();
@@ -402,6 +455,13 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
       return;
     }
 
+    if (isPdfExtension(ext)) {
+      handleOpenPdf(file);
+      return;
+    }
+
+    const isMarkdown = isMarkdownExtension(ext);
+
     // Text / Code Editor
     setEditorTarget({
       file,
@@ -410,6 +470,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
       loading: true,
       saving: false,
       savedAlert: false,
+      viewMode: isMarkdown ? 'preview' : 'edit',
     });
 
     try {
@@ -438,7 +499,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
         error: err.message,
       } : null);
     }
-  }, [activeHostId, adminKey]);
+  }, [activeHostId, adminKey, handleOpenPdf]);
 
   // Save Editor Content
   const handleSaveEditor = useCallback(async () => {
@@ -617,14 +678,17 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [editorTarget, handleSaveEditor]);
 
-  // Cleanup image preview blob URL
+  // Cleanup preview blob URLs
   useEffect(() => {
     return () => {
       if (imagePreviewTarget?.blobUrl) {
         URL.revokeObjectURL(imagePreviewTarget.blobUrl);
       }
+      if (pdfPreviewTarget?.blobUrl) {
+        URL.revokeObjectURL(pdfPreviewTarget.blobUrl);
+      }
     };
-  }, [imagePreviewTarget]);
+  }, [imagePreviewTarget, pdfPreviewTarget]);
 
   // Render File Icon
   const renderItemIcon = (item: TerminalFileItem) => {
@@ -632,8 +696,14 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
       return <Folder className="w-4 h-4 text-amber-500 fill-amber-500/20 shrink-0" />;
     }
     const ext = item.extension.toLowerCase();
+    if (isPdfExtension(ext)) {
+      return <FileText className="w-4 h-4 text-rose-400 shrink-0" />;
+    }
     if (IMAGE_EXTENSIONS.has(ext)) {
       return <ImageIcon className="w-4 h-4 text-emerald-400 shrink-0" />;
+    }
+    if (isMarkdownExtension(ext)) {
+      return <FileText className="w-4 h-4 text-sky-400 shrink-0" />;
     }
     if (CODE_EXTENSIONS.has(ext)) {
       return <FileCode className="w-4 h-4 text-indigo-400 shrink-0" />;
@@ -641,7 +711,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
     if (ARCHIVE_EXTENSIONS.has(ext)) {
       return <Archive className="w-4 h-4 text-orange-400 shrink-0" />;
     }
-    if (['txt', 'md', 'log', 'conf', 'env'].includes(ext)) {
+    if (['txt', 'log', 'conf', 'env'].includes(ext)) {
       return <FileText className="w-4 h-4 text-sky-400 shrink-0" />;
     }
     return <File className="w-4 h-4 text-slate-400 shrink-0" />;
@@ -1136,6 +1206,35 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
               </div>
 
               <div className="flex items-center space-x-2 shrink-0">
+                {isMarkdownExtension(editorTarget.file.extension) && !editorTarget.isBinary && (
+                  <div className="flex items-center rounded-lg bg-[var(--bg-canvas)] p-0.5 border border-[var(--border-subtle)] text-xs font-medium mr-1">
+                    <button
+                      type="button"
+                      onClick={() => setEditorTarget((prev) => (prev ? { ...prev, viewMode: 'preview' } : null))}
+                      className={`flex items-center space-x-1 px-2.5 py-1 rounded-md transition-colors ${
+                        editorTarget.viewMode === 'preview'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>{t('files.previewMode', '预览')}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditorTarget((prev) => (prev ? { ...prev, viewMode: 'edit' } : null))}
+                      className={`flex items-center space-x-1 px-2.5 py-1 rounded-md transition-colors ${
+                        editorTarget.viewMode === 'edit'
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                      <span>{t('files.editMode', '编辑')}</span>
+                    </button>
+                  </div>
+                )}
+
                 <button
                   onClick={() => handleDownload(editorTarget.file)}
                   title={t('files.download', '下载')}
@@ -1195,6 +1294,11 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
                     <span>{t('files.download', '下载文件')}</span>
                   </button>
                 </div>
+              ) : editorTarget.viewMode === 'preview' && isMarkdownExtension(editorTarget.file.extension) ? (
+                <TerminalMarkdownViewer
+                  content={editorTarget.content}
+                  onRequestEdit={() => setEditorTarget((prev) => (prev ? { ...prev, viewMode: 'edit' } : null))}
+                />
               ) : (
                 <Editor
                   height="100%"
@@ -1220,6 +1324,19 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal: PDF Preview */}
+      {pdfPreviewTarget && (
+        <TerminalPdfPreviewModal
+          file={pdfPreviewTarget.file}
+          blobUrl={pdfPreviewTarget.blobUrl}
+          loading={pdfPreviewTarget.loading}
+          error={pdfPreviewTarget.error}
+          onClose={handleClosePdf}
+          onDownload={handleDownload}
+          onRetry={() => handleOpenPdf(pdfPreviewTarget.file)}
+        />
       )}
 
       {/* Modal: Image Preview */}
