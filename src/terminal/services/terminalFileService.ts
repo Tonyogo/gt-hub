@@ -1,7 +1,24 @@
 import path from 'path';
+import zlib from 'zlib';
 import { Readable } from 'stream';
 import logger from '../../utils/logger';
 import { terminalHostManager } from './terminalHostManager';
+
+export const DEFAULT_DOWNLOAD_CHUNK_SIZE = 1024 * 1024; // 1MB
+export const DEFAULT_PREFETCH_CONCURRENCY = 4;
+
+export function decodeAgentChunkBuffer(resData: any): Buffer {
+  if (!resData) return Buffer.alloc(0);
+  if (typeof resData === 'string') {
+    return Buffer.from(resData, 'base64');
+  }
+  const base64Str = typeof resData.data === 'string' ? resData.data : '';
+  const buf = Buffer.from(base64Str, 'base64');
+  if (resData.encoding === 'gzip') {
+    return zlib.gunzipSync(buf);
+  }
+  return buf;
+}
 
 export interface TerminalFileItem {
   name: string;
@@ -77,11 +94,20 @@ export class TerminalFileService {
       };
     }
 
-    const res = await this.rpcAgent(hostId, 'read', filePath);
+    const res = await this.rpcAgent(hostId, 'read', filePath, { acceptEncoding: 'gzip' });
     if (res && res.success && res.data) {
+      let content = res.data.content;
+      if (res.data.encoding === 'gzip' && typeof content === 'string') {
+        try {
+          content = zlib.gunzipSync(Buffer.from(content, 'base64')).toString('utf-8');
+        } catch (err: any) {
+          logger.error(`Failed to decompress file content: ${err.message}`);
+        }
+      }
       return {
         success: true,
         ...res.data,
+        content,
       };
     }
     return {
@@ -182,9 +208,9 @@ export class TerminalFileService {
     }
 
     const filename = path.basename(filePath);
-    const CHUNK_THRESHOLD = 512 * 1024; // 512KB
+    const CHUNK_THRESHOLD = DEFAULT_DOWNLOAD_CHUNK_SIZE; // 1MB
 
-    // If a range is provided and length is greater than 512KB, stream in chunks
+    // If a range is provided and length is greater than 1MB, stream in chunks
     if (range && range.length > CHUNK_THRESHOLD) {
       const stream = this.createAgentChunkedStream(hostId, filePath, range.offset, range.length);
       return {
@@ -210,23 +236,23 @@ export class TerminalFileService {
       }
     }
 
-    // Single chunk fetch for files/slices <= 512KB (or fallback when stat fails)
-    const params = range ? { offset: range.offset, length: range.length } : undefined;
+    // Single chunk fetch for files/slices <= 1MB (or fallback when stat fails)
+    const params = range
+      ? { offset: range.offset, length: range.length, acceptEncoding: 'gzip' }
+      : { acceptEncoding: 'gzip' };
     const res = await this.rpcAgent(hostId, 'download_chunk', filePath, params, 60000);
     if (!res || !res.success || res.data === undefined || res.data === null) {
       const isNotFound = res?.error && (res.error.toLowerCase().includes('not found') || res.error.toLowerCase().includes('no such file'));
       return { status: isNotFound ? 404 : 500, filename, error: res?.error || 'Failed to fetch file from agent' };
     }
 
-    let buffer: Buffer;
+    const buffer = decodeAgentChunkBuffer(res.data);
     let totalSize: number | undefined;
 
     if (typeof res.data === 'string') {
-      buffer = Buffer.from(res.data, 'base64');
       totalSize = buffer.length;
     } else {
-      buffer = Buffer.from(res.data.data || '', 'base64');
-      totalSize = typeof res.data.size === 'number' ? res.data.size : undefined;
+      totalSize = typeof res.data.size === 'number' ? res.data.size : buffer.length;
     }
 
     const stream = Readable.from(buffer);
@@ -234,75 +260,105 @@ export class TerminalFileService {
   }
 
   /**
-   * Creates a Readable stream that pulls data from the agent in 512KB chunks sequentially.
-   * Completely avoids memory spikes and RPC timeouts for large files over WAN.
+   * Creates a Readable stream that pulls data from the agent with 1MB 4-way concurrent read-ahead prefetch pipeline.
+   * Completely avoids memory spikes and RPC timeouts for large files over WAN, eliminating stop-and-wait latency.
    */
   private createAgentChunkedStream(
     hostId: string,
     filePath: string,
     startOffset: number,
     totalLength: number,
-    chunkSize: number = 512 * 1024
+    chunkSize: number = DEFAULT_DOWNLOAD_CHUNK_SIZE,
+    concurrency: number = DEFAULT_PREFETCH_CONCURRENCY
   ): NodeJS.ReadableStream {
-    const endOffset = startOffset + totalLength - 1;
-    let currentOffset = startOffset;
-    let isFetching = false;
+    if (totalLength <= 0) {
+      return Readable.from([]);
+    }
+
+    const totalChunks = Math.ceil(totalLength / chunkSize);
+    let nextDispatchIndex = 0;
+    let nextEmitIndex = 0;
     let isDestroyed = false;
+    let canPush = true;
+    const completedBuffers = new Map<number, Buffer>();
 
     const self = this;
-    return new Readable({
-      async read() {
-        if (isFetching || isDestroyed) return;
-        if (currentOffset > endOffset) {
-          this.push(null); // EOF
-          return;
-        }
 
-        isFetching = true;
-        try {
-          const remaining = endOffset - currentOffset + 1;
-          const fetchLength = Math.min(chunkSize, remaining);
-
-          const res = await self.rpcAgent(hostId, 'download_chunk', filePath, {
-            offset: currentOffset,
-            length: fetchLength,
-          }, 60000);
-
-          if (isDestroyed) return;
-
-          if (!res || !res.success || res.data === undefined || res.data === null) {
-            this.destroy(new Error(res?.error || 'Failed to read chunk from agent'));
-            return;
-          }
-
-          let buffer: Buffer;
-          if (typeof res.data === 'string') {
-            buffer = Buffer.from(res.data, 'base64');
-          } else if (res.data.data) {
-            buffer = Buffer.from(res.data.data, 'base64');
-          } else {
-            buffer = Buffer.alloc(0);
-          }
-
-          if (buffer.length === 0) {
-            this.push(null);
-            return;
-          }
-
-          currentOffset += buffer.length;
-          isFetching = false;
-          this.push(buffer);
-        } catch (err: any) {
-          if (!isDestroyed) {
-            this.destroy(err);
-          }
-        }
+    const stream = new Readable({
+      read() {
+        canPush = true;
+        flush();
+        pump();
       },
       destroy(err, callback) {
         isDestroyed = true;
+        completedBuffers.clear();
         callback(err);
       },
     });
+
+    function flush(): void {
+      while (canPush && !isDestroyed && completedBuffers.has(nextEmitIndex)) {
+        const buf = completedBuffers.get(nextEmitIndex)!;
+        completedBuffers.delete(nextEmitIndex);
+        nextEmitIndex++;
+        if (buf.length > 0) {
+          canPush = stream.push(buf);
+        }
+        if (nextEmitIndex >= totalChunks) {
+          stream.push(null);
+          return;
+        }
+      }
+      if (!isDestroyed && nextEmitIndex >= totalChunks && completedBuffers.size === 0) {
+        stream.push(null);
+      }
+    }
+
+    function pump(): void {
+      if (isDestroyed) return;
+      while (
+        !isDestroyed &&
+        nextDispatchIndex < totalChunks &&
+        (nextDispatchIndex - nextEmitIndex) < concurrency
+      ) {
+        const chunkIndex = nextDispatchIndex++;
+        const offset = startOffset + chunkIndex * chunkSize;
+        const length = Math.min(chunkSize, startOffset + totalLength - offset);
+
+        self.rpcAgent(
+          hostId,
+          'download_chunk',
+          filePath,
+          {
+            offset,
+            length,
+            acceptEncoding: 'gzip',
+          },
+          60000
+        ).then((res) => {
+          if (isDestroyed) return;
+
+          if (!res || !res.success || res.data === undefined || res.data === null) {
+            isDestroyed = true;
+            stream.destroy(new Error(res?.error || 'Failed to read chunk from agent'));
+            return;
+          }
+
+          const buffer = decodeAgentChunkBuffer(res.data);
+          completedBuffers.set(chunkIndex, buffer);
+          flush();
+          pump();
+        }).catch((err) => {
+          if (!isDestroyed) {
+            isDestroyed = true;
+            stream.destroy(err);
+          }
+        });
+      }
+    }
+
+    return stream;
   }
 
   /**
