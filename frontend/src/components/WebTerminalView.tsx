@@ -1379,7 +1379,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
     const handleTouchStart = (e: TouchEvent) => {
       stopMomentumScroll();
-      syncAtBottomAfterTouchScroll();
+      isTouchScrollingActiveRef.current = true;
       if (e.touches.length >= 1) {
         e.stopPropagation();
       }
@@ -1484,6 +1484,9 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           }
           flushPendingTouchScroll();
         }
+        if (e.cancelable) {
+          e.preventDefault();
+        }
         const timeSinceLastMove = now - lastTouchMoveTime;
         if (timeSinceLastMove < 80 && Math.abs(touchVelocityY) >= 0.12) {
           startMomentumScroll(touchVelocityY);
@@ -1492,6 +1495,14 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           syncAtBottomAfterTouchScroll();
         }
         isDragging = false;
+        return;
+      }
+
+      if (!isDragging && elapsed >= 350) {
+        if (e.cancelable) {
+          e.preventDefault();
+        }
+        syncAtBottomAfterTouchScroll();
         return;
       }
 
@@ -1508,11 +1519,13 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           if (textarea) {
             textarea.focus({ preventScroll: true });
           }
+          isTouchScrollingActiveRef.current = false;
         } else {
           // Tapped outside cursor input line on mobile: suppress synthetic click/mousedown focus
           if (e.cancelable) {
             e.preventDefault();
           }
+          syncAtBottomAfterTouchScroll();
         }
       }
     };
@@ -2802,11 +2815,11 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
             onClick={handleScrollToBottom}
             aria-label={t('webTerminal.scrollToBottom', '跳到最后')}
             title={t('webTerminal.scrollToBottom', '跳到最后')}
-            className={`absolute right-4 z-20 w-9 h-9 rounded-full bg-[var(--bg-surface)]/85 hover:bg-[var(--bg-surface-hover)] border border-[var(--border-subtle)] shadow-xl flex items-center justify-center text-slate-300 hover:text-white transition-all active:scale-95 backdrop-blur-md cursor-pointer animate-in fade-in zoom-in-90 ${
+            className={`absolute right-4 z-20 w-9 h-9 rounded-full bg-[var(--bg-surface)]/95 hover:bg-[var(--bg-surface-hover)] border border-[var(--border-subtle)] shadow-xl flex items-center justify-center text-slate-300 hover:text-white transition-all active:scale-95 cursor-pointer animate-in fade-in zoom-in-90 ${
               isMobile && !hideAccessoryBar ? 'bottom-14' : 'bottom-4'
             }`}
           >
-            <ArrowDown className="w-4 h-4 text-indigo-400 animate-pulse" />
+            <ArrowDown className="w-4 h-4 text-indigo-400" />
           </button>
         )}
 

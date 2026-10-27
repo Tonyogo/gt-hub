@@ -191,6 +191,26 @@
   touch-action: none !important;
 }
 
+/* Prevent DomRenderer row replaceChildren() from detaching active Touch.target spans mid-scroll */
+.xterm,
+.xterm .xterm-viewport,
+.xterm .xterm-screen,
+.xterm .xterm-rows,
+.xterm .xterm-rows * {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -webkit-touch-callout: none !important;
+}
+
+.xterm .xterm-rows,
+.xterm .xterm-rows * {
+  pointer-events: none !important;
+}
+
+.xterm .xterm-rows a {
+  pointer-events: auto !important;
+}
+
 /* Terminal Viewport: Transparent & Invisible Scrollbar to prevent text obstruction */
 .xterm .xterm-viewport {
   scrollbar-width: none !important;

@@ -86,5 +86,38 @@ describe('Terminal Mobile Touch Scroll Parity Tests', () => {
     expect(cssContent).toMatch(/\.xterm\s+\.xterm-viewport\s*\{[\s\S]*?touch-action:\s*none\s*!important/);
     expect(cssContent).toMatch(/\.xterm\s+\.xterm-viewport\s*\{[\s\S]*?overscroll-behavior:\s*none\s*!important/);
   });
+
+  test('index.css disables pointer-events on .xterm-rows so DomRenderer replaceChildren never detaches active Touch.target spans', () => {
+    const cssPath = path.resolve(__dirname, '../frontend/src/index.css');
+    const cssContent = fs.readFileSync(cssPath, 'utf-8');
+    expect(cssContent).toMatch(/\.xterm\s+\.xterm-rows[\s\S]*?pointer-events:\s*none/);
+    expect(cssContent).toMatch(/\.xterm[\s\S]*?user-select:\s*none\s*!important/);
+  });
+
+  test('handleTouchStart does not trigger synchronous syncAtBottomAfterTouchScroll React re-render on touch-down', () => {
+    const touchStartIdx = content.indexOf('const handleTouchStart =');
+    const touchMoveIdx = content.indexOf('const handleTouchMove =', touchStartIdx);
+    const touchStartBlock = content.slice(touchStartIdx, touchMoveIdx);
+    expect(touchStartBlock).not.toContain('syncAtBottomAfterTouchScroll()');
+  });
+
+  test('handleTouchEnd prevents synthetic mouse/click events after drag or long-press stop', () => {
+    const touchEndIdx = content.indexOf('const handleTouchEnd =');
+    const touchCancelIdx = content.indexOf('const handleTouchCancel =', touchEndIdx);
+    const touchEndBlock = content.slice(touchEndIdx, touchCancelIdx);
+
+    const isDraggingIdx = touchEndBlock.indexOf('if (isDragging)');
+    const notDraggingIdx = touchEndBlock.indexOf('if (!isDragging && elapsed < 350)');
+    const draggingBlock = touchEndBlock.slice(isDraggingIdx, notDraggingIdx);
+    expect(draggingBlock).toContain('e.preventDefault()');
+  });
+
+  test('floating scroll-to-bottom button does not use expensive backdrop-blur-md or animate-pulse', () => {
+    const scrollToBottomIdx = content.indexOf('{/* Floating Scroll to Bottom Button */}');
+    const emptyStateGuardIdx = content.indexOf('{/* Empty State Guard', scrollToBottomIdx);
+    const scrollToBottomBlock = content.slice(scrollToBottomIdx, emptyStateGuardIdx);
+    expect(scrollToBottomBlock).not.toContain('backdrop-blur-md');
+    expect(scrollToBottomBlock).not.toContain('animate-pulse');
+  });
 });
 
