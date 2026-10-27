@@ -34,12 +34,12 @@ describe('File Manager Markdown & PDF Preview Integration', () => {
     expect(pdfModalCode).toContain('Escape');
   });
 
-  test('TerminalFileManagerView routes PDF files to TerminalPdfPreviewModal with application/pdf Blob and revokes object URLs', () => {
+  test('TerminalFileManagerView routes PDF files to TerminalPdfPreviewModal with streaming inline URL and revokes object URLs', () => {
     const fmCode = fs.readFileSync(fileManagerPath, 'utf-8');
     expect(fmCode).toContain('isPdfExtension');
     expect(fmCode).toContain('TerminalPdfPreviewModal');
-    expect(fmCode).toContain("type: 'application/pdf'");
-    expect(fmCode).toContain('URL.createObjectURL');
+    expect(fmCode).toContain("inline: '1'");
+    expect(fmCode).toContain('requestAuthTicket(adminKey, 5000, true)');
     expect(fmCode).toContain('URL.revokeObjectURL');
   });
 

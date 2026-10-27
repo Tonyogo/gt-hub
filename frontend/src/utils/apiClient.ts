@@ -76,7 +76,7 @@ export function notifyUnauthorized(): void {
 /**
  * Request a short-lived single-use authentication ticket with timeout protection.
  */
-export async function requestAuthTicket(adminKey?: string, timeoutMs: number = 5000): Promise<string | null> {
+export async function requestAuthTicket(adminKey?: string, timeoutMs: number = 5000, reusable: boolean = false): Promise<string | null> {
   const key = adminKey || getStoredAdminKey();
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
   const timer = controller && timeoutMs > 0
@@ -99,7 +99,8 @@ export async function requestAuthTicket(adminKey?: string, timeoutMs: number = 5
     if (controller) {
       fetchOptions.signal = controller.signal;
     }
-    const res = await fetch('/api/auth/ticket', fetchOptions);
+    const url = `/api/auth/ticket${reusable ? '?reusable=1' : ''}`;
+    const res = await fetch(url, fetchOptions);
     if (!res.ok) {
       return null;
     }

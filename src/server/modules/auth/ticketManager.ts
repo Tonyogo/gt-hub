@@ -5,6 +5,7 @@ export interface TicketEntry {
   createdAt: number;
   expiresAt: number;
   metadata?: Record<string, any>;
+  reusable?: boolean;
 }
 
 export interface TicketManagerOptions {
@@ -28,15 +29,17 @@ export class TicketManager {
     }
   }
 
-  public createTicket(metadata?: Record<string, any>, ttlMs?: number): string {
+  public createTicket(metadata?: Record<string, any>, ttlMs?: number, reusable?: boolean): string {
     const ticket = crypto.randomBytes(24).toString('hex');
     const now = Date.now();
     const effectiveTtl = ttlMs || this.defaultTtlMs;
+    const isReusable = Boolean(reusable || metadata?.reusable);
     this.tickets.set(ticket, {
       ticket,
       createdAt: now,
       expiresAt: now + effectiveTtl,
       metadata,
+      reusable: isReusable,
     });
     return ticket;
   }
@@ -46,13 +49,17 @@ export class TicketManager {
     const entry = this.tickets.get(ticket);
     if (!entry) return false;
 
-    // Immediately remove from map (single-use)
-    this.tickets.delete(ticket);
-
     // Validate expiration
     if (Date.now() > entry.expiresAt) {
+      this.tickets.delete(ticket);
       return false;
     }
+
+    // Only delete immediately if single-use (not reusable)
+    if (!entry.reusable) {
+      this.tickets.delete(ticket);
+    }
+
     return true;
   }
 

@@ -382,6 +382,11 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
       hostId: activeHostId,
       path: file.path,
     });
+    const ext = file.extension.toLowerCase();
+    const isAlreadyCompressed = ARCHIVE_EXTENSIONS.has(ext) || ext === 'png' || ext === 'jpg' || ext === 'jpeg' || ext === 'webp' || ext === 'mp4' || ext === 'mp3';
+    if (!isAlreadyCompressed) {
+      params.set('compress', '1');
+    }
     const ticket = adminKey ? await requestAuthTicket(adminKey) : null;
     if (ticket) {
       params.set('ticket', ticket);
@@ -399,39 +404,45 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
 
   // Open PDF Preview Modal
   const handleOpenPdf = useCallback(async (file: TerminalFileItem) => {
-    if (pdfPreviewTarget?.blobUrl) {
+    if (pdfPreviewTarget?.blobUrl && pdfPreviewTarget.blobUrl.startsWith('blob:')) {
       URL.revokeObjectURL(pdfPreviewTarget.blobUrl);
     }
     const currentReqId = ++pdfRequestIdRef.current;
-    setPdfPreviewTarget({
-      file,
-      blobUrl: null,
-      loading: true,
-      error: null,
-    });
-
     try {
-      const url = `/api/terminal/files/download?hostId=${encodeURIComponent(activeHostId)}&path=${encodeURIComponent(file.path)}`;
-      const res = await apiFetch(url, { headers: { 'x-admin-key': adminKey } });
-      if (!res.ok) throw new Error('Failed to download PDF file');
-      const rawBlob = await res.blob();
-      const pdfBlob = new Blob([rawBlob], { type: 'application/pdf' });
-      const blobUrl = URL.createObjectURL(pdfBlob);
+      const ticket = adminKey ? await requestAuthTicket(adminKey, 5000, true) : null;
+      if (pdfRequestIdRef.current !== currentReqId) return;
 
-      if (pdfRequestIdRef.current === currentReqId) {
-        setPdfPreviewTarget((prev) => (prev ? { ...prev, blobUrl, loading: false } : null));
-      } else {
-        URL.revokeObjectURL(blobUrl);
+      const params = new URLSearchParams({
+        hostId: activeHostId,
+        path: file.path,
+        inline: '1',
+      });
+      if (ticket) {
+        params.set('ticket', ticket);
+      } else if (adminKey) {
+        params.set('x-admin-key', adminKey);
       }
+      const streamUrl = `/api/terminal/files/download?${params.toString()}`;
+      setPdfPreviewTarget({
+        file,
+        blobUrl: streamUrl,
+        loading: false,
+        error: null,
+      });
     } catch (err: any) {
       if (pdfRequestIdRef.current === currentReqId) {
-        setPdfPreviewTarget((prev) => (prev ? { ...prev, loading: false, error: err.message } : null));
+        setPdfPreviewTarget({
+          file,
+          blobUrl: null,
+          loading: false,
+          error: err.message,
+        });
       }
     }
   }, [activeHostId, adminKey, pdfPreviewTarget]);
 
   const handleClosePdf = useCallback(() => {
-    if (pdfPreviewTarget?.blobUrl) {
+    if (pdfPreviewTarget?.blobUrl && pdfPreviewTarget.blobUrl.startsWith('blob:')) {
       URL.revokeObjectURL(pdfPreviewTarget.blobUrl);
     }
     setPdfPreviewTarget(null);

@@ -50,11 +50,16 @@ export class AuthController {
   }
 
   static createTicket(req: Request, res: Response): void {
-    const ticket = ticketManager.createTicket();
+    const isReusable = req.query.reusable === '1' || req.query.reusable === 'true' || req.body?.reusable === true;
+    const ticket = ticketManager.createTicket(
+      isReusable ? { reusable: true } : undefined,
+      isReusable ? 60000 : undefined,
+      isReusable
+    );
     res.status(200).json({
       success: true,
       ticket,
-      expiresIn: 30,
+      expiresIn: isReusable ? 60 : 30,
     });
   }
 }

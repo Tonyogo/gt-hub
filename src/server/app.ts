@@ -5,11 +5,13 @@ import terminalRoutes from '../terminal/routes/terminalRoutes';
 import scriptRoutes from './modules/scripts/scriptRoutes';
 import staticMiddleware from './modules/static/staticMiddleware';
 import errorHandlerMiddleware from './middlewares/errorHandler';
+import compressionMiddleware from './middlewares/compressionMiddleware';
 import { getVersionInfo } from '../shared/version';
 
 const app = express();
 
 app.use(express.json({ limit: '10mb' }));
+app.use(compressionMiddleware);
 
 // Public direct download endpoints (/install.sh, /gt, etc.)
 app.use(downloadRoutes);

@@ -1,9 +1,21 @@
 import { Request, Response } from 'express';
 import path from 'path';
+import zlib from 'zlib';
 import { PassThrough } from 'stream';
 import terminalFileService from '../services/terminalFileService';
 import logger from '../../utils/logger';
 import { parseRangeHeader, applyRangeHeaders, applyUnsatisfiableHeaders } from '../utils/rangeParser';
+
+const COMPRESSIBLE_EXTS = new Set([
+  'txt', 'log', 'md', 'markdown', 'json', 'js', 'ts', 'tsx', 'jsx',
+  'css', 'html', 'xml', 'svg', 'csv', 'sql', 'yml', 'yaml', 'sh',
+  'py', 'go', 'rs', 'c', 'cpp', 'java', 'pdf', 'tar'
+]);
+
+function isCompressibleFile(filename: string): boolean {
+  const ext = path.extname(filename).toLowerCase().replace(/^\./, '');
+  return COMPRESSIBLE_EXTS.has(ext);
+}
 
 async function parseAndUploadMultipart(
   source: NodeJS.ReadableStream,
@@ -418,7 +430,32 @@ class TerminalFileController {
         res.status(200);
         res.setHeader('Accept-Ranges', 'bytes');
         res.type(result.filename);
-        res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(result.filename)}"`);
+
+        const isInline = req.query.inline === '1' || req.query.inline === 'true';
+        res.setHeader('Content-Disposition', `${isInline ? 'inline' : 'attachment'}; filename="${encodeURIComponent(result.filename)}"`);
+
+        const acceptEncoding = String(req.headers['accept-encoding'] || '');
+        const wantsCompress = acceptEncoding.includes('gzip') && (
+          req.query.compress === '1' ||
+          req.query.compress === 'true' ||
+          (Boolean(req.headers['cf-ray']) && !isInline && isCompressibleFile(result.filename))
+        );
+
+        if (wantsCompress) {
+          res.setHeader('Content-Encoding', 'gzip');
+          res.setHeader('Vary', 'Accept-Encoding');
+          const gzipStream = zlib.createGzip({ level: zlib.constants.Z_BEST_SPEED });
+          result.stream.on('error', (err) => gzipStream.destroy(err));
+          res.on('close', () => {
+            if (!res.writableEnded && typeof (result.stream as any)?.destroy === 'function') {
+              (result.stream as any).destroy();
+            }
+          });
+          this.pipeStreamToResponse(gzipStream, res);
+          result.stream.pipe(gzipStream);
+          return;
+        }
+
         const totalLength = result.totalSize !== undefined ? result.totalSize : result.size;
         if (totalLength !== undefined) {
           res.setHeader('Content-Length', totalLength);
