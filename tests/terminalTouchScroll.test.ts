@@ -25,11 +25,12 @@ describe('Terminal Mobile Touch Scroll Parity Tests', () => {
     expect(content).toContain("touchAction: isSelectMode || isMobile ? 'none' : 'pan-y'");
   });
 
-  test('drives .xterm-viewport scrollTop directly with RAF coalescing and sub-line translate3d', () => {
+  test('drives .xterm-viewport scrollTop directly with RAF coalescing and without .xterm-screen translate3d flicker', () => {
     expect(content).toContain('applyViewportTouchScrollDelta');
     expect(content).toContain('.xterm-viewport');
     expect(content).toContain('pendingTouchDeltaY');
-    expect(content).toContain('translate3d(0,');
+    expect(content).not.toContain('setSubLineTransform');
+    expect(content).not.toContain('translate3d(0,');
   });
 
   test('defers setIsAtBottom React re-renders while touch scrolling or momentum is active', () => {

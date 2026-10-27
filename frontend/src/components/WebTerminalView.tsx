@@ -934,10 +934,6 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       const wasAtBottom = isAtBottomRef.current;
       t.write(batch, () => {
         done();
-        const screenEl = container?.querySelector('.xterm-screen') as HTMLElement | null;
-        if (screenEl && screenEl.style.transform) {
-          screenEl.style.transform = '';
-        }
         if (!isRefittingRef.current && shouldScrollToBottom({ isReplaying: isReplayingRef.current, wasAtBottom, bufferType: t?.buffer.active.type })) {
           scrollToBottomSafe(t);
         }
@@ -1148,17 +1144,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     let selectionStartPos: { col: number; viewportRow: number; bufferRow: number } | null = null;
     const container = terminalContainerRef.current;
 
-    const setSubLineTransform = (offsetPx: number) => {
-      const screenEl = container?.querySelector('.xterm-screen') as HTMLElement | null;
-      if (screenEl) {
-        const nextTransform = Number.isFinite(offsetPx) && offsetPx !== 0
-          ? `translate3d(0, ${-offsetPx}px, 0)`
-          : '';
-        if (screenEl.style.transform !== nextTransform) {
-          screenEl.style.transform = nextTransform;
-        }
-      }
-    };
+    const getNow = () => (typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now());
 
     const stopMomentumScroll = () => {
       if (touchScrollRaf !== null) {
@@ -1201,12 +1187,12 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         accumulatedDeltaY,
       });
 
+      accumulatedDeltaY = res.remainderDeltaY;
+
       if (res.usedNativeScrollTop) {
-        setSubLineTransform(res.subLineOffsetPx);
         return res.hitBoundary;
       }
 
-      accumulatedDeltaY = res.remainderDeltaY;
       if (res.linesToScroll !== 0) {
         const linesToScroll = res.linesToScroll;
         term.scrollLines(linesToScroll);
@@ -1241,23 +1227,21 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       if (typeof requestAnimationFrame === 'undefined') return;
       isTouchScrollingActiveRef.current = true;
       let velocity = initialVelocity;
-      let lastFrameTime = Date.now();
+      let lastFrameTime = getNow();
 
       const stepFrame = () => {
         if (!isMountedRef.current || isSelectModeRef.current) {
           momentumRaf = null;
-          setSubLineTransform(0);
           syncAtBottomAfterTouchScroll();
           return;
         }
-        const now = Date.now();
+        const now = getNow();
         const dt = Math.max(8, Math.min(48, now - lastFrameTime));
         lastFrameTime = now;
 
         velocity = stepMomentumVelocity(velocity, dt);
         if (velocity === 0) {
           momentumRaf = null;
-          setSubLineTransform(0);
           syncAtBottomAfterTouchScroll();
           return;
         }
@@ -1266,7 +1250,6 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         if (hitBoundary) {
           accumulatedDeltaY = 0;
           momentumRaf = null;
-          setSubLineTransform(0);
           syncAtBottomAfterTouchScroll();
           return;
         }
@@ -1370,13 +1353,12 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
     const handleTouchStart = (e: TouchEvent) => {
       stopMomentumScroll();
-      setSubLineTransform(0);
       syncAtBottomAfterTouchScroll();
       if (e.touches.length === 1) {
         touchStartY = e.touches[0].clientY;
         touchStartX = e.touches[0].clientX;
         lastTouchY = touchStartY;
-        touchStartTime = Date.now();
+        touchStartTime = getNow();
         lastTouchMoveTime = touchStartTime;
         touchVelocityY = 0;
         isDragging = false;
@@ -1424,7 +1406,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       const deltaY = touchStartY - currentY;
       const deltaX = touchStartX - currentX;
       const frameDeltaY = lastTouchY - currentY;
-      const now = Date.now();
+      const now = getNow();
       const dt = Math.max(4, now - lastTouchMoveTime);
       lastTouchY = currentY;
       lastTouchMoveTime = now;
@@ -1454,7 +1436,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     };
 
     const handleTouchEnd = (e: TouchEvent) => {
-      const now = Date.now();
+      const now = getNow();
       const elapsed = now - touchStartTime;
 
       if (isSelectModeRef.current) {
@@ -1478,7 +1460,6 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           startMomentumScroll(touchVelocityY);
         } else {
           touchVelocityY = 0;
-          setSubLineTransform(0);
           syncAtBottomAfterTouchScroll();
         }
         isDragging = false;
@@ -1511,7 +1492,6 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       isDragging = false;
       selectionStartPos = null;
       stopMomentumScroll();
-      setSubLineTransform(0);
       syncAtBottomAfterTouchScroll();
     };
 
@@ -1839,7 +1819,6 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       }
       imeController?.dispose();
       stopMomentumScroll();
-      setSubLineTransform(0);
       isTouchScrollingActiveRef.current = false;
       if (container) {
         container.removeEventListener('touchstart', handleTouchStart, { capture: true } as any);
@@ -2038,10 +2017,6 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
   const handleScrollToBottom = useCallback(() => {
     if (xtermRef.current) {
-      const screenEl = terminalContainerRef.current?.querySelector('.xterm-screen') as HTMLElement | null;
-      if (screenEl && screenEl.style.transform) {
-        screenEl.style.transform = '';
-      }
       isAtBottomRef.current = true;
       setIsAtBottom(true);
       scrollToBottomSafe(xtermRef.current);
