@@ -312,6 +312,40 @@ export function patchXtermNoopSelectionRefresh(term: any): void {
     };
     core.__noopViewportScrollPatched = true;
   }
+
+  patchXtermTransparentScrollbar(term);
+}
+
+/**
+ * Hides xterm's side scrollbar reservation (zeroes out the default 15px scrollBarWidth fallback)
+ * and keeps .xterm-viewport background transparent even after runtime theme changes.
+ */
+export function patchXtermTransparentScrollbar(term: any): void {
+  const core = term?._core;
+  if (!core) return;
+
+  const viewport = core.viewport;
+  const viewportEl = core._viewportElement || viewport?._viewportElement;
+
+  if (viewportEl && viewportEl.style) {
+    viewportEl.style.backgroundColor = 'transparent';
+  }
+
+  if (viewport) {
+    viewport.scrollBarWidth = 0;
+    if (typeof viewport._handleThemeChange === 'function' && !viewport.__transparentScrollbarPatched) {
+      const origHandleThemeChange = viewport._handleThemeChange.bind(viewport);
+      viewport._handleThemeChange = (colors: any) => {
+        origHandleThemeChange(colors);
+        viewport.scrollBarWidth = 0;
+        const el = core._viewportElement || viewport._viewportElement;
+        if (el && el.style) {
+          el.style.backgroundColor = 'transparent';
+        }
+      };
+      viewport.__transparentScrollbarPatched = true;
+    }
+  }
 }
 
 /**

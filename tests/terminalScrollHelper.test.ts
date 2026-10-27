@@ -7,6 +7,7 @@ import {
   stepMomentumVelocity,
   applyViewportTouchScrollDelta,
   patchXtermNoopSelectionRefresh,
+  patchXtermTransparentScrollbar,
   flushXtermScrollFrameSync,
 } from '../frontend/src/utils/terminalScrollHelper';
 
@@ -483,6 +484,45 @@ describe('terminalScrollHelper', () => {
       expect(fallbackRes.usedNativeScrollTop).toBe(false);
       expect(fallbackRes.linesToScroll).toBe(1);
       expect(fallbackRes.remainderDeltaY).toBe(4);
+    });
+
+    it('patchXtermTransparentScrollbar zeroes scrollBarWidth and keeps viewport background transparent across theme changes', () => {
+      const viewportElement = {
+        style: {
+          backgroundColor: '#000000',
+        },
+      };
+      const mockViewport: any = {
+        scrollBarWidth: 15,
+        _viewportElement: viewportElement,
+        _handleThemeChange(colors: any) {
+          this._viewportElement.style.backgroundColor = colors.background.css;
+        },
+      };
+      const mockTerm = {
+        _core: {
+          _viewportElement: viewportElement,
+          viewport: mockViewport,
+        },
+      };
+
+      patchXtermTransparentScrollbar(mockTerm);
+
+      expect(mockViewport.scrollBarWidth).toBe(0);
+      expect(viewportElement.style.backgroundColor).toBe('transparent');
+
+      // Simulate theme change callback firing inside xterm
+      mockViewport._handleThemeChange({ background: { css: '#090A0F' } });
+      expect(viewportElement.style.backgroundColor).toBe('transparent');
+      expect(mockViewport.scrollBarWidth).toBe(0);
+    });
+
+    it('patchXtermTransparentScrollbar handles null, undefined and partial mocks gracefully', () => {
+      expect(() => patchXtermTransparentScrollbar(null)).not.toThrow();
+      expect(() => patchXtermTransparentScrollbar(undefined)).not.toThrow();
+      expect(() => patchXtermTransparentScrollbar({})).not.toThrow();
+      expect(() => patchXtermTransparentScrollbar({ _core: {} })).not.toThrow();
+      expect(() => patchXtermTransparentScrollbar({ _core: { viewport: {} } })).not.toThrow();
     });
   });
 });
