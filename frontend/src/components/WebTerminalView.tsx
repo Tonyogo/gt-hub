@@ -47,6 +47,7 @@ import {
   stepMomentumVelocity,
   applyViewportTouchScrollDelta,
   patchXtermNoopSelectionRefresh,
+  patchXtermTransparentScrollbar,
   flushXtermScrollFrameSync,
 } from '../utils/terminalScrollHelper';
 import {
@@ -840,6 +841,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       altClickMovesCursor: true,
       theme: resolvedTheme === 'dark' ? DARK_TERMINAL_THEME : LIGHT_TERMINAL_THEME,
       allowProposedApi: true,
+      overviewRulerWidth: 0,
     });
 
     // Intercept CSI 3J (Erase Saved Lines) to prevent applications like Claude Code
@@ -860,6 +862,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     term.open(terminalContainerRef.current);
     patchCompositionHelper(term);
     patchXtermNoopSelectionRefresh(term);
+    patchXtermTransparentScrollbar(term);
 
     if (isMobileRef.current && terminalContainerRef.current) {
       const initialViewport = terminalContainerRef.current.querySelector('.xterm-viewport') as HTMLElement | null;

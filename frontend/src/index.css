@@ -213,6 +213,8 @@
 
 /* Terminal Viewport: Transparent & Invisible Scrollbar to prevent text obstruction */
 .xterm .xterm-viewport {
+  background-color: transparent !important;
+  background: transparent !important;
   scrollbar-width: none !important;
   -ms-overflow-style: none !important;
   touch-action: none !important;
@@ -224,11 +226,27 @@
   width: 0 !important;
   height: 0 !important;
   background: transparent !important;
+  -webkit-appearance: none !important;
 }
-.xterm .xterm-viewport::-webkit-scrollbar-thumb {
+.xterm .xterm-viewport::-webkit-scrollbar-thumb,
+.xterm .xterm-viewport::-webkit-scrollbar-thumb:hover,
+.xterm .xterm-viewport::-webkit-scrollbar-thumb:active {
   background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
 }
-.xterm .xterm-viewport::-webkit-scrollbar-track {
+.xterm .xterm-viewport::-webkit-scrollbar-track,
+.xterm .xterm-viewport::-webkit-scrollbar-corner {
   background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+.xterm .xterm-decoration-overview-ruler {
+  display: none !important;
+  width: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
 }
 
