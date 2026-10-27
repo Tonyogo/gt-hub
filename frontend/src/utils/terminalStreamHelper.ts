@@ -218,7 +218,7 @@ export class BackgroundBufferQueue {
   private readonly maxLines: number;
   private decoder: TextDecoder = new TextDecoder('utf-8');
 
-  constructor(maxBytes: number = 2 * 1024 * 1024, maxLines: number = 1000) {
+  constructor(maxBytes: number = 2 * 1024 * 1024, maxLines: number = 2000) {
     this.maxBytes = Math.max(1, maxBytes);
     this.maxLines = Math.max(1, maxLines);
   }

@@ -92,16 +92,16 @@ describe('TerminalHistoryBuffer Unit Tests', () => {
     expect(afterExit).not.toContain('\x1b[?1049h');
   });
 
-  test('enforces default 1000-line history cap when more than 1000 lines are pushed', () => {
+  test('enforces default 2000-line history cap when more than 2000 lines are pushed', () => {
     const buf = new TerminalHistoryBuffer();
-    for (let i = 1; i <= 1500; i++) {
+    for (let i = 1; i <= 2500; i++) {
       buf.push(`Line ${i}\r\n`);
     }
     const result = buf.getString();
     const lines = result.trimEnd().split('\r\n');
-    expect(lines.length).toBe(1000);
+    expect(lines.length).toBe(2000);
     expect(lines[0]).toBe('Line 501');
-    expect(lines[999]).toBe('Line 1500');
+    expect(lines[1999]).toBe('Line 2500');
   });
 
   test('evicts oldest lines accurately across multi-line and partial-line chunks with custom maxLines', () => {

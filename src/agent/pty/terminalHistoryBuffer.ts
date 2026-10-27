@@ -13,7 +13,7 @@ const ALT_SCREEN_ENTER_BUFFER = Buffer.from('\x1b[?1049h', 'binary');
 const ALT_SCREEN_EXIT_BUFFER = Buffer.from('\x1b[?1049l', 'binary');
 
 export const DEFAULT_MAX_HISTORY_BYTES = 1 * 1024 * 1024;
-export const DEFAULT_MAX_HISTORY_LINES = 1000;
+export const DEFAULT_MAX_HISTORY_LINES = 2000;
 
 function countBufferNewlines(buf: Buffer): number {
   let count = 0;
