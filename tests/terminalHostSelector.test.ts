@@ -98,4 +98,23 @@ describe('TerminalHostSelector Pure Agent Tests', () => {
     expect((zh as any).webTerminal.hostSelector.autoConnectTip).toBeDefined();
     expect((en as any).webTerminal.hostSelector.autoConnectTip).toBeDefined();
   });
+
+  test('displays server uptime in dropdown header and node uptime for online hosts', () => {
+    expect(content).toContain('formatUptime');
+    expect(content).toContain('serverStartTime');
+    expect(content).toContain('webTerminal.hostSelector.serverUptime');
+    expect(content).toContain('webTerminal.hostSelector.nodeUptime');
+    expect(content).toContain('h.startTime || h.lastSeen');
+  });
+
+  test('i18n locales contain server and node uptime translations', () => {
+    expect((zh as any).webTerminal.hostSelector.serverUptime).toBe('服务运行 {uptime}');
+    expect((en as any).webTerminal.hostSelector.serverUptime).toBe('Server up {uptime}');
+    expect((zh as any).webTerminal.hostSelector.nodeUptime).toBe('在线 {uptime}');
+    expect((en as any).webTerminal.hostSelector.nodeUptime).toBe('Up {uptime}');
+    expect((zh as any).webTerminal.hostSelector.serverStartedAt).toBeDefined();
+    expect((en as any).webTerminal.hostSelector.serverStartedAt).toBeDefined();
+    expect((zh as any).webTerminal.hostSelector.nodeOnlineAt).toBeDefined();
+    expect((en as any).webTerminal.hostSelector.nodeOnlineAt).toBeDefined();
+  });
 });

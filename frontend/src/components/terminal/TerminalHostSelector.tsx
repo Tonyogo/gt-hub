@@ -14,7 +14,7 @@ import {
   Wifi,
 } from 'lucide-react';
 import { useTranslation } from '../../i18n/LanguageContext';
-import { formatRelativeTime } from '../../utils/timeHelpers';
+import { formatRelativeTime, formatUptime } from '../../utils/timeHelpers';
 import { apiFetch, getStoredAdminKey } from '../../utils/apiClient';
 
 export interface ManagedHostItem {
@@ -25,6 +25,7 @@ export interface ManagedHostItem {
   platform: string;
   status: 'online' | 'offline';
   lastSeen: number;
+  startTime?: number;
   type: 'agent';
   version?: string;
 }
@@ -61,6 +62,18 @@ export function TerminalHostSelector({
       } catch {}
     }
     return [];
+  });
+  const [serverStartTime, setServerStartTime] = useState<number | null>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = window.sessionStorage?.getItem('cached_terminal_server_start_time');
+        if (cached) {
+          const parsed = Number(cached);
+          if (!isNaN(parsed) && parsed > 0) return parsed;
+        }
+      } catch {}
+    }
+    return null;
   });
   const hasLoadedRef = useRef<boolean>(false);
   const [isOpen, setIsOpen] = useState<boolean>(false);
@@ -147,6 +160,12 @@ export function TerminalHostSelector({
           setHosts(data.hosts);
           try {
             window.sessionStorage?.setItem('cached_terminal_hosts', JSON.stringify(data.hosts));
+          } catch {}
+        }
+        if (typeof data.serverStartTime === 'number' && data.serverStartTime > 0) {
+          setServerStartTime(data.serverStartTime);
+          try {
+            window.sessionStorage?.setItem('cached_terminal_server_start_time', data.serverStartTime.toString());
           } catch {}
         }
       }
@@ -354,6 +373,11 @@ export function TerminalHostSelector({
     });
   };
 
+  const serverUptimeRaw = serverStartTime ? formatUptime(serverStartTime, lang) : '';
+  const serverUptimeText = serverUptimeRaw
+    ? t('webTerminal.hostSelector.serverUptime', { uptime: serverUptimeRaw }).replace('{uptime}', serverUptimeRaw)
+    : '';
+
   const popoverContent = isOpen && typeof document !== 'undefined' ? (
     <div
       ref={popoverRef}
@@ -367,9 +391,9 @@ export function TerminalHostSelector({
     >
       {/* Header with Search, Add Node Button & Clear Offline */}
       <div className="p-2 border-b border-[var(--border-subtle)] bg-[var(--bg-surface-sub)]/50 space-y-2 shrink-0">
-        <div className="flex items-center justify-between text-xs px-1">
-          <span className="font-semibold text-[var(--text-secondary)] flex items-center space-x-1.5">
-            <Server className="w-3.5 h-3.5 text-indigo-400" />
+        <div className="flex flex-wrap items-center justify-between gap-1 text-xs px-1">
+          <span className="font-semibold text-[var(--text-secondary)] flex items-center space-x-1.5 min-w-0">
+            <Server className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
             <span>
               {t('webTerminal.hostSelector.hostsCount', {
                 online: onlineCount.toString(),
@@ -378,6 +402,18 @@ export function TerminalHostSelector({
                 .replace('{online}', onlineCount.toString())
                 .replace('{total}', hosts.length.toString())}
             </span>
+            {serverUptimeText && (
+              <span
+                className="text-[10px] font-normal text-[var(--text-muted)] font-mono truncate"
+                title={
+                  serverStartTime
+                    ? `${t('webTerminal.hostSelector.serverStartedAt', '服务启动时间: ')}${new Date(serverStartTime).toLocaleString()}`
+                    : undefined
+                }
+              >
+                · {serverUptimeText}
+              </span>
+            )}
           </span>
 
           <div className="flex items-center space-x-1.5">
@@ -438,7 +474,16 @@ export function TerminalHostSelector({
         {filteredHosts.map((h) => {
           const isSelected = h.id === activeHostId;
           const isOnline = h.status === 'online';
-          const offlineTooltip = !isOnline && h.lastSeen ? `${t('webTerminal.hostSelector.offlineAt', '最后离线时间: ')}${new Date(h.lastSeen).toLocaleString()}` : undefined;
+          const onlineSince = h.startTime || h.lastSeen;
+          const nodeUptimeRaw = isOnline && onlineSince ? formatUptime(onlineSince, lang) : '';
+          const nodeUptimeText = nodeUptimeRaw
+            ? t('webTerminal.hostSelector.nodeUptime', { uptime: nodeUptimeRaw }).replace('{uptime}', nodeUptimeRaw)
+            : '';
+          const buttonTooltip = isOnline && onlineSince
+            ? `${t('webTerminal.hostSelector.nodeOnlineAt', '节点上线时间: ')}${new Date(onlineSince).toLocaleString()}`
+            : !isOnline && h.lastSeen
+            ? `${t('webTerminal.hostSelector.offlineAt', '最后离线时间: ')}${new Date(h.lastSeen).toLocaleString()}`
+            : undefined;
 
           return (
             <button
@@ -448,7 +493,7 @@ export function TerminalHostSelector({
                 onSelectHost(h.id);
                 setIsOpen(false);
               }}
-              title={offlineTooltip}
+              title={buttonTooltip}
               className={`w-full p-2 rounded-lg flex items-center justify-between text-left transition-all ${
                 isSelected
                   ? 'bg-indigo-600/15 text-indigo-300 font-medium'
@@ -481,7 +526,7 @@ export function TerminalHostSelector({
                   </div>
                   <div className="text-[10px] text-[var(--text-muted)] truncate font-mono">
                     {isOnline
-                      ? `${h.ip} · ${h.platform}`
+                      ? `${h.ip} · ${h.platform}${nodeUptimeText ? ` · ${nodeUptimeText}` : ''}`
                       : `${h.ip} · ${formatRelativeTime(h.lastSeen, lang)}`}
                   </div>
                 </div>
