@@ -127,10 +127,26 @@ export function stepTouchScrollLines(accumulatedDeltaY: number, lineHeight: numb
  * to avoid abrupt noise while tracking finger flicks.
  */
 export function computeTouchVelocity(prevVelocity: number, deltaY: number, dtMs: number): number {
-  const dt = Math.max(4, Math.min(100, dtMs || 16));
-  const instantV = deltaY / dt;
-  const blended = prevVelocity === 0 ? instantV : prevVelocity * 0.35 + instantV * 0.65;
-  // Clamp extreme spikes to ±6 px/ms (~360 lines/sec)
+  const safePrev = Number.isFinite(prevVelocity) ? prevVelocity : 0;
+  const safeDelta = Number.isFinite(deltaY) ? deltaY : 0;
+  const rawDt = Number.isFinite(dtMs) && dtMs > 0 ? dtMs : 16;
+
+  // Ignore sub-pixel zero-delta samples within <32ms (high-refresh duplicate sample or finger lift-off jitter)
+  if (Math.abs(safeDelta) < 0.5 && rawDt < 32) {
+    return safePrev;
+  }
+
+  const dt = Math.max(4, Math.min(100, rawDt));
+  const instantV = safeDelta / dt;
+
+  // If starting from rest or reversing swipe direction, adopt new instantaneous velocity immediately
+  if (safePrev === 0 || (safePrev * instantV < 0 && Math.abs(safeDelta) >= 2)) {
+    return Math.max(-6, Math.min(6, instantV));
+  }
+
+  // Weight faster flick acceleration higher (0.75) so short 2-frame flicks reach full velocity
+  const weight = Math.abs(instantV) > Math.abs(safePrev) ? 0.75 : 0.6;
+  const blended = safePrev * (1 - weight) + instantV * weight;
   return Math.max(-6, Math.min(6, blended));
 }
 

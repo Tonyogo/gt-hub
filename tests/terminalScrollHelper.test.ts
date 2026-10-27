@@ -216,6 +216,23 @@ describe('terminalScrollHelper', () => {
       expect(vSpike).toBeGreaterThanOrEqual(-6);
     });
 
+    it('computeTouchVelocity preserves velocity across short zero-delta lift-off samples and resets on direction reversal', () => {
+      const vFast = computeTouchVelocity(0, 48, 16); // 3 px/ms
+      expect(vFast).toBe(3);
+
+      // Trailing lift-off sample with deltaY = 0 within 8ms must preserve velocity
+      const vAfterLiftOffJitter = computeTouchVelocity(vFast, 0, 8);
+      expect(vAfterLiftOffJitter).toBe(3);
+
+      // Genuine hold (dtMs >= 40ms with deltaY = 0) decays velocity
+      const vAfterHold = computeTouchVelocity(vFast, 0, 50);
+      expect(vAfterHold).toBeLessThan(vFast);
+
+      // Direction reversal immediately switches sign
+      const vReversed = computeTouchVelocity(vFast, -32, 16);
+      expect(vReversed).toBeLessThan(0);
+    });
+
     it('stepMomentumVelocity decays velocity smoothly and stops below threshold', () => {
       const v = 2.0;
       const nextV = stepMomentumVelocity(v, 16);
