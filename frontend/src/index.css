@@ -195,6 +195,9 @@
 .xterm .xterm-viewport {
   scrollbar-width: none !important;
   -ms-overflow-style: none !important;
+  touch-action: none !important;
+  overscroll-behavior: none !important;
+  -webkit-overflow-scrolling: auto !important;
 }
 .xterm .xterm-viewport::-webkit-scrollbar {
   display: none !important;

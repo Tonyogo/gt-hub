@@ -1198,19 +1198,27 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
       accumulatedDeltaY = res.remainderDeltaY;
 
-      if (res.usedNativeScrollTop) {
-        return res.hitBoundary;
-      }
-
       if (res.linesToScroll !== 0) {
         const linesToScroll = res.linesToScroll;
         term.scrollLines(linesToScroll);
         const active = term.buffer?.active;
         if (active) {
-          if (linesToScroll < 0 && active.viewportY <= 0) return true;
-          if (linesToScroll > 0 && active.viewportY >= active.baseY) return true;
+          if (linesToScroll < 0 && active.viewportY <= 0) {
+            accumulatedDeltaY = 0;
+            return true;
+          }
+          if (linesToScroll > 0 && active.viewportY >= active.baseY) {
+            accumulatedDeltaY = 0;
+            return true;
+          }
         }
       }
+
+      if (res.usedNativeScrollTop && res.hitBoundary) {
+        accumulatedDeltaY = 0;
+        return true;
+      }
+
       return false;
     };
 
@@ -1363,6 +1371,9 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     const handleTouchStart = (e: TouchEvent) => {
       stopMomentumScroll();
       syncAtBottomAfterTouchScroll();
+      if (e.touches.length >= 1) {
+        e.stopPropagation();
+      }
       if (e.touches.length === 1) {
         touchStartY = e.touches[0].clientY;
         touchStartX = e.touches[0].clientX;
@@ -1378,7 +1389,6 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           if (e.cancelable) {
             e.preventDefault();
           }
-          e.stopPropagation();
           // In Selection Mode: record initial selection touch origin and highlight initial cell
           const cell = getCellCoordsFromTouch(touchStartX, touchStartY);
           if (cell) {
@@ -1390,7 +1400,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     };
 
     const handleTouchMove = (e: TouchEvent) => {
-      if (e.touches.length !== 1) return;
+      if (e.touches.length < 1 || (!isDragging && e.touches.length > 1)) return;
 
       const currentY = e.touches[0].clientY;
       const currentX = e.touches[0].clientX;
@@ -2806,7 +2816,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           ref={terminalContainerRef}
           className={`h-full w-full ${isSelectMode ? 'terminal-select-mode select-none cursor-crosshair' : 'cursor-text'}`}
           style={{
-            touchAction: isSelectMode ? 'none' : undefined,
+            touchAction: isSelectMode || isMobile ? 'none' : undefined,
             userSelect: isSelectMode ? 'none' : undefined,
             WebkitUserSelect: isSelectMode ? 'none' : undefined,
             transform: cursorShiftY > 0 ? `translateY(-${cursorShiftY}px)` : undefined,

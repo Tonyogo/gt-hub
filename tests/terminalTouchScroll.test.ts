@@ -46,5 +46,35 @@ describe('Terminal Mobile Touch Scroll Parity Tests', () => {
     expect(lastTouchUpdateIdx).toBeGreaterThan(notDraggingGuardIdx);
     expect(content).toContain("xtermViewport.style.touchAction = defaultTouchAction");
   });
+
+  test('applyScrollDelta always calls term.scrollLines(linesToScroll) so xterm ydisp never desyncs or snaps back', () => {
+    const applyStart = content.indexOf('const applyScrollDelta =');
+    const applyEnd = content.indexOf('const flushPendingTouchScroll =', applyStart);
+    const applyBlock = content.slice(applyStart, applyEnd);
+
+    const scrollLinesIdx = applyBlock.indexOf('term.scrollLines(linesToScroll)');
+    const usedNativeIdx = applyBlock.indexOf('if (res.usedNativeScrollTop)');
+    expect(scrollLinesIdx).toBeGreaterThan(-1);
+    // term.scrollLines must NOT be bypassed by an early return on res.usedNativeScrollTop
+    expect(usedNativeIdx === -1 || scrollLinesIdx < usedNativeIdx).toBe(true);
+  });
+
+  test('handleTouchStart calls e.stopPropagation on touches to isolate from xterm internal listeners', () => {
+    const touchStartIdx = content.indexOf('const handleTouchStart =');
+    const touchEndIdx = content.indexOf('const handleTouchMove =', touchStartIdx);
+    const touchStartBlock = content.slice(touchStartIdx, touchEndIdx);
+
+    const selectModeIdx = touchStartBlock.indexOf('if (isSelectModeRef.current)');
+    const firstStopPropIdx = touchStartBlock.indexOf('e.stopPropagation()');
+    expect(firstStopPropIdx).toBeGreaterThan(-1);
+    expect(firstStopPropIdx).toBeLessThan(selectModeIdx);
+  });
+
+  test('index.css locks touch-action and disables momentum overflow-scrolling on .xterm-viewport', () => {
+    const cssPath = path.resolve(__dirname, '../frontend/src/index.css');
+    const cssContent = fs.readFileSync(cssPath, 'utf-8');
+    expect(cssContent).toMatch(/\.xterm\s+\.xterm-viewport\s*\{[\s\S]*?touch-action:\s*none\s*!important/);
+    expect(cssContent).toMatch(/\.xterm\s+\.xterm-viewport\s*\{[\s\S]*?overscroll-behavior:\s*none\s*!important/);
+  });
 });
 
