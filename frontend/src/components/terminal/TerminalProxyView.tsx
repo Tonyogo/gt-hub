@@ -64,14 +64,13 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
 
     // Mobile section switcher ('speedtest' | 'request'); on desktop (lg+) both are visible side-by-side
     const [mobileSection, setMobileSection] = useState<'speedtest' | 'request'>('speedtest');
-    const [showCustomForward, setShowCustomForward] = useState<boolean>(false);
     const [showAdvancedRequest, setShowAdvancedRequest] = useState<boolean>(false);
 
     // Port Forwarding / CLI State
     const [listeningPorts, setListeningPorts] = useState<ListeningPortInfo[]>([]);
     const [isLoadingPorts, setIsLoadingPorts] = useState<boolean>(false);
     const [targetHost, setTargetHost] = useState<string>('127.0.0.1');
-    const [port, setPort] = useState<string>('3000');
+    const [port, setPort] = useState<string>('8000');
 
     // Speedtest State
     const [speedtestSizeMb, setSpeedtestSizeMb] = useState<number>(4);
@@ -198,8 +197,8 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
     }, [isActive, activeHostId, fetchListeningPorts]);
 
     const buildForwardCmd = (customPort?: number, customHost?: string) => {
-      const p = customPort ?? parseInt(port, 10);
-      const h = customHost ?? targetHost;
+      const p = customPort ?? 8000;
+      const h = customHost ?? '127.0.0.1';
       if (isNaN(p) || p < 1 || p > 65535) return null;
       const isDefaultHost = !h || h === '127.0.0.1' || h === '0.0.0.0' || h === '::' || h === '::1';
       return isDefaultHost
@@ -604,12 +603,17 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
             <div className="flex items-center flex-wrap gap-1.5">
               <button
                 type="button"
-                onClick={() => setShowCustomForward((v) => !v)}
+                data-testid="proxy-copy-forward-btn"
+                onClick={() => handleCopyForward(8000, '127.0.0.1')}
                 className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 text-[11px] border border-white/[0.08] transition-all cursor-pointer"
+                title={`gt forward ${activeHostId} 8000:8000`}
               >
-                <Terminal className="w-3 h-3 text-indigo-400" />
-                <span>{isZh ? '自定义转发' : 'Custom Forward'}</span>
-                {showCustomForward ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                {copiedCli === 'forward' || copiedCli === 'port-8000' ? (
+                  <Check className="w-3 h-3 text-emerald-400" />
+                ) : (
+                  <Copy className="w-3 h-3 text-indigo-400" />
+                )}
+                <span className="font-mono">{t('proxy.copyCliForward', '复制 gt forward')}</span>
               </button>
 
               <button
@@ -662,54 +666,6 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
                 );
               })}
             </div>
-          )}
-
-          {/* Collapsible Custom Port Forward Builder */}
-          {showCustomForward && (
-            <div className="pt-1.5 border-t border-white/[0.06] flex flex-wrap items-center gap-2 animate-in fade-in duration-150">
-              <div className="flex items-center space-x-1.5">
-                <span className="text-[11px] text-slate-400">{t('proxy.targetHost', '目标主机')}:</span>
-                <input
-                  type="text"
-                  value={targetHost}
-                  onChange={(e) => setTargetHost(e.target.value)}
-                  placeholder="127.0.0.1"
-                  className="bg-black/40 border border-white/[0.08] rounded-lg px-2 py-1 text-xs text-slate-200 font-mono w-28 focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-              <div className="flex items-center space-x-1.5">
-                <span className="text-[11px] text-slate-400">{t('proxy.targetPort', '端口')}:</span>
-                <input
-                  type="number"
-                  value={port}
-                  onChange={(e) => setPort(e.target.value)}
-                  placeholder="3000"
-                  min={1}
-                  max={65535}
-                  className="bg-black/40 border border-white/[0.08] rounded-lg px-2 py-1 text-xs text-slate-200 font-mono w-20 focus:outline-none focus:border-indigo-500"
-                />
-              </div>
-              <button
-                type="button"
-                data-testid="proxy-copy-forward-btn"
-                onClick={() => handleCopyForward()}
-                className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-all cursor-pointer"
-              >
-                {copiedCli === 'forward' ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                <span className="font-mono text-[11px]">{buildForwardCmd() || t('proxy.copyCliForward', '复制 gt forward')}</span>
-              </button>
-            </div>
-          )}
-
-          {/* Hidden fallback testid button when collapsed so automated tests or keyboard shortcuts can always trigger copy */}
-          {!showCustomForward && (
-            <button
-              type="button"
-              data-testid="proxy-copy-forward-btn"
-              onClick={() => handleCopyForward()}
-              className="hidden"
-              aria-hidden="true"
-            />
           )}
         </div>
 
