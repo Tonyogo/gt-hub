@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   X,
   Copy,
@@ -17,6 +17,7 @@ import {
 import { useTranslation } from '../../../i18n/LanguageContext';
 import { apiFetch, getStoredAdminKey } from '../../../utils/apiClient';
 import { TaskSummary, TaskStatus, TaskLogResponse } from '../types/task';
+import { parseAnsiToSegments, stripAnsiCodes } from '../../../utils/ansiLogFormatter';
 
 export interface TaskLogModalProps {
   isOpen: boolean;
@@ -47,6 +48,8 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [autoScroll, setAutoScroll] = useState<boolean>(true);
   const [isKilling, setIsKilling] = useState<boolean>(false);
+
+  const logSegments = useMemo(() => parseAnsiToSegments(logText), [logText]);
 
   const offsetRef = useRef<number>(0);
   const pollTimerRef = useRef<any>(null);
@@ -174,7 +177,7 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
   const handleCopy = async () => {
     if (!logText) return;
     try {
-      await navigator.clipboard.writeText(logText);
+      await navigator.clipboard.writeText(stripAnsiCodes(logText));
       setIsCopied(true);
       setTimeout(() => setIsCopied(false), 2000);
     } catch {
@@ -422,7 +425,14 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
               ref={logContainerRef}
               className="flex-1 bg-slate-950 font-mono text-xs text-slate-200 border border-slate-800 rounded-xl p-4 max-h-[50vh] sm:max-h-[520px] overflow-y-auto whitespace-pre-wrap break-all select-text shadow-inner"
             >
-              {logText}
+              {logSegments.map((seg, idx) => (
+                <span
+                  key={idx}
+                  className={[seg.colorClass, seg.bold ? 'font-bold' : ''].filter(Boolean).join(' ') || undefined}
+                >
+                  {seg.text}
+                </span>
+              ))}
             </div>
           )}
         </div>

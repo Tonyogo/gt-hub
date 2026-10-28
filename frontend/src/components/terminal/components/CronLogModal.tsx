@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   X,
   Copy,
@@ -15,6 +15,7 @@ import {
 import { useTranslation } from '../../../i18n/LanguageContext';
 import { apiFetch, getStoredAdminKey } from '../../../utils/apiClient';
 import { CronJobSummary, CronExecutionLogResponse } from '../types/cron';
+import { parseAnsiToSegments, stripAnsiCodes } from '../../../utils/ansiLogFormatter';
 
 export interface CronLogModalProps {
   isOpen: boolean;
@@ -77,18 +78,20 @@ export const CronLogModal: React.FC<CronLogModalProps> = ({
     }
   }, [isOpen, job, fetchLogs]);
 
-  if (!isOpen || !job) return null;
-
   const rawOutput =
     logData?.output ||
     (logData?.stdout ? `${logData.stdout}${logData.stderr ? `\n${logData.stderr}` : ''}` : '') ||
     logData?.stderr ||
     '';
 
+  const logSegments = useMemo(() => parseAnsiToSegments(rawOutput), [rawOutput]);
+
+  if (!isOpen || !job) return null;
+
   const handleCopy = async () => {
     if (!rawOutput) return;
     try {
-      await navigator.clipboard.writeText(rawOutput);
+      await navigator.clipboard.writeText(stripAnsiCodes(rawOutput));
       setIsCopied(true);
       setTimeout(() => setIsCopied(false), 2000);
     } catch {
@@ -278,7 +281,14 @@ export const CronLogModal: React.FC<CronLogModalProps> = ({
             </div>
           ) : (
             <div className="flex-1 bg-slate-950 font-mono text-xs text-slate-200 border border-slate-800 rounded-xl p-4 max-h-[500px] overflow-y-auto whitespace-pre-wrap break-all select-text shadow-inner">
-              {rawOutput}
+              {logSegments.map((seg, idx) => (
+                <span
+                  key={idx}
+                  className={[seg.colorClass, seg.bold ? 'font-bold' : ''].filter(Boolean).join(' ') || undefined}
+                >
+                  {seg.text}
+                </span>
+              ))}
             </div>
           )}
         </div>
