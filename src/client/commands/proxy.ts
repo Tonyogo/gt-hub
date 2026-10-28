@@ -1,5 +1,7 @@
 import http from 'http';
+import https from 'https';
 import net from 'net';
+import crypto from 'crypto';
 import { AddressInfo } from 'net';
 import { URL } from 'url';
 import { resolveHost } from '../utils/terminalUI';
@@ -9,6 +11,9 @@ import {
   encodeBinaryPacket,
   decodeBinaryPacket,
 } from '../../shared/protocol/binaryProtocol';
+import { TargetProbeResult } from '../../agent/handlers/proxyHandler';
+
+export { TargetProbeResult };
 
 function getWebSocketCtor(): any {
   let wsImpl: any = null;
@@ -584,4 +589,382 @@ export async function handleProxyCommand(options: {
 
   process.on('SIGINT', cleanup);
   process.on('SIGTERM', cleanup);
+}
+
+export interface SpeedtestReport {
+  hostId: string;
+  latency: {
+    samples: number;
+    avgTotalRttMs: number;
+    avgHubAgentRttMs: number;
+    avgClientHubRttMs: number;
+    minRttMs: number;
+    maxRttMs: number;
+    jitterMs: number;
+  };
+  download: {
+    bytes: number;
+    durationMs: number;
+    mbps: number;
+    mbPerSec: number;
+  };
+  upload: {
+    bytes: number;
+    durationMs: number;
+    mbps: number;
+    mbPerSec: number;
+  };
+  probes: TargetProbeResult[];
+}
+
+function sendBenchmarkRequest(
+  parsedUrl: URL,
+  options: http.RequestOptions,
+  bodyData?: Buffer | string
+): Promise<{ statusCode: number; headers: http.IncomingHttpHeaders; body: Buffer }> {
+  return new Promise((resolve, reject) => {
+    const isHttps = parsedUrl.protocol === 'https:';
+    const transport = isHttps ? https : http;
+    const req = transport.request(parsedUrl, options, (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+      res.on('end', () => {
+        resolve({
+          statusCode: res.statusCode || 0,
+          headers: res.headers,
+          body: Buffer.concat(chunks),
+        });
+      });
+    });
+    req.on('error', reject);
+    if (bodyData) {
+      req.write(bodyData);
+    }
+    req.end();
+  });
+}
+
+export async function runSpeedtestBenchmark(options: {
+  serverUrl: string;
+  apiKey: string;
+  hostId: string;
+  sizeBytes?: number;
+  pings?: number;
+  targets?: string[];
+  onProgress?: (phase: string, progress: number, currentMbps?: number) => void;
+}): Promise<SpeedtestReport> {
+  const { serverUrl, apiKey, hostId } = options;
+  const pingsCount = Math.max(1, options.pings || 5);
+  const rawSizeBytes = options.sizeBytes ?? 16 * 1024 * 1024;
+  const sizeBytes = Math.min(256 * 1024 * 1024, Math.max(64 * 1024, rawSizeBytes));
+
+  // 1. Latency & Jitter phase
+  const totalRttSamples: number[] = [];
+  const hubAgentSamples: number[] = [];
+  const clientHubSamples: number[] = [];
+
+  for (let i = 0; i < pingsCount; i++) {
+    const pingUrl = new URL(
+      `/api/proxy/${encodeURIComponent(hostId)}/speedtest/ping`,
+      serverUrl
+    );
+    const clientStartNs = process.hrtime.bigint();
+    const res = await sendBenchmarkRequest(pingUrl, {
+      method: 'GET',
+      headers: { 'x-admin-key': apiKey },
+    });
+    const clientEndNs = process.hrtime.bigint();
+
+    if (res.statusCode !== 200) {
+      throw new Error(`Ping failed (HTTP ${res.statusCode}): ${res.body.toString('utf-8')}`);
+    }
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(res.body.toString('utf-8'));
+    } catch {
+      parsed = {};
+    }
+
+    const totalRttMs = Math.max(0.01, Number(clientEndNs - clientStartNs) / 1e6);
+    const hubAgentRttMs = typeof parsed.hubAgentRttMs === 'number' ? parsed.hubAgentRttMs : 0;
+    const clientHubRttMs = Math.max(0, totalRttMs - hubAgentRttMs);
+
+    totalRttSamples.push(totalRttMs);
+    hubAgentSamples.push(hubAgentRttMs);
+    clientHubSamples.push(clientHubRttMs);
+  }
+
+  const avgTotalRttMs =
+    totalRttSamples.reduce((a, b) => a + b, 0) / totalRttSamples.length;
+  const avgHubAgentRttMs =
+    hubAgentSamples.reduce((a, b) => a + b, 0) / hubAgentSamples.length;
+  const avgClientHubRttMs =
+    clientHubSamples.reduce((a, b) => a + b, 0) / clientHubSamples.length;
+  const minRttMs = Math.min(...totalRttSamples);
+  const maxRttMs = Math.max(...totalRttSamples);
+
+  let jitterSum = 0;
+  for (let j = 1; j < totalRttSamples.length; j++) {
+    jitterSum += Math.abs(totalRttSamples[j] - totalRttSamples[j - 1]);
+  }
+  const jitterMs =
+    totalRttSamples.length > 1 ? jitterSum / (totalRttSamples.length - 1) : 0;
+
+  // 2. Download speedtest
+  const dlUrl = new URL(
+    `/api/proxy/${encodeURIComponent(hostId)}/speedtest/download?bytes=${sizeBytes}`,
+    serverUrl
+  );
+
+  const dlResult = await new Promise<{ bytes: number; durationMs: number }>((resolve, reject) => {
+    const isHttps = dlUrl.protocol === 'https:';
+    const transport = isHttps ? https : http;
+    const dlStartNs = process.hrtime.bigint();
+    let receivedBytes = 0;
+
+    const req = transport.request(
+      dlUrl,
+      {
+        method: 'GET',
+        headers: {
+          'x-admin-key': apiKey,
+        },
+      },
+      (res) => {
+        if (res.statusCode !== 200) {
+          const chunks: Buffer[] = [];
+          res.on('data', (c) => chunks.push(c));
+          res.on('end', () => {
+            reject(
+              new Error(
+                `Download speedtest failed (${res.statusCode}): ${Buffer.concat(chunks).toString('utf-8')}`
+              )
+            );
+          });
+          return;
+        }
+        res.on('data', (chunk: Buffer) => {
+          receivedBytes += chunk.length;
+          if (options.onProgress) {
+            const currentElapsedSec = Math.max(0.001, Number(process.hrtime.bigint() - dlStartNs) / 1e9);
+            const currentMbps = (receivedBytes * 8) / (currentElapsedSec * 1_000_000);
+            options.onProgress('download', Math.min(1, receivedBytes / sizeBytes), Number(currentMbps.toFixed(2)));
+          }
+        });
+        res.on('end', () => {
+          const durationMs = Math.max(1, Number(process.hrtime.bigint() - dlStartNs) / 1e6);
+          resolve({ bytes: receivedBytes, durationMs });
+        });
+        res.on('error', reject);
+      }
+    );
+    req.on('error', reject);
+    req.end();
+  });
+
+  const dlDurationSec = dlResult.durationMs / 1000;
+  const dlMbps = Number(((dlResult.bytes * 8) / (dlDurationSec * 1_000_000)).toFixed(2));
+  const dlMbPerSec = Number((dlResult.bytes / (dlDurationSec * 1024 * 1024)).toFixed(2));
+
+  // 3. Upload speedtest
+  const ulUrl = new URL(
+    `/api/proxy/${encodeURIComponent(hostId)}/speedtest/upload`,
+    serverUrl
+  );
+
+  const ulResult = await new Promise<{ bytes: number; durationMs: number }>((resolve, reject) => {
+    const isHttps = ulUrl.protocol === 'https:';
+    const transport = isHttps ? https : http;
+    const ulStartNs = process.hrtime.bigint();
+
+    const req = transport.request(
+      ulUrl,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': String(sizeBytes),
+          'x-admin-key': apiKey,
+        },
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          if (res.statusCode !== 200) {
+            reject(
+              new Error(
+                `Upload speedtest failed (${res.statusCode}): ${Buffer.concat(chunks).toString('utf-8')}`
+              )
+            );
+            return;
+          }
+          const durationMs = Math.max(1, Number(process.hrtime.bigint() - ulStartNs) / 1e6);
+          resolve({ bytes: sizeBytes, durationMs });
+        });
+        res.on('error', reject);
+      }
+    );
+    req.on('error', reject);
+
+    const randomBuf = crypto.randomBytes(32 * 1024);
+    let sentBytes = 0;
+    let counter = 0;
+    const chunkSize = 32 * 1024;
+
+    const sendNext = () => {
+      let ok = true;
+      while (sentBytes < sizeBytes && ok) {
+        const remaining = sizeBytes - sentBytes;
+        const currentChunkSize = Math.min(chunkSize, remaining);
+        counter++;
+        randomBuf.writeUInt32LE((randomBuf.readUInt32LE(0) ^ counter) >>> 0, 0);
+        const chunk = randomBuf.subarray(0, currentChunkSize);
+        sentBytes += currentChunkSize;
+
+        if (options.onProgress) {
+          const currentElapsedSec = Math.max(0.001, Number(process.hrtime.bigint() - ulStartNs) / 1e9);
+          const currentMbps = (sentBytes * 8) / (currentElapsedSec * 1_000_000);
+          options.onProgress('upload', Math.min(1, sentBytes / sizeBytes), Number(currentMbps.toFixed(2)));
+        }
+
+        if (sentBytes >= sizeBytes) {
+          req.end(chunk);
+          return;
+        } else {
+          ok = req.write(chunk);
+        }
+      }
+
+      if (sentBytes < sizeBytes) {
+        req.once('drain', sendNext);
+      }
+    };
+
+    sendNext();
+  });
+
+  const ulDurationSec = ulResult.durationMs / 1000;
+  const ulMbps = Number(((ulResult.bytes * 8) / (ulDurationSec * 1_000_000)).toFixed(2));
+  const ulMbPerSec = Number((ulResult.bytes / (ulDurationSec * 1024 * 1024)).toFixed(2));
+
+  // 4. Outbound Target Probes
+  const probeUrl = new URL(
+    `/api/proxy/${encodeURIComponent(hostId)}/speedtest/probe`,
+    serverUrl
+  );
+  const probePayload = JSON.stringify({ targets: options.targets });
+  const probeRes = await sendBenchmarkRequest(
+    probeUrl,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': String(Buffer.byteLength(probePayload)),
+        'x-admin-key': apiKey,
+      },
+    },
+    probePayload
+  );
+
+  let probes: TargetProbeResult[] = [];
+  if (probeRes.statusCode === 200) {
+    try {
+      const parsed = JSON.parse(probeRes.body.toString('utf-8'));
+      if (Array.isArray(parsed.results)) {
+        probes = parsed.results;
+      }
+    } catch {}
+  }
+
+  return {
+    hostId,
+    latency: {
+      samples: pingsCount,
+      avgTotalRttMs: Number(avgTotalRttMs.toFixed(2)),
+      avgHubAgentRttMs: Number(avgHubAgentRttMs.toFixed(2)),
+      avgClientHubRttMs: Number(avgClientHubRttMs.toFixed(2)),
+      minRttMs: Number(minRttMs.toFixed(2)),
+      maxRttMs: Number(maxRttMs.toFixed(2)),
+      jitterMs: Number(jitterMs.toFixed(2)),
+    },
+    download: {
+      bytes: dlResult.bytes,
+      durationMs: Number(dlResult.durationMs.toFixed(2)),
+      mbps: dlMbps,
+      mbPerSec: dlMbPerSec,
+    },
+    upload: {
+      bytes: ulResult.bytes,
+      durationMs: Number(ulResult.durationMs.toFixed(2)),
+      mbps: ulMbps,
+      mbPerSec: ulMbPerSec,
+    },
+    probes,
+  };
+}
+
+export async function handleSpeedtestCommand(options: {
+  server: string;
+  key: string;
+  node: string;
+  sizeMb?: number;
+  pings?: number;
+  targets?: string[];
+  json?: boolean;
+}): Promise<void> {
+  const resolved = await resolveHost(options.server, options.key, options.node);
+  const sizeMb = options.sizeMb && options.sizeMb > 0 ? options.sizeMb : 16;
+  const sizeBytes = Math.round(sizeMb * 1024 * 1024);
+  const pings = options.pings && options.pings > 0 ? options.pings : 5;
+
+  if (!options.json) {
+    console.log(`Starting speedtest benchmark on node ${resolved.name} (${resolved.id})...`);
+    console.log(`Parameters: pings=${pings}, payload=${sizeMb} MB (${sizeBytes.toLocaleString()} bytes)`);
+  }
+
+  const report = await runSpeedtestBenchmark({
+    serverUrl: options.server,
+    apiKey: options.key,
+    hostId: resolved.id,
+    sizeBytes,
+    pings,
+    targets: options.targets,
+    onProgress: options.json
+      ? undefined
+      : (phase, progress, mbps) => {
+          if (process.stdout.isTTY) {
+            const pct = Math.round(progress * 100);
+            const rate = mbps ? ` - ${mbps.toFixed(1)} Mbps` : '';
+            process.stdout.write(`\r  [${phase}] ${pct}%${rate}   `);
+            if (pct >= 100) {
+              process.stdout.write('\n');
+            }
+          }
+        },
+  });
+
+  if (options.json) {
+    console.log(JSON.stringify(report, null, 2));
+    return;
+  }
+
+  console.log(`\n============================================================`);
+  console.log(` Speedtest Report: ${resolved.name} (${resolved.id})`);
+  console.log(`============================================================`);
+  console.log(`Latency & Jitter (${report.latency.samples} samples):`);
+  console.log(`  Total RTT:    avg ${report.latency.avgTotalRttMs.toFixed(2)} ms (min: ${report.latency.minRttMs.toFixed(2)} ms, max: ${report.latency.maxRttMs.toFixed(2)} ms, jitter: ${report.latency.jitterMs.toFixed(2)} ms)`);
+  console.log(`  Segmented:    Client↔Hub: ${report.latency.avgClientHubRttMs.toFixed(2)} ms | Hub↔Agent: ${report.latency.avgHubAgentRttMs.toFixed(2)} ms`);
+  console.log(`Bandwidth:`);
+  console.log(`  Download:     ${report.download.mbps.toFixed(2)} Mbps (${report.download.mbPerSec.toFixed(2)} MB/s) [${(report.download.bytes / (1024 * 1024)).toFixed(1)} MB in ${(report.download.durationMs / 1000).toFixed(2)}s]`);
+  console.log(`  Upload:       ${report.upload.mbps.toFixed(2)} Mbps (${report.upload.mbPerSec.toFixed(2)} MB/s) [${(report.upload.bytes / (1024 * 1024)).toFixed(1)} MB in ${(report.upload.durationMs / 1000).toFixed(2)}s]`);
+  if (report.probes && report.probes.length > 0) {
+    console.log(`Outbound Connectivity Probes:`);
+    for (const p of report.probes) {
+      const statusStr = p.ok ? `[✓] ${p.statusCode || 200} OK` : `[✗] ${p.error || 'Failed'}`;
+      console.log(`  ${statusStr.padEnd(20)} ${p.latencyMs} ms  ${p.url}`);
+    }
+  }
+  console.log(`============================================================\n`);
 }

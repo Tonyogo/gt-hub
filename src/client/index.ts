@@ -49,6 +49,9 @@ import {
   startLocalHttpProxyServer,
   handleForwardCommand,
   handleProxyCommand,
+  SpeedtestReport,
+  runSpeedtestBenchmark,
+  handleSpeedtestCommand,
 } from './commands/proxy';
 
 const versionInfo = getVersionInfo();
@@ -89,6 +92,9 @@ export {
   startLocalHttpProxyServer,
   handleForwardCommand,
   handleProxyCommand,
+  SpeedtestReport,
+  runSpeedtestBenchmark,
+  handleSpeedtestCommand,
 };
 
 export function createProgram(rawArgs: string[] = []): Command {
@@ -348,6 +354,33 @@ Command Shortcuts:
         node,
         port,
         bind: opts.bind,
+      });
+    });
+
+  // --- Speedtest: gt speedtest ---
+  program
+    .command('speedtest <node>')
+    .description('Benchmark network latency, jitter, bandwidth, and outbound connectivity to an agent node')
+    .option('--size <mb>', 'Payload size in MB for download/upload speedtest (default: 16)', '16')
+    .option('--pings <count>', 'Number of ping samples for latency/jitter benchmark (default: 5)', '5')
+    .option('--target <url...>', 'Outbound URL targets to probe (can specify multiple)')
+    .option('-s, --server <url>', 'Hub server URL')
+    .option('-k, --key <secret>', 'Admin secret key')
+    .option('-c, --context <name>', 'Target context')
+    .option('--json', 'Output in JSON format')
+    .action(async (node: string, opts: Record<string, any>) => {
+      const eff = resolveEffective(opts);
+      const sizeMb = opts.size ? parseFloat(String(opts.size)) : 16;
+      const pings = opts.pings ? parseInt(String(opts.pings), 10) : 5;
+      const targets = opts.target ? (Array.isArray(opts.target) ? opts.target : [opts.target]) : undefined;
+      await handleSpeedtestCommand({
+        server: eff.server,
+        key: eff.key,
+        node,
+        sizeMb,
+        pings,
+        targets,
+        json: resolveJson(opts),
       });
     });
 

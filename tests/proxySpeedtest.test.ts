@@ -310,4 +310,65 @@ describe('Agent Proxy Network Latency & Bandwidth Speedtest', () => {
       expect(probeRes.error).toBe('Agent disconnected');
     });
   });
+
+  describe('Task 2: CLI runSpeedtestBenchmark', () => {
+    it('executes full benchmark and returns valid structured metrics', async () => {
+      const { runSpeedtestBenchmark } = await import('../src/client/commands/proxy');
+
+      const report = await runSpeedtestBenchmark({
+        serverUrl: `http://127.0.0.1:${hubPort}`,
+        apiKey: adminSecret,
+        hostId: testHostId,
+        sizeBytes: 131072, // 128KB
+        pings: 3,
+        targets: [`http://127.0.0.1:${localTestHttpPort}/probe-ok`],
+      });
+
+      expect(report.hostId).toBe(testHostId);
+      expect(report.latency.samples).toBe(3);
+      expect(report.latency.avgTotalRttMs).toBeGreaterThanOrEqual(0);
+      expect(report.latency.avgHubAgentRttMs).toBeGreaterThanOrEqual(0);
+      expect(report.latency.avgClientHubRttMs).toBeGreaterThanOrEqual(0);
+      expect(report.latency.minRttMs).toBeGreaterThanOrEqual(0);
+      expect(report.latency.maxRttMs).toBeGreaterThanOrEqual(0);
+      expect(report.latency.jitterMs).toBeGreaterThanOrEqual(0);
+
+      expect(report.download.bytes).toBe(131072);
+      expect(report.download.durationMs).toBeGreaterThanOrEqual(1);
+      expect(report.download.mbps).toBeGreaterThan(0);
+      expect(report.download.mbPerSec).toBeGreaterThan(0);
+
+      expect(report.upload.bytes).toBe(131072);
+      expect(report.upload.durationMs).toBeGreaterThanOrEqual(1);
+      expect(report.upload.mbps).toBeGreaterThan(0);
+      expect(report.upload.mbPerSec).toBeGreaterThan(0);
+
+      expect(report.probes.length).toBe(1);
+      expect(report.probes[0].ok).toBe(true);
+      expect(report.probes[0].statusCode).toBe(200);
+      expect(report.probes[0].latencyMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('handleSpeedtestCommand outputs json when json option is true', async () => {
+      const { handleSpeedtestCommand } = await import('../src/client/commands/proxy');
+      const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+
+      await handleSpeedtestCommand({
+        server: `http://127.0.0.1:${hubPort}`,
+        key: adminSecret,
+        node: testHostId,
+        sizeMb: 0.125, // 128KB
+        pings: 1,
+        targets: [`http://127.0.0.1:${localTestHttpPort}/probe-ok`],
+        json: true,
+      });
+
+      expect(logSpy).toHaveBeenCalled();
+      const lastCall = logSpy.mock.calls[logSpy.mock.calls.length - 1][0];
+      const parsed = JSON.parse(lastCall);
+      expect(parsed.hostId).toBe(testHostId);
+      expect(parsed.download.mbps).toBeGreaterThan(0);
+      logSpy.mockRestore();
+    });
+  });
 });
