@@ -16,6 +16,12 @@ import {
   X,
   Server,
   Zap,
+  Gauge,
+  ArrowDown,
+  ArrowUp,
+  CheckCircle2,
+  XCircle,
+  Activity,
 } from 'lucide-react';
 import { useTranslation } from '../../i18n/LanguageContext';
 import { apiFetch, getStoredAdminKey } from '../../utils/apiClient';
@@ -48,12 +54,54 @@ interface DebuggerResponse {
   body: string;
 }
 
+export interface TargetProbeResult {
+  url: string;
+  ok: boolean;
+  statusCode?: number;
+  latencyMs: number;
+  error?: string;
+}
+
 export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalProxyViewProps>(
   ({ adminKey, activeHostId, isConnected = true, onRequestAddNode, isActive = false }, ref) => {
     const { t, language } = useTranslation();
     const isZh = language === 'zh';
 
-    const [mode, setMode] = useState<'port' | 'request'>('port');
+    const [mode, setMode] = useState<'port' | 'request' | 'speedtest'>('port');
+
+    // Speedtest State
+    const [speedtestSizeMb, setSpeedtestSizeMb] = useState<number>(16);
+    const [isRunningSpeedtest, setIsRunningSpeedtest] = useState<boolean>(false);
+    const [speedtestPhase, setSpeedtestPhase] = useState<'idle' | 'ping' | 'download' | 'upload' | 'done'>('idle');
+    const [dlProgress, setDlProgress] = useState<number>(0);
+    const [dlCurrentMbps, setDlCurrentMbps] = useState<number>(0);
+    const [ulProgress, setUlProgress] = useState<number>(0);
+    const [ulCurrentMbps, setUlCurrentMbps] = useState<number>(0);
+    const [latencyMetrics, setLatencyMetrics] = useState<{
+      avgTotalRttMs: number;
+      avgHubAgentRttMs: number;
+      avgClientHubRttMs: number;
+      minRttMs: number;
+      maxRttMs: number;
+      jitterMs: number;
+      samples: number;
+    } | null>(null);
+    const [downloadMetrics, setDownloadMetrics] = useState<{
+      mbps: number;
+      mbPerSec: number;
+      bytes: number;
+      durationMs: number;
+    } | null>(null);
+    const [uploadMetrics, setUploadMetrics] = useState<{
+      mbps: number;
+      mbPerSec: number;
+      bytes: number;
+      durationMs: number;
+    } | null>(null);
+    const [probeResults, setProbeResults] = useState<TargetProbeResult[]>([]);
+    const [isProbing, setIsProbing] = useState<boolean>(false);
+    const [customProbeUrl, setCustomProbeUrl] = useState<string>('');
+    const speedtestAbortRef = useRef<AbortController | null>(null);
 
     // Port Forwarding / Preview State
     const [listeningPorts, setListeningPorts] = useState<ListeningPortInfo[]>([]);
@@ -245,6 +293,252 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
       showToast(t('proxy.copied', '已复制到剪贴板'), 'success');
     };
 
+    const handleCopySpeedtest = () => {
+      const cmd = `gt speedtest ${activeHostId} --size ${speedtestSizeMb}`;
+      navigator.clipboard.writeText(cmd);
+      setCopiedCli('speedtest');
+      setTimeout(() => setCopiedCli(null), 2000);
+      showToast(t('proxy.copied', '已复制到剪贴板'), 'success');
+    };
+
+    const handleProbeTargets = async (customUrl?: string) => {
+      if (!activeHostId) return;
+      setIsProbing(true);
+      try {
+        const targetToTest = customUrl?.trim() || customProbeUrl.trim();
+        const targets = targetToTest ? [targetToTest] : undefined;
+        const res = await apiFetch(`/api/proxy/${encodeURIComponent(activeHostId)}/speedtest/probe`, {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify({ targets, timeoutMs: 8000 }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.results)) {
+            if (targets) {
+              setProbeResults((prev) => {
+                const map = new Map(prev.map((p) => [p.url, p]));
+                for (const r of data.results) {
+                  map.set(r.url, r);
+                }
+                return Array.from(map.values());
+              });
+              setCustomProbeUrl('');
+            } else {
+              setProbeResults(data.results);
+            }
+          }
+        } else {
+          const err = await res.json().catch(() => ({}));
+          showToast(err.error || 'Probe failed', 'error');
+        }
+      } catch (err: any) {
+        showToast(err.message || 'Probe failed', 'error');
+      } finally {
+        setIsProbing(false);
+      }
+    };
+
+    const handleStartSpeedtest = async () => {
+      if (!activeHostId) return;
+
+      if (isRunningSpeedtest) {
+        speedtestAbortRef.current?.abort();
+        speedtestAbortRef.current = null;
+        setIsRunningSpeedtest(false);
+        setSpeedtestPhase('idle');
+        return;
+      }
+
+      const controller = new AbortController();
+      speedtestAbortRef.current = controller;
+      setIsRunningSpeedtest(true);
+      setSpeedtestPhase('ping');
+      setLatencyMetrics(null);
+      setDownloadMetrics(null);
+      setUploadMetrics(null);
+      setDlProgress(0);
+      setUlProgress(0);
+      setDlCurrentMbps(0);
+      setUlCurrentMbps(0);
+
+      try {
+        // Phase 1: Ping
+        const totalSamples: number[] = [];
+        const hubAgentSamples: number[] = [];
+        const clientHubSamples: number[] = [];
+
+        for (let i = 0; i < 5; i++) {
+          if (controller.signal.aborted) return;
+          const start = performance.now();
+          const res = await apiFetch(`/api/proxy/${encodeURIComponent(activeHostId)}/speedtest/ping`, {
+            headers: getHeaders(),
+            signal: controller.signal,
+          });
+          const totalRtt = Math.max(0.01, performance.now() - start);
+          if (!res.ok) {
+            throw new Error(`Ping failed (${res.status})`);
+          }
+          const data = await res.json();
+          const hubAgentRtt = typeof data.hubAgentRttMs === 'number' ? data.hubAgentRttMs : 0;
+          const clientHubRtt = Math.max(0, totalRtt - hubAgentRtt);
+          totalSamples.push(totalRtt);
+          hubAgentSamples.push(hubAgentRtt);
+          clientHubSamples.push(clientHubRtt);
+        }
+
+        let jitterSum = 0;
+        for (let j = 1; j < totalSamples.length; j++) {
+          jitterSum += Math.abs(totalSamples[j] - totalSamples[j - 1]);
+        }
+        const jitterMs = totalSamples.length > 1 ? jitterSum / (totalSamples.length - 1) : 0;
+        setLatencyMetrics({
+          avgTotalRttMs: Number((totalSamples.reduce((a, b) => a + b, 0) / totalSamples.length).toFixed(2)),
+          avgHubAgentRttMs: Number((hubAgentSamples.reduce((a, b) => a + b, 0) / hubAgentSamples.length).toFixed(2)),
+          avgClientHubRttMs: Number((clientHubSamples.reduce((a, b) => a + b, 0) / clientHubSamples.length).toFixed(2)),
+          minRttMs: Number(Math.min(...totalSamples).toFixed(2)),
+          maxRttMs: Number(Math.max(...totalSamples).toFixed(2)),
+          jitterMs: Number(jitterMs.toFixed(2)),
+          samples: totalSamples.length,
+        });
+
+        // Phase 2: Download
+        if (controller.signal.aborted) return;
+        setSpeedtestPhase('download');
+        const sizeBytes = speedtestSizeMb * 1024 * 1024;
+        const dlStart = performance.now();
+        const dlRes = await fetch(`/api/proxy/${encodeURIComponent(activeHostId)}/speedtest/download?bytes=${sizeBytes}`, {
+          headers: getHeaders(),
+          signal: controller.signal,
+        });
+        if (!dlRes.ok || !dlRes.body) {
+          throw new Error(`Download failed (${dlRes.status})`);
+        }
+
+        const reader = dlRes.body.getReader();
+        let received = 0;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          received += value?.length || 0;
+          const elapsedSec = Math.max(0.001, (performance.now() - dlStart) / 1000);
+          const mbps = (received * 8) / (elapsedSec * 1_000_000);
+          setDlProgress(Math.min(100, Math.round((received / sizeBytes) * 100)));
+          setDlCurrentMbps(Number(mbps.toFixed(2)));
+        }
+
+        const dlDurationMs = Math.max(1, performance.now() - dlStart);
+        const dlSec = dlDurationMs / 1000;
+        setDownloadMetrics({
+          bytes: received,
+          durationMs: Math.round(dlDurationMs),
+          mbps: Number(((received * 8) / (dlSec * 1_000_000)).toFixed(2)),
+          mbPerSec: Number((received / (dlSec * 1024 * 1024)).toFixed(2)),
+        });
+
+        // Phase 3: Upload
+        if (controller.signal.aborted) return;
+        setSpeedtestPhase('upload');
+
+        const uploadChunk = new Uint8Array(32 * 1024);
+        if (typeof window !== 'undefined' && window.crypto) {
+          window.crypto.getRandomValues(uploadChunk);
+        }
+        let uploaded = 0;
+        const ulStart = performance.now();
+
+        try {
+          const ulStream = new ReadableStream({
+            pull(ctrl) {
+              if (controller.signal.aborted) {
+                ctrl.close();
+                return;
+              }
+              if (uploaded >= sizeBytes) {
+                ctrl.close();
+                return;
+              }
+              const remaining = sizeBytes - uploaded;
+              const thisChunkSize = Math.min(uploadChunk.byteLength, remaining);
+              const view = new DataView(uploadChunk.buffer);
+              view.setUint32(0, (view.getUint32(0, true) ^ (uploaded + 1)) >>> 0, true);
+              const slice = uploadChunk.subarray(0, thisChunkSize);
+              ctrl.enqueue(slice);
+              uploaded += thisChunkSize;
+
+              const elapsedSec = Math.max(0.001, (performance.now() - ulStart) / 1000);
+              const mbps = (uploaded * 8) / (elapsedSec * 1_000_000);
+              setUlProgress(Math.min(100, Math.round((uploaded / sizeBytes) * 100)));
+              setUlCurrentMbps(Number(mbps.toFixed(2)));
+            },
+          });
+
+          const ulRes = await fetch(`/api/proxy/${encodeURIComponent(activeHostId)}/speedtest/upload`, {
+            method: 'POST',
+            headers: {
+              ...getHeaders(),
+              'Content-Type': 'application/octet-stream',
+            },
+            body: ulStream,
+            signal: controller.signal,
+            // @ts-ignore
+            duplex: 'half',
+          });
+          if (!ulRes.ok) throw new Error(`Upload failed (${ulRes.status})`);
+        } catch (streamErr: any) {
+          if (controller.signal.aborted) return;
+          const fullBuf = new Uint8Array(sizeBytes);
+          for (let o = 0; o < sizeBytes; o += uploadChunk.byteLength) {
+            const sliceSize = Math.min(uploadChunk.byteLength, sizeBytes - o);
+            fullBuf.set(uploadChunk.subarray(0, sliceSize), o);
+          }
+          const ulRes = await fetch(`/api/proxy/${encodeURIComponent(activeHostId)}/speedtest/upload`, {
+            method: 'POST',
+            headers: {
+              ...getHeaders(),
+              'Content-Type': 'application/octet-stream',
+            },
+            body: new Blob([fullBuf]),
+            signal: controller.signal,
+          });
+          if (!ulRes.ok) throw new Error(`Upload failed (${ulRes.status})`);
+          uploaded = sizeBytes;
+          setUlProgress(100);
+        }
+
+        const ulDurationMs = Math.max(1, performance.now() - ulStart);
+        const ulSec = ulDurationMs / 1000;
+        setUploadMetrics({
+          bytes: sizeBytes,
+          durationMs: Math.round(ulDurationMs),
+          mbps: Number(((sizeBytes * 8) / (ulSec * 1_000_000)).toFixed(2)),
+          mbPerSec: Number((sizeBytes / (ulSec * 1024 * 1024)).toFixed(2)),
+        });
+
+        setSpeedtestPhase('done');
+
+        if (probeResults.length === 0) {
+          handleProbeTargets();
+        }
+      } catch (err: any) {
+        if (!controller.signal.aborted) {
+          showToast(err.message || 'Speedtest benchmark failed', 'error');
+        }
+      } finally {
+        setIsRunningSpeedtest(false);
+        speedtestAbortRef.current = null;
+      }
+    };
+
+    useEffect(() => {
+      return () => {
+        if (speedtestAbortRef.current) {
+          speedtestAbortRef.current.abort();
+          speedtestAbortRef.current = null;
+        }
+      };
+    }, []);
+
     const handleSelectDiscoveredPort = (p: ListeningPortInfo) => {
       setPort(String(p.port));
       if (p.address && p.address !== '0.0.0.0' && p.address !== '::' && p.address !== '127.0.0.1' && p.address !== '::1') {
@@ -389,6 +683,19 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
               <Zap className="w-3.5 h-3.5" />
               <span>{t('proxy.requestMode', 'HTTP 请求调试器')}</span>
             </button>
+            <button
+              type="button"
+              data-testid="proxy-mode-speedtest"
+              onClick={() => setMode('speedtest')}
+              className={`flex items-center space-x-1.5 px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                mode === 'speedtest'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Gauge className="w-3.5 h-3.5" />
+              <span>{t('proxy.speedtestMode', '网络测速')}</span>
+            </button>
           </div>
 
           <div className="flex items-center space-x-2">
@@ -413,6 +720,17 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
               >
                 {copiedCli === 'proxy' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-indigo-400" />}
                 <span className="font-mono text-[11px]">{t('proxy.copyCliProxy', '复制 gt proxy')}</span>
+              </button>
+            )}
+            {mode === 'speedtest' && (
+              <button
+                type="button"
+                onClick={handleCopySpeedtest}
+                className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 text-xs border border-white/[0.08] transition-all"
+                title="Copy gt speedtest command"
+              >
+                {copiedCli === 'speedtest' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-indigo-400" />}
+                <span className="font-mono text-[11px]">{t('proxy.copyCliSpeedtest', '复制 gt speedtest')}</span>
               </button>
             )}
           </div>
@@ -736,6 +1054,257 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
                       </div>
                     ))}
                   </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Mode 3: Network Latency & Bandwidth Speedtest */}
+        {mode === 'speedtest' && (
+          <div className="flex-1 min-h-0 flex flex-col p-4 space-y-4 overflow-y-auto">
+            {/* Speedtest Controls Row */}
+            <div className="p-3.5 rounded-xl bg-black/20 border border-white/[0.06] flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center space-x-3">
+                <div className="flex flex-col space-y-1">
+                  <label className="text-[10px] text-slate-400 font-medium uppercase tracking-wider">
+                    {t('proxy.payloadSize', '测试数据量')}
+                  </label>
+                  <select
+                    data-testid="speedtest-size-select"
+                    value={speedtestSizeMb}
+                    onChange={(e) => setSpeedtestSizeMb(parseInt(e.target.value, 10))}
+                    disabled={isRunningSpeedtest}
+                    className="bg-black/40 border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-xs text-slate-200 font-mono focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+                  >
+                    <option value={1}>1 MB</option>
+                    <option value={4}>4 MB</option>
+                    <option value={16}>16 MB (Default)</option>
+                    <option value={32}>32 MB</option>
+                    <option value={64}>64 MB</option>
+                  </select>
+                </div>
+
+                <div className="flex flex-col space-y-1 pt-4">
+                  <button
+                    type="button"
+                    data-testid="speedtest-start-btn"
+                    onClick={handleStartSpeedtest}
+                    className={`flex items-center space-x-1.5 px-4 py-1.5 rounded-lg text-xs font-medium transition-all shadow-xs cursor-pointer ${
+                      isRunningSpeedtest
+                        ? 'bg-rose-600 hover:bg-rose-500 text-white'
+                        : 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                    }`}
+                  >
+                    {isRunningSpeedtest ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>{t('proxy.stopSpeedtest', '停止测速')} ({speedtestPhase})</span>
+                      </>
+                    ) : (
+                      <>
+                        <Gauge className="w-3.5 h-3.5" />
+                        <span>{t('proxy.startSpeedtest', '开始测速')}</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <div className="text-xs text-slate-400 font-mono">
+                {isRunningSpeedtest && (
+                  <span className="flex items-center space-x-2 text-indigo-400">
+                    <Activity className="w-3.5 h-3.5 animate-pulse" />
+                    <span>Phase: {speedtestPhase}...</span>
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* 4 Metric Cards Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {/* Card 1: Total RTT */}
+              <div className="p-3.5 rounded-xl bg-black/20 border border-white/[0.06] flex flex-col justify-between space-y-2">
+                <div className="flex items-center justify-between text-slate-400 text-xs">
+                  <span className="font-medium">{t('proxy.totalRtt', '往返延迟 (RTT)')}</span>
+                  <Activity className="w-4 h-4 text-sky-400" />
+                </div>
+                <div>
+                  <div className="text-2xl font-bold font-mono text-slate-100">
+                    {latencyMetrics ? `${latencyMetrics.avgTotalRttMs} ms` : '--'}
+                  </div>
+                  <div className="text-[11px] text-slate-400 font-mono mt-1">
+                    {latencyMetrics ? (
+                      <span>Client↔Hub: {latencyMetrics.avgClientHubRttMs} ms | Hub↔Agent: {latencyMetrics.avgHubAgentRttMs} ms</span>
+                    ) : (
+                      <span>Client↔Hub: -- | Hub↔Agent: --</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 2: Jitter */}
+              <div className="p-3.5 rounded-xl bg-black/20 border border-white/[0.06] flex flex-col justify-between space-y-2">
+                <div className="flex items-center justify-between text-slate-400 text-xs">
+                  <span className="font-medium">{t('proxy.jitter', '网络抖动')}</span>
+                  <Zap className="w-4 h-4 text-amber-400" />
+                </div>
+                <div>
+                  <div className="text-2xl font-bold font-mono text-slate-100">
+                    {latencyMetrics ? `±${latencyMetrics.jitterMs} ms` : '--'}
+                  </div>
+                  <div className="text-[11px] text-slate-400 font-mono mt-1">
+                    {latencyMetrics ? (
+                      <span>Min: {latencyMetrics.minRttMs} ms | Max: {latencyMetrics.maxRttMs} ms</span>
+                    ) : (
+                      <span>Min: -- | Max: --</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 3: Download Speed */}
+              <div className="p-3.5 rounded-xl bg-black/20 border border-white/[0.06] flex flex-col justify-between space-y-2">
+                <div className="flex items-center justify-between text-slate-400 text-xs">
+                  <span className="font-medium">{t('proxy.downloadSpeed', '下行带宽 (下载)')}</span>
+                  <ArrowDown className="w-4 h-4 text-emerald-400" />
+                </div>
+                <div>
+                  <div className="text-2xl font-bold font-mono text-emerald-400">
+                    {downloadMetrics
+                      ? `${downloadMetrics.mbps} Mbps`
+                      : dlCurrentMbps > 0
+                      ? `${dlCurrentMbps} Mbps`
+                      : '--'}
+                  </div>
+                  <div className="text-[11px] text-slate-400 font-mono mt-1">
+                    {downloadMetrics ? (
+                      <span>{downloadMetrics.mbPerSec} MB/s ({((downloadMetrics.bytes) / (1024 * 1024)).toFixed(1)} MB in {(downloadMetrics.durationMs / 1000).toFixed(2)}s)</span>
+                    ) : (
+                      <span>-- MB/s</span>
+                    )}
+                  </div>
+                  {/* Progress bar */}
+                  <div className="w-full bg-white/[0.05] h-1.5 rounded-full overflow-hidden mt-2">
+                    <div
+                      className="bg-emerald-500 h-full transition-all duration-150"
+                      style={{ width: `${dlProgress}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 4: Upload Speed */}
+              <div className="p-3.5 rounded-xl bg-black/20 border border-white/[0.06] flex flex-col justify-between space-y-2">
+                <div className="flex items-center justify-between text-slate-400 text-xs">
+                  <span className="font-medium">{t('proxy.uploadSpeed', '上行带宽 (上传)')}</span>
+                  <ArrowUp className="w-4 h-4 text-indigo-400" />
+                </div>
+                <div>
+                  <div className="text-2xl font-bold font-mono text-indigo-400">
+                    {uploadMetrics
+                      ? `${uploadMetrics.mbps} Mbps`
+                      : ulCurrentMbps > 0
+                      ? `${ulCurrentMbps} Mbps`
+                      : '--'}
+                  </div>
+                  <div className="text-[11px] text-slate-400 font-mono mt-1">
+                    {uploadMetrics ? (
+                      <span>{uploadMetrics.mbPerSec} MB/s ({((uploadMetrics.bytes) / (1024 * 1024)).toFixed(1)} MB in {(uploadMetrics.durationMs / 1000).toFixed(2)}s)</span>
+                    ) : (
+                      <span>-- MB/s</span>
+                    )}
+                  </div>
+                  {/* Progress bar */}
+                  <div className="w-full bg-white/[0.05] h-1.5 rounded-full overflow-hidden mt-2">
+                    <div
+                      className="bg-indigo-500 h-full transition-all duration-150"
+                      style={{ width: `${ulProgress}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Outbound Target Connectivity Probes Section */}
+            <div className="p-3.5 rounded-xl bg-black/20 border border-white/[0.06] flex flex-col space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2 text-xs font-medium text-slate-300">
+                  <Globe className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>{t('proxy.outboundProbe', '出网目标连通性探测')}</span>
+                </div>
+                <button
+                  type="button"
+                  data-testid="speedtest-probe-btn"
+                  onClick={() => handleProbeTargets()}
+                  disabled={isProbing}
+                  className="flex items-center space-x-1.5 px-3 py-1 rounded-lg bg-white/[0.05] hover:bg-white/[0.08] text-slate-200 text-xs font-medium border border-white/[0.08] transition-all disabled:opacity-50 cursor-pointer"
+                >
+                  {isProbing ? <Loader2 className="w-3 h-3 animate-spin text-indigo-400" /> : <RefreshCw className="w-3 h-3" />}
+                  <span>{isProbing ? t('proxy.probing', '探测中...') : t('proxy.probeNow', '探测目标')}</span>
+                </button>
+              </div>
+
+              {/* Custom Target Probe Input */}
+              <div className="flex items-center space-x-2 pt-1">
+                <input
+                  type="text"
+                  data-testid="speedtest-custom-probe-input"
+                  value={customProbeUrl}
+                  onChange={(e) => setCustomProbeUrl(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && customProbeUrl.trim()) {
+                      handleProbeTargets(customProbeUrl.trim());
+                    }
+                  }}
+                  placeholder={t('proxy.customTargetPlaceholder', '输入自定义探测 URL (例如 https://example.com)')}
+                  className="flex-1 min-w-0 bg-black/40 border border-white/[0.08] rounded-lg px-3 py-1.5 text-xs text-slate-200 font-mono focus:outline-none focus:border-indigo-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => handleProbeTargets(customProbeUrl.trim())}
+                  disabled={isProbing || !customProbeUrl.trim()}
+                  className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-all shadow-xs disabled:opacity-50 cursor-pointer"
+                >
+                  {t('proxy.probeNow', '探测')}
+                </button>
+              </div>
+
+              {/* Probes Results Table / List */}
+              <div className="space-y-1.5 pt-1">
+                {probeResults.length === 0 ? (
+                  <div className="text-xs text-slate-500 py-3 text-center font-mono">
+                    {isProbing ? 'Probing outbound targets from agent node...' : 'Click "Probe Targets" to test reachability to public endpoints.'}
+                  </div>
+                ) : (
+                  probeResults.map((probe) => (
+                    <div
+                      key={probe.url}
+                      className="flex items-center justify-between p-2 rounded-lg bg-white/[0.02] border border-white/[0.04] text-xs font-mono"
+                    >
+                      <div className="flex items-center space-x-2.5 truncate pr-2">
+                        {probe.ok ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                        ) : (
+                          <XCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                        )}
+                        <span className="text-slate-300 truncate">{probe.url}</span>
+                      </div>
+
+                      <div className="flex items-center space-x-3 shrink-0">
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                            probe.ok
+                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                              : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                          }`}
+                        >
+                          {probe.ok ? `${probe.statusCode || 200} OK` : probe.error || 'Failed'}
+                        </span>
+                        <span className="text-slate-400 w-16 text-right">{probe.latencyMs} ms</span>
+                      </div>
+                    </div>
+                  ))
                 )}
               </div>
             </div>

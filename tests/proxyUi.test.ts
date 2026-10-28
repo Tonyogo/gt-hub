@@ -59,6 +59,18 @@ describe('Frontend TerminalProxyView & UnifiedTerminalView Integration (Phase 2)
 
     // Empty state fallback
     expect(content).toContain('TerminalEmptyState');
+
+    // Speedtest mode tab & controls
+    expect(content).toMatch(/['"]port['"]\s*\|\s*['"]request['"]\s*\|\s*['"]speedtest['"]/);
+    expect(content).toContain('data-testid="proxy-mode-speedtest"');
+    expect(content).toContain('data-testid="speedtest-size-select"');
+    expect(content).toContain('data-testid="speedtest-start-btn"');
+    expect(content).toContain('/speedtest/ping');
+    expect(content).toContain('/speedtest/download');
+    expect(content).toContain('/speedtest/upload');
+    expect(content).toContain('/speedtest/probe');
+    expect(content).toContain('data-testid="speedtest-custom-probe-input"');
+    expect(content).toContain('data-testid="speedtest-probe-btn"');
   });
 
   it('verifies i18n locales have proxy translations', () => {
@@ -73,5 +85,8 @@ describe('Frontend TerminalProxyView & UnifiedTerminalView Integration (Phase 2)
 
     expect(enContent).toContain('requestMode:');
     expect(zhContent).toContain('requestMode:');
+
+    expect(enContent).toContain('speedtestMode:');
+    expect(zhContent).toContain('speedtestMode:');
   });
 });
