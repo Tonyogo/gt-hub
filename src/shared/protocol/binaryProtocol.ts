@@ -3,6 +3,9 @@ export const BIN_MSG_TYPE = {
   STREAM_OUTPUT: 0x02,
   TERMINAL_RAW: 0x03,
   HISTORY_SYNC: 0x04,
+  PROXY_HTTP_REQ_BODY: 0x05,
+  PROXY_HTTP_RES_BODY: 0x06,
+  PROXY_TCP_DATA: 0x07,
 } as const;
 
 export interface DecodedBinaryPacket {
