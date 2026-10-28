@@ -68,6 +68,33 @@ export function killProcessTreeSync(pid: number | null | undefined, signal: stri
   }
 }
 
+export function isPidAlive(pid: number | null | undefined): boolean {
+  if (!pid || typeof pid !== 'number' || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err: any) {
+    return err.code === 'EPERM';
+  }
+}
+
+export function sliceBufferUtf8Safe(buf: Buffer, startOffset: number): string {
+  let idx = Math.max(0, Math.min(startOffset, buf.length));
+  // In UTF-8, continuation bytes match 10xxxxxx (0x80 to 0xBF)
+  while (idx < buf.length && (buf[idx] & 0b11000000) === 0b10000000) {
+    idx++;
+  }
+  return buf.subarray(idx).toString('utf-8');
+}
+
+export function resolveUtf8Locale(env?: Record<string, any>): string {
+  const candidate = env?.LANG || env?.LC_ALL || process.env.LANG || process.env.LC_ALL || '';
+  if (typeof candidate === 'string' && /utf-?8/i.test(candidate)) {
+    return candidate;
+  }
+  return os.platform() === 'linux' ? 'C.UTF-8' : 'en_US.UTF-8';
+}
+
 export interface TaskChunk {
   type: 'stdout' | 'stderr';
   text: string;
@@ -89,8 +116,14 @@ export interface TaskRecord {
   totalBytes: number;
   chunks: TaskChunk[];
   child: ChildProcess | null;
+  pid: number | null;
   timeoutTimer: NodeJS.Timeout | null;
   killTimer: NodeJS.Timeout | null;
+}
+
+export interface TaskManagerOptions {
+  storageDir?: string;
+  persist?: boolean;
 }
 
 export class TaskManager {
@@ -98,19 +131,181 @@ export class TaskManager {
   public MAX_TASKS: number;
   public MAX_BUFFER_SIZE: number;
   public TASK_TTL_MS: number;
+  public storageDir: string | null = null;
+  private reconcileTimers: Map<string, NodeJS.Timeout> = new Map();
 
-  constructor() {
+  constructor(options?: TaskManagerOptions) {
     this.tasks = new Map();
     this.MAX_TASKS = 100;
     this.MAX_BUFFER_SIZE = 5 * 1024 * 1024;
     this.TASK_TTL_MS = 24 * 60 * 60 * 1000;
+
+    if (options?.storageDir || options?.persist) {
+      this.storageDir =
+        options.storageDir ||
+        path.join(os.homedir() || process.env.HOME || process.cwd(), '.gt', 'tasks');
+      const logDir = path.join(this.storageDir, 'logs');
+      if (!fs.existsSync(logDir)) {
+        try {
+          fs.mkdirSync(logDir, { recursive: true });
+        } catch {}
+      }
+      this.loadFromDisk();
+    } else {
+      this.storageDir = null;
+    }
+  }
+
+  private getTasksJsonPath(): string | null {
+    if (!this.storageDir) return null;
+    return path.join(this.storageDir, 'tasks.json');
+  }
+
+  private getLogFilePath(taskId: string): string | null {
+    if (!this.storageDir) return null;
+    return path.join(this.storageDir, 'logs', `${taskId}.log`);
+  }
+
+  private saveToDisk(): void {
+    if (!this.storageDir) return;
+    try {
+      const jsonPath = this.getTasksJsonPath();
+      if (!jsonPath) return;
+      const data = Array.from(this.tasks.values()).map((t) => ({
+        taskId: t.taskId,
+        command: t.command,
+        cwd: t.cwd,
+        status: t.status,
+        exitCode: t.exitCode,
+        startTime: t.startTime,
+        endTime: t.endTime,
+        pid: t.pid,
+        totalBytes: t.totalBytes,
+      }));
+      const tmpPath = `${jsonPath}.tmp`;
+      fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
+      fs.renameSync(tmpPath, jsonPath);
+    } catch {}
+  }
+
+  private appendToLogFile(taskId: string, text: string): void {
+    if (!this.storageDir || !text) return;
+    try {
+      const logPath = this.getLogFilePath(taskId);
+      if (!logPath) return;
+      fs.appendFileSync(logPath, text, 'utf-8');
+
+      // If log file grows significantly beyond MAX_BUFFER_SIZE, trim to MAX_BUFFER_SIZE
+      const stat = fs.statSync(logPath);
+      if (stat.size > this.MAX_BUFFER_SIZE * 1.5) {
+        const fileBuf = fs.readFileSync(logPath);
+        if (fileBuf.length > this.MAX_BUFFER_SIZE) {
+          const trimmedBuf = fileBuf.subarray(fileBuf.length - this.MAX_BUFFER_SIZE);
+          let idx = 0;
+          while (idx < trimmedBuf.length && (trimmedBuf[idx] & 0b11000000) === 0b10000000) {
+            idx++;
+          }
+          fs.writeFileSync(logPath, trimmedBuf.subarray(idx));
+        }
+      }
+    } catch {}
+  }
+
+  private loadFromDisk(): void {
+    if (!this.storageDir) return;
+    const jsonPath = this.getTasksJsonPath();
+    if (!jsonPath || !fs.existsSync(jsonPath)) return;
+
+    let records: any[] = [];
+    try {
+      const raw = fs.readFileSync(jsonPath, 'utf-8');
+      records = JSON.parse(raw);
+    } catch {
+      return;
+    }
+
+    if (!Array.isArray(records)) return;
+
+    let hasChanges = false;
+    for (const item of records) {
+      if (!item || !item.taskId) continue;
+      const record: TaskRecord = {
+        taskId: item.taskId,
+        command: item.command || '',
+        cwd: item.cwd || '',
+        status: item.status || 'completed',
+        exitCode: item.exitCode ?? null,
+        startTime: item.startTime || Date.now(),
+        endTime: item.endTime ?? null,
+        stdout: '',
+        stderr: '',
+        output: '',
+        totalBytes: item.totalBytes || 0,
+        chunks: [],
+        child: null,
+        pid: item.pid ?? null,
+        timeoutTimer: null,
+        killTimer: null,
+      };
+
+      if (record.status === 'running') {
+        if (isPidAlive(record.pid)) {
+          this.watchRunningProcess(record);
+        } else {
+          record.status = 'completed';
+          if (record.exitCode === null || record.exitCode === undefined) {
+            record.exitCode = 0;
+          }
+          if (!record.endTime) {
+            record.endTime = Date.now();
+          }
+          hasChanges = true;
+        }
+      }
+
+      this.tasks.set(record.taskId, record);
+    }
+
+    if (hasChanges) {
+      this.saveToDisk();
+    }
+  }
+
+  private watchRunningProcess(record: TaskRecord): void {
+    if (!record.pid) return;
+    const pid = record.pid;
+    const taskId = record.taskId;
+    const timer = setInterval(() => {
+      const alive = isPidAlive(pid);
+      const logPath = this.getLogFilePath(taskId);
+      if (logPath && fs.existsSync(logPath)) {
+        try {
+          const stat = fs.statSync(logPath);
+          record.totalBytes = stat.size;
+        } catch {}
+      }
+      if (!alive) {
+        clearInterval(timer);
+        this.reconcileTimers.delete(taskId);
+        record.status = 'completed';
+        if (record.exitCode === null || record.exitCode === undefined) {
+          record.exitCode = 0;
+        }
+        record.endTime = Date.now();
+        this.saveToDisk();
+      }
+    }, 1500);
+    if (timer.unref) timer.unref();
+    this.reconcileTimers.set(taskId, timer);
   }
 
   pruneOldTasks(): void {
     const now = Date.now();
+    const removedTaskIds: string[] = [];
     for (const [taskId, task] of this.tasks.entries()) {
-      if (task.status !== 'running' && (now - task.startTime > this.TASK_TTL_MS)) {
+      if (task.status !== 'running' && now - task.startTime > this.TASK_TTL_MS) {
         this.tasks.delete(taskId);
+        removedTaskIds.push(taskId);
       }
     }
     if (this.tasks.size > this.MAX_TASKS) {
@@ -121,8 +316,21 @@ export class TaskManager {
         const item = sorted.shift();
         if (item) {
           this.tasks.delete(item[0]);
+          removedTaskIds.push(item[0]);
         }
       }
+    }
+
+    if (removedTaskIds.length > 0 && this.storageDir) {
+      for (const taskId of removedTaskIds) {
+        const logPath = this.getLogFilePath(taskId);
+        if (logPath && fs.existsSync(logPath)) {
+          try {
+            fs.rmSync(logPath, { force: true });
+          } catch {}
+        }
+      }
+      this.saveToDisk();
     }
   }
 
@@ -177,22 +385,26 @@ export class TaskManager {
     }
 
     const isWindows = os.platform() === 'win32';
-    let shell = (env && env.SHELL && fs.existsSync(env.SHELL)) ? env.SHELL : getDefaultShell();
+    let shell = env && env.SHELL && fs.existsSync(env.SHELL) ? env.SHELL : getDefaultShell();
     if (!isWindows && !fs.existsSync(shell)) {
       if (fs.existsSync('/bin/bash')) shell = '/bin/bash';
       else if (fs.existsSync('/usr/bin/bash')) shell = '/usr/bin/bash';
       else if (fs.existsSync('/bin/sh')) shell = '/bin/sh';
     }
     const shellArgs = isWindows
-      ? (shell.toLowerCase().includes('powershell') ? ['-Command', command] : ['/c', command])
+      ? shell.toLowerCase().includes('powershell')
+        ? ['-Command', command]
+        : ['/c', command]
       : ['-c', command];
 
+    const utf8Locale = resolveUtf8Locale(env);
     const taskEnv: Record<string, string> = {
       ...(process.env as Record<string, string>),
       ...env,
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
-      LANG: process.env.LANG || 'en_US.UTF-8',
+      LANG: utf8Locale,
+      LC_CTYPE: utf8Locale,
     };
     delete taskEnv.TMUX;
     delete taskEnv.TMUX_PANE;
@@ -230,6 +442,7 @@ export class TaskManager {
       totalBytes: 0,
       chunks: [],
       child,
+      pid: child ? child.pid || null : null,
       timeoutTimer: null,
       killTimer: null,
     };
@@ -261,8 +474,15 @@ export class TaskManager {
         taskRecord.output = taskRecord.output.slice(-this.MAX_BUFFER_SIZE);
       }
 
-      while (taskRecord.chunks.length > 1 && taskRecord.totalBytes - taskRecord.chunks[0].startOffset > this.MAX_BUFFER_SIZE) {
+      while (
+        taskRecord.chunks.length > 1 &&
+        taskRecord.totalBytes - taskRecord.chunks[0].startOffset > this.MAX_BUFFER_SIZE
+      ) {
         taskRecord.chunks.shift();
+      }
+
+      if (this.storageDir) {
+        this.appendToLogFile(taskRecord.taskId, text);
       }
     };
 
@@ -292,6 +512,7 @@ export class TaskManager {
       taskRecord.status = 'failed';
       taskRecord.endTime = Date.now();
       if (taskRecord.timeoutTimer) clearTimeout(taskRecord.timeoutTimer);
+      this.saveToDisk();
     });
 
     child.on('close', (code, signal) => {
@@ -310,6 +531,7 @@ export class TaskManager {
           taskRecord.status = code === 0 ? 'completed' : 'failed';
         }
       }
+      this.saveToDisk();
     });
 
     if (timeoutMs > 0) {
@@ -326,12 +548,15 @@ export class TaskManager {
             }
           }, 1000);
           if ((taskRecord.killTimer as any).unref) (taskRecord.killTimer as any).unref();
+          this.saveToDisk();
         }
       }, timeoutMs);
       if ((taskRecord.timeoutTimer as any).unref) (taskRecord.timeoutTimer as any).unref();
     }
 
     this.tasks.set(taskId, taskRecord);
+    this.saveToDisk();
+
     return {
       success: true,
       taskId,
@@ -349,17 +574,14 @@ export class TaskManager {
     }
 
     const numOffset = Math.max(0, parseInt(String(offset), 10) || 0);
-    const totalBytes = task.totalBytes !== undefined ? task.totalBytes : Buffer.byteLength(task.output, 'utf-8');
+    let totalBytes =
+      task.totalBytes !== undefined ? task.totalBytes : Buffer.byteLength(task.output, 'utf-8');
 
     let incStdout = '';
     let incStderr = '';
     let incOutput = '';
 
-    if (numOffset === 0 && (!task.chunks || task.chunks.length === 0)) {
-      incStdout = task.stdout;
-      incStderr = task.stderr;
-      incOutput = task.output;
-    } else if (task.chunks && task.chunks.length > 0) {
+    if (task.chunks && task.chunks.length > 0) {
       for (const chunk of task.chunks) {
         if (chunk.endOffset <= numOffset) {
           continue;
@@ -368,7 +590,7 @@ export class TaskManager {
         if (chunk.startOffset < numOffset) {
           const byteSliceStart = numOffset - chunk.startOffset;
           const buf = Buffer.from(chunk.text, 'utf-8');
-          chunkText = buf.slice(byteSliceStart).toString('utf-8');
+          chunkText = sliceBufferUtf8Safe(buf, byteSliceStart);
         }
         if (chunk.type === 'stdout') {
           incStdout += chunkText;
@@ -376,6 +598,26 @@ export class TaskManager {
           incStderr += chunkText;
         }
         incOutput += chunkText;
+      }
+    } else {
+      // Chunks empty - check log file on disk if persistence is enabled
+      const logPath = this.getLogFilePath(taskId);
+      if (logPath && fs.existsSync(logPath)) {
+        try {
+          const fileBuf = fs.readFileSync(logPath);
+          totalBytes = fileBuf.length;
+          task.totalBytes = totalBytes;
+          incOutput = sliceBufferUtf8Safe(fileBuf, numOffset);
+          incStdout = incOutput;
+        } catch {}
+      } else if (numOffset === 0) {
+        incStdout = task.stdout;
+        incStderr = task.stderr;
+        incOutput = task.output;
+      } else if (task.output) {
+        const buf = Buffer.from(task.output, 'utf-8');
+        incOutput = sliceBufferUtf8Safe(buf, numOffset);
+        incStdout = incOutput;
       }
     }
 
@@ -410,6 +652,7 @@ export class TaskManager {
     }
 
     task.status = 'killed';
+    this.saveToDisk();
     killProcessTree(task.child, signal || 'SIGTERM');
 
     if (task.killTimer) clearTimeout(task.killTimer);
@@ -441,4 +684,4 @@ export class TaskManager {
   }
 }
 
-export const taskManager = new TaskManager();
+export const taskManager = new TaskManager({ persist: true });
