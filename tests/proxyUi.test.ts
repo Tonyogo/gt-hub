@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-describe('Frontend TerminalProxyView & UnifiedTerminalView Integration (Phase 2)', () => {
+describe('Frontend TerminalProxyView & UnifiedTerminalView Integration', () => {
   const unifiedPath = path.resolve(__dirname, '../frontend/src/components/UnifiedTerminalView.tsx');
   const proxyViewPath = path.resolve(__dirname, '../frontend/src/components/terminal/TerminalProxyView.tsx');
   const enLocalePath = path.resolve(__dirname, '../frontend/src/i18n/locales/en.ts');
@@ -31,7 +31,7 @@ describe('Frontend TerminalProxyView & UnifiedTerminalView Integration (Phase 2)
     expect(content).toContain("subTab === 'proxy' ? 'flex' : 'hidden'");
   });
 
-  it('verifies TerminalProxyView.tsx exists and implements port and request modes', () => {
+  it('verifies TerminalProxyView.tsx implements unified workbench without iframe preview', () => {
     expect(fs.existsSync(proxyViewPath)).toBe(true);
     const content = fs.readFileSync(proxyViewPath, 'utf-8');
 
@@ -39,30 +39,19 @@ describe('Frontend TerminalProxyView & UnifiedTerminalView Integration (Phase 2)
     expect(content).toContain('export interface TerminalProxyHandle');
     expect(content).toContain('export const TerminalProxyView');
 
-    // Port discovery and proxy routes
+    // Port discovery and CLI copy (no iframe preview)
     expect(content).toContain('/api/proxy/');
     expect(content).toContain('/ports');
-    expect(content).toContain('/api/auth/ticket');
     expect(content).toContain('x-gt-target-url');
+    expect(content).not.toContain('data-testid="proxy-preview-iframe"');
+    expect(content).not.toContain('data-testid="proxy-load-preview-btn"');
+    expect(content).not.toContain('data-testid="proxy-open-tab-btn"');
 
-    // Interactive buttons & elements testids
-    expect(content).toContain('data-testid="proxy-load-preview-btn"');
-    expect(content).toContain('data-testid="proxy-open-tab-btn"');
+    // Interactive CLI & Debugger & Speedtest testids
     expect(content).toContain('data-testid="proxy-copy-forward-btn"');
+    expect(content).toContain('data-testid="proxy-copy-proxy-btn"');
     expect(content).toContain('data-testid="proxy-request-url-input"');
     expect(content).toContain('data-testid="proxy-send-request-btn"');
-    expect(content).toContain('data-testid="proxy-preview-iframe"');
-
-    // Query parameters _gt_host and _gt_proto
-    expect(content).toContain('_gt_host');
-    expect(content).toContain('_gt_proto');
-
-    // Empty state fallback
-    expect(content).toContain('TerminalEmptyState');
-
-    // Speedtest mode tab & controls
-    expect(content).toMatch(/['"]port['"]\s*\|\s*['"]request['"]\s*\|\s*['"]speedtest['"]/);
-    expect(content).toContain('data-testid="proxy-mode-speedtest"');
     expect(content).toContain('data-testid="speedtest-size-select"');
     expect(content).toContain('data-testid="speedtest-start-btn"');
     expect(content).toContain('/speedtest/ping');
@@ -71,6 +60,14 @@ describe('Frontend TerminalProxyView & UnifiedTerminalView Integration (Phase 2)
     expect(content).toContain('/speedtest/probe');
     expect(content).toContain('data-testid="speedtest-custom-probe-input"');
     expect(content).toContain('data-testid="speedtest-probe-btn"');
+
+    // Responsive mobile section switcher & desktop dual-column grid
+    expect(content).toContain('data-testid="mobile-tab-speedtest"');
+    expect(content).toContain('data-testid="mobile-tab-request"');
+    expect(content).toContain('lg:grid-cols-12');
+
+    // Empty state fallback
+    expect(content).toContain('TerminalEmptyState');
   });
 
   it('verifies i18n locales have proxy translations', () => {
@@ -79,9 +76,6 @@ describe('Frontend TerminalProxyView & UnifiedTerminalView Integration (Phase 2)
 
     expect(enContent).toContain('proxy:');
     expect(zhContent).toContain('proxy:');
-
-    expect(enContent).toContain('portMode:');
-    expect(zhContent).toContain('portMode:');
 
     expect(enContent).toContain('requestMode:');
     expect(zhContent).toContain('requestMode:');
