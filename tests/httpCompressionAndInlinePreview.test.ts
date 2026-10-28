@@ -124,7 +124,26 @@ describe('Origin HTTP Compression, Reusable Preview Tickets & Inline PDF Stream'
     expect(res.text).toBe(largeContent);
   });
 
-  test('TerminalFileManagerView uses direct streaming URL with inline=1 and reusable ticket for PDF preview', () => {
+  test('GET /api/terminal/files/download over Cloudflare Tunnel (cf-ray) automatically gzip-compresses arbitrary uncompressed file extensions (e.g. .sqlite, .bak, extensionless)', async () => {
+    const res = await request(app)
+      .get('/api/terminal/files/download')
+      .set('x-admin-key', secretKey)
+      .set('Accept-Encoding', 'gzip')
+      .set('cf-ray', '89abcdef01234567-LAX')
+      .query({ hostId, path: '/var/data/app.sqlite' })
+      .buffer(true)
+      .parse((res, callback) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+        res.on('end', () => callback(null, Buffer.concat(chunks)));
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-encoding']).toBe('gzip');
+    expect(res.body.toString('utf-8')).toBe(largeContent);
+  });
+
+  test('TerminalFileManagerView uses direct streaming URL with inline=1 and reusable ticket for both PDF and image previews', () => {
     const fmPath = path.resolve(
       __dirname,
       '../frontend/src/components/terminal/TerminalFileManagerView.tsx'
@@ -132,5 +151,6 @@ describe('Origin HTTP Compression, Reusable Preview Tickets & Inline PDF Stream'
     const code = fs.readFileSync(fmPath, 'utf-8');
     expect(code).toContain("inline: '1'");
     expect(code).toContain('requestAuthTicket(adminKey, 5000, true)');
+    expect(code).not.toContain("throw new Error('Failed to load image')");
   });
 });

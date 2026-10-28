@@ -5,16 +5,10 @@ import { PassThrough } from 'stream';
 import terminalFileService from '../services/terminalFileService';
 import logger from '../../utils/logger';
 import { parseRangeHeader, applyRangeHeaders, applyUnsatisfiableHeaders } from '../utils/rangeParser';
-
-const COMPRESSIBLE_EXTS = new Set([
-  'txt', 'log', 'md', 'markdown', 'json', 'js', 'ts', 'tsx', 'jsx',
-  'css', 'html', 'xml', 'svg', 'csv', 'sql', 'yml', 'yaml', 'sh',
-  'py', 'go', 'rs', 'c', 'cpp', 'java', 'pdf', 'tar'
-]);
+import { isAlreadyCompressedExtension } from '../../agent/handlers/fileRpcHandler';
 
 function isCompressibleFile(filename: string): boolean {
-  const ext = path.extname(filename).toLowerCase().replace(/^\./, '');
-  return COMPRESSIBLE_EXTS.has(ext);
+  return !isAlreadyCompressedExtension(filename);
 }
 
 async function parseAndUploadMultipart(

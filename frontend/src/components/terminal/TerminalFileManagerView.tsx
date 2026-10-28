@@ -452,14 +452,26 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
   const handleOpenFile = useCallback(async (file: TerminalFileItem) => {
     const ext = file.extension.toLowerCase();
     if (IMAGE_EXTENSIONS.has(ext)) {
-      // Fetch image as blob for preview
+      if (imagePreviewTarget?.blobUrl && imagePreviewTarget.blobUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(imagePreviewTarget.blobUrl);
+      }
       try {
-        const url = `/api/terminal/files/download?hostId=${encodeURIComponent(activeHostId)}&path=${encodeURIComponent(file.path)}`;
-        const res = await apiFetch(url, { headers: { 'x-admin-key': adminKey } });
-        if (!res.ok) throw new Error('Failed to load image');
-        const blob = await res.blob();
-        const blobUrl = URL.createObjectURL(blob);
-        setImagePreviewTarget({ file, blobUrl });
+        const ticket = adminKey ? await requestAuthTicket(adminKey, 5000, true) : null;
+        const params = new URLSearchParams({
+          hostId: activeHostId,
+          path: file.path,
+          inline: '1',
+        });
+        if (ext === 'svg' || ext === 'bmp' || ext === 'ico') {
+          params.set('compress', '1');
+        }
+        if (ticket) {
+          params.set('ticket', ticket);
+        } else if (adminKey) {
+          params.set('x-admin-key', adminKey);
+        }
+        const streamUrl = `/api/terminal/files/download?${params.toString()}`;
+        setImagePreviewTarget({ file, blobUrl: streamUrl });
       } catch (err: any) {
         showToast(err.message, 'error');
       }
@@ -692,10 +704,10 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
   // Cleanup preview blob URLs
   useEffect(() => {
     return () => {
-      if (imagePreviewTarget?.blobUrl) {
+      if (imagePreviewTarget?.blobUrl && imagePreviewTarget.blobUrl.startsWith('blob:')) {
         URL.revokeObjectURL(imagePreviewTarget.blobUrl);
       }
-      if (pdfPreviewTarget?.blobUrl) {
+      if (pdfPreviewTarget?.blobUrl && pdfPreviewTarget.blobUrl.startsWith('blob:')) {
         URL.revokeObjectURL(pdfPreviewTarget.blobUrl);
       }
     };
