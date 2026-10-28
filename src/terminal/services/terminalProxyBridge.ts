@@ -14,6 +14,15 @@ import { ListeningPortInfo } from '../../agent/handlers/proxyHandler';
 
 export { ListeningPortInfo };
 
+export function stripProxySessionCookie(cookieHeader: string | string[] | undefined): string | undefined {
+  if (!cookieHeader) return undefined;
+  const headerStr = Array.isArray(cookieHeader) ? cookieHeader.join('; ') : cookieHeader;
+  const parts = headerStr.split(';').map((p) => p.trim()).filter(Boolean);
+  const retained = parts.filter((p) => !p.startsWith('gt_proxy_session='));
+  if (retained.length === 0) return undefined;
+  return retained.join('; ');
+}
+
 const MAX_CHUNK_BYTES = 32 * 1024;
 
 const HOP_BY_HOP_HEADERS = new Set([
@@ -111,6 +120,13 @@ export class TerminalProxyBridge {
       const lowerKey = key.toLowerCase();
       if (HOP_BY_HOP_HEADERS.has(lowerKey)) continue;
       if (lowerKey === 'x-admin-key' || lowerKey.startsWith('x-gt-')) continue;
+      if (lowerKey === 'cookie') {
+        const sanitized = stripProxySessionCookie(value);
+        if (sanitized) {
+          outboundHeaders['cookie'] = sanitized;
+        }
+        continue;
+      }
       if (value !== undefined) {
         outboundHeaders[lowerKey] = value;
       }
@@ -243,6 +259,15 @@ export class TerminalProxyBridge {
               const lower = k.toLowerCase();
               if (HOP_BY_HOP_HEADERS.has(lower)) continue;
               if (v !== undefined) {
+                if (lower === 'set-cookie') {
+                  const existing = res.getHeader('set-cookie');
+                  if (existing) {
+                    const existingArr = Array.isArray(existing) ? existing : [String(existing)];
+                    const newArr = Array.isArray(v) ? v : [String(v)];
+                    res.setHeader('Set-Cookie', [...existingArr, ...newArr]);
+                    continue;
+                  }
+                }
                 res.setHeader(k, v as any);
               }
             }
