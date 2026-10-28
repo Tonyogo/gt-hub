@@ -1,6 +1,8 @@
 import http from 'http';
 import https from 'https';
 import net from 'net';
+import fs from 'fs';
+import { exec } from 'child_process';
 import { URL } from 'url';
 import {
   BIN_MSG_TYPE,
@@ -12,6 +14,247 @@ const MAX_CHUNK_BYTES = 32 * 1024;
 const DEFAULT_MAX_CONCURRENT = 128;
 const HIGH_WATERMARK_BUFFERED_AMOUNT = 4 * 1024 * 1024;
 const LOW_WATERMARK_BUFFERED_AMOUNT = 1 * 1024 * 1024;
+
+export interface ListeningPortInfo {
+  port: number;
+  address: string;
+  pid?: number;
+  process?: string;
+}
+
+export function parseProcNetTcp(content: string, isIpv6: boolean = false): ListeningPortInfo[] {
+  const lines = content.split('\n');
+  const results: ListeningPortInfo[] = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const parts = line.split(/\s+/);
+    if (parts.length < 4) continue;
+
+    // Col 1 is local_address: <hex_ip>:<hex_port>
+    // Col 3 is st: connection state (0A = TCP_LISTEN)
+    const localAddr = parts[1];
+    const state = parts[3];
+    if (state.toUpperCase() !== '0A') continue;
+
+    const lastColon = localAddr.lastIndexOf(':');
+    if (lastColon === -1) continue;
+
+    const hexIp = localAddr.slice(0, lastColon);
+    const hexPort = localAddr.slice(lastColon + 1);
+    const port = parseInt(hexPort, 16);
+    if (isNaN(port) || port < 1 || port > 65535) continue;
+
+    let address = '0.0.0.0';
+    if (isIpv6 || hexIp.length === 32) {
+      if (/^0+$/.test(hexIp)) {
+        address = '::';
+      } else {
+        try {
+          const buf = Buffer.alloc(16);
+          for (let j = 0; j < 4; j++) {
+            const wordHex = hexIp.slice(j * 8, (j + 1) * 8);
+            buf.writeUInt32LE(parseInt(wordHex, 16) || 0, j * 4);
+          }
+          let isIpv4Mapped = true;
+          for (let j = 0; j < 10; j++) {
+            if (buf[j] !== 0) { isIpv4Mapped = false; break; }
+          }
+          if (isIpv4Mapped && buf[10] === 0xff && buf[11] === 0xff) {
+            address = `${buf[12]}.${buf[13]}.${buf[14]}.${buf[15]}`;
+          } else {
+            let isLoopback = true;
+            for (let j = 0; j < 15; j++) {
+              if (buf[j] !== 0) { isLoopback = false; break; }
+            }
+            if (isLoopback && buf[15] === 1) {
+              address = '::1';
+            } else {
+              const groups: string[] = [];
+              for (let j = 0; j < 16; j += 2) {
+                groups.push(buf.readUInt16BE(j).toString(16));
+              }
+              address = groups.join(':');
+            }
+          }
+        } catch {
+          address = '::';
+        }
+      }
+    } else {
+      if (hexIp.length === 8) {
+        const octet1 = parseInt(hexIp.slice(6, 8), 16);
+        const octet2 = parseInt(hexIp.slice(4, 6), 16);
+        const octet3 = parseInt(hexIp.slice(2, 4), 16);
+        const octet4 = parseInt(hexIp.slice(0, 2), 16);
+        address = `${octet1}.${octet2}.${octet3}.${octet4}`;
+      }
+    }
+
+    results.push({ port, address });
+  }
+
+  return results;
+}
+
+function deduplicateAndSortPorts(ports: ListeningPortInfo[]): ListeningPortInfo[] {
+  const map = new Map<number, ListeningPortInfo>();
+  for (const item of ports) {
+    if (isNaN(item.port) || item.port < 1 || item.port > 65535) continue;
+    const existing = map.get(item.port);
+    if (!existing) {
+      map.set(item.port, { ...item });
+      continue;
+    }
+    const existingScore =
+      (existing.process ? 10 : 0) +
+      (existing.pid ? 5 : 0) +
+      (!existing.address.includes(':') ? 2 : 0) +
+      (existing.address === '127.0.0.1' ? 1 : 0);
+    const itemScore =
+      (item.process ? 10 : 0) +
+      (item.pid ? 5 : 0) +
+      (!item.address.includes(':') ? 2 : 0) +
+      (item.address === '127.0.0.1' ? 1 : 0);
+
+    if (itemScore > existingScore) {
+      map.set(item.port, {
+        port: item.port,
+        address: item.address,
+        pid: item.pid ?? existing.pid,
+        process: item.process ?? existing.process,
+      });
+    } else {
+      if (!existing.process && item.process) existing.process = item.process;
+      if (!existing.pid && item.pid) existing.pid = item.pid;
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => a.port - b.port);
+}
+
+export async function scanListeningTcpPorts(): Promise<ListeningPortInfo[]> {
+  const discovered: ListeningPortInfo[] = [];
+
+  const runCmd = (cmd: string): Promise<string> => {
+    return new Promise((resolve) => {
+      exec(cmd, { timeout: 3000 }, (error, stdout) => {
+        if (error) {
+          resolve('');
+        } else {
+          resolve(stdout || '');
+        }
+      });
+    });
+  };
+
+  try {
+    if (process.platform === 'linux') {
+      const ssOutput = await runCmd('ss -tlnp');
+      if (ssOutput) {
+        const lines = ssOutput.split('\n');
+        for (const line of lines) {
+          if (!line.includes('LISTEN')) continue;
+          const parts = line.trim().split(/\s+/);
+          if (parts.length >= 4) {
+            const localPart = parts[3];
+            const lastColon = localPart.lastIndexOf(':');
+            if (lastColon !== -1) {
+              let addr = localPart.slice(0, lastColon);
+              if (addr.startsWith('[') && addr.endsWith(']')) {
+                addr = addr.slice(1, -1);
+              }
+              if (addr === '*') addr = '0.0.0.0';
+              const port = parseInt(localPart.slice(lastColon + 1), 10);
+              if (!isNaN(port) && port >= 1 && port <= 65535) {
+                let procName: string | undefined;
+                let pidNum: number | undefined;
+                const procMatch = line.match(/users:\(\("([^"]+)",pid=(\d+)/);
+                if (procMatch) {
+                  procName = procMatch[1];
+                  pidNum = parseInt(procMatch[2], 10);
+                }
+                discovered.push({
+                  port,
+                  address: addr,
+                  pid: pidNum,
+                  process: procName,
+                });
+              }
+            }
+          }
+        }
+      }
+
+      try {
+        const tcpContent = await fs.promises.readFile('/proc/net/tcp', 'utf-8');
+        discovered.push(...parseProcNetTcp(tcpContent, false));
+      } catch {}
+
+      try {
+        const tcp6Content = await fs.promises.readFile('/proc/net/tcp6', 'utf-8');
+        discovered.push(...parseProcNetTcp(tcp6Content, true));
+      } catch {}
+    } else if (process.platform === 'darwin') {
+      const lsofOutput = await runCmd('lsof -iTCP -sTCP:LISTEN -P -n');
+      if (lsofOutput) {
+        const lines = lsofOutput.split('\n');
+        for (let i = 1; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line || !line.includes('(LISTEN)')) continue;
+          const parts = line.split(/\s+/);
+          if (parts.length >= 9) {
+            const procName = parts[0];
+            const pidNum = parseInt(parts[1], 10);
+            const match = line.match(/TCP\s+([^:]+|\[[^\]]+\]):(\d+)\s+\(LISTEN\)/);
+            if (match) {
+              let addr = match[1];
+              if (addr.startsWith('[') && addr.endsWith(']')) {
+                addr = addr.slice(1, -1);
+              }
+              if (addr === '*') addr = '0.0.0.0';
+              const port = parseInt(match[2], 10);
+              if (!isNaN(port) && port >= 1 && port <= 65535) {
+                discovered.push({
+                  port,
+                  address: addr,
+                  pid: isNaN(pidNum) ? undefined : pidNum,
+                  process: procName,
+                });
+              }
+            }
+          }
+        }
+      }
+    } else if (process.platform === 'win32') {
+      const netstatOutput = await runCmd('netstat -ano -p tcp');
+      if (netstatOutput) {
+        const lines = netstatOutput.split('\n');
+        for (const line of lines) {
+          const match = line.match(/^\s*TCP\s+([^\s:]+|\[[^\]]+\]):(\d+)\s+\S+\s+LISTENING\s+(\d+)/i);
+          if (match) {
+            let addr = match[1];
+            if (addr.startsWith('[') && addr.endsWith(']')) {
+              addr = addr.slice(1, -1);
+            }
+            if (addr === '*') addr = '0.0.0.0';
+            const port = parseInt(match[2], 10);
+            const pidNum = parseInt(match[3], 10);
+            if (!isNaN(port) && port >= 1 && port <= 65535) {
+              discovered.push({
+                port,
+                address: addr,
+                pid: isNaN(pidNum) ? undefined : pidNum,
+              });
+            }
+          }
+        }
+      }
+    }
+  } catch {}
+
+  return deduplicateAndSortPorts(discovered);
+}
 
 export interface ProxyHandlerOptions {
   send: (data: string | Buffer) => void;
@@ -95,6 +338,10 @@ export class ProxyHandler {
       }
       case 'proxy_tcp_close': {
         this.handleTcpClose(msg);
+        return true;
+      }
+      case 'proxy_list_ports': {
+        this.handleListPorts(msg);
         return true;
       }
       default:
@@ -441,6 +688,41 @@ export class ProxyHandler {
       } catch {}
       this.activeTcpSockets.delete(streamId);
     }
+  }
+
+  private handleListPorts(msg: any): void {
+    const reqId = msg?.reqId;
+    if (!reqId) return;
+
+    if (this.options.allowProxy === false) {
+      this.sendControl({
+        type: 'proxy_list_ports_res',
+        reqId,
+        success: false,
+        error: 'Proxy disabled on this agent',
+        ports: [],
+      });
+      return;
+    }
+
+    scanListeningTcpPorts()
+      .then((ports) => {
+        this.sendControl({
+          type: 'proxy_list_ports_res',
+          reqId,
+          success: true,
+          ports,
+        });
+      })
+      .catch((err) => {
+        this.sendControl({
+          type: 'proxy_list_ports_res',
+          reqId,
+          success: false,
+          error: err?.message || 'Failed to scan ports',
+          ports: [],
+        });
+      });
   }
 
   public destroyAll(): void {

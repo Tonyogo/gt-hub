@@ -10,6 +10,9 @@ import {
   encodeBinaryPacket,
   decodeBinaryPacket,
 } from '../../shared/protocol/binaryProtocol';
+import { ListeningPortInfo } from '../../agent/handlers/proxyHandler';
+
+export { ListeningPortInfo };
 
 const MAX_CHUNK_BYTES = 32 * 1024;
 
@@ -52,6 +55,15 @@ export class TerminalProxyBridge {
   private activeTcpStreams = new Map<string, ActiveTcpStreamState>();
   private hostToTcpStreams = new Map<string, Set<string>>();
   private cliToTcpStreams = new Map<any, Set<string>>();
+
+  private pendingPortListRpcs = new Map<
+    string,
+    {
+      hostId: string;
+      timer: NodeJS.Timeout;
+      resolve: (res: { success: boolean; status?: number; ports?: ListeningPortInfo[]; error?: string }) => void;
+    }
+  >();
 
   private sendChunked(ws: any, msgType: number, id: string, payload: Buffer): void {
     if (payload.length <= MAX_CHUNK_BYTES) {
@@ -295,6 +307,29 @@ export class TerminalProxyBridge {
       return true;
     }
 
+    if (control.type === 'proxy_list_ports_res') {
+      const pending = this.pendingPortListRpcs.get(control.reqId);
+      if (pending) {
+        clearTimeout(pending.timer);
+        this.pendingPortListRpcs.delete(control.reqId);
+        if (control.success !== false) {
+          pending.resolve({
+            success: true,
+            status: 200,
+            ports: control.ports || [],
+          });
+        } else {
+          pending.resolve({
+            success: false,
+            status: control.error && /disabled/i.test(control.error) ? 403 : 500,
+            ports: [],
+            error: control.error || 'Failed to list ports',
+          });
+        }
+      }
+      return true;
+    }
+
     return false;
   }
 
@@ -459,6 +494,74 @@ export class TerminalProxyBridge {
       }
       this.hostToTcpStreams.delete(hostId);
     }
+
+    for (const [reqId, pending] of Array.from(this.pendingPortListRpcs.entries())) {
+      if (pending.hostId === hostId) {
+        clearTimeout(pending.timer);
+        this.pendingPortListRpcs.delete(reqId);
+        pending.resolve({
+          success: false,
+          status: 502,
+          error: 'Agent disconnected',
+        });
+      }
+    }
+  }
+
+  public listListeningPorts(
+    hostId: string,
+    timeoutMs: number = 10000
+  ): Promise<{ success: boolean; status?: number; ports?: ListeningPortInfo[]; error?: string }> {
+    const canonicalHostId = terminalHostManager.resolveCanonicalHostId(hostId);
+    const host = canonicalHostId ? terminalHostManager.getHost(canonicalHostId) : null;
+    const session = canonicalHostId ? terminalHostManager.getSession(canonicalHostId) : null;
+    const agentWs = session?.getAgentWs();
+
+    if (!canonicalHostId || !host) {
+      return Promise.resolve({
+        success: false,
+        status: 404,
+        error: `Host '${hostId}' not found`,
+      });
+    }
+
+    if (host.status !== 'online' || !agentWs || agentWs.readyState !== 1) {
+      return Promise.resolve({
+        success: false,
+        status: 502,
+        error: `Agent '${hostId}' is offline`,
+      });
+    }
+
+    return new Promise((resolve) => {
+      const reqId = `ports-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const timer = setTimeout(() => {
+        this.pendingPortListRpcs.delete(reqId);
+        resolve({
+          success: false,
+          status: 504,
+          error: 'Timeout waiting for port scan from agent',
+        });
+      }, timeoutMs);
+
+      this.pendingPortListRpcs.set(reqId, {
+        hostId: canonicalHostId,
+        timer,
+        resolve,
+      });
+
+      try {
+        agentWs.send(`JSON:${JSON.stringify({ type: 'proxy_list_ports', reqId })}`);
+      } catch (err: any) {
+        clearTimeout(timer);
+        this.pendingPortListRpcs.delete(reqId);
+        resolve({
+          success: false,
+          status: 502,
+          error: `Failed to send port list request: ${err.message}`,
+        });
+      }
+    });
   }
 }
 
