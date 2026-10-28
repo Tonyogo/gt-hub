@@ -41,6 +41,15 @@ import {
 import { runAgent } from '../agent/daemon';
 import { getVersionInfo, formatShortVersion } from '../shared/version';
 import { handleVersionCommand } from './commands/version';
+import {
+  parseForwardMapping,
+  resolveProxyWebSocketUrl,
+  CliTcpTunnelClient,
+  startPortForwardListeners,
+  startLocalHttpProxyServer,
+  handleForwardCommand,
+  handleProxyCommand,
+} from './commands/proxy';
 
 const versionInfo = getVersionInfo();
 export const VERSION = versionInfo.version;
@@ -73,6 +82,13 @@ export {
   handleCronResume,
   handleCronRun,
   handleCronLogs,
+  parseForwardMapping,
+  resolveProxyWebSocketUrl,
+  CliTcpTunnelClient,
+  startPortForwardListeners,
+  startLocalHttpProxyServer,
+  handleForwardCommand,
+  handleProxyCommand,
 };
 
 export function createProgram(rawArgs: string[] = []): Command {
@@ -293,6 +309,46 @@ Command Shortcuts:
         console.error(`Error: ${err.message}`);
         process.exit(1);
       }
+    });
+
+  // --- Port Forwarding: gt forward ---
+  program
+    .command('forward <node> <mappings...>')
+    .description('Forward local port(s) to a remote node or target service')
+    .option('-b, --bind <address>', 'Local bind IP address (default: 127.0.0.1)', '127.0.0.1')
+    .option('-s, --server <url>', 'Hub server URL')
+    .option('-k, --key <secret>', 'Admin secret key')
+    .option('-c, --context <name>', 'Target context')
+    .action(async (node: string, mappings: string[], opts: Record<string, any>) => {
+      const eff = resolveEffective(opts);
+      await handleForwardCommand({
+        server: eff.server,
+        key: eff.key,
+        node,
+        mappings,
+        bind: opts.bind,
+      });
+    });
+
+  // --- Local HTTP/HTTPS Proxy: gt proxy ---
+  program
+    .command('proxy <node>')
+    .description('Start a local HTTP/HTTPS forward proxy routing through a remote node')
+    .option('-p, --port <port>', 'Local proxy port (default: 1080)', '1080')
+    .option('-b, --bind <address>', 'Local bind IP address (default: 127.0.0.1)', '127.0.0.1')
+    .option('-s, --server <url>', 'Hub server URL')
+    .option('-k, --key <secret>', 'Admin secret key')
+    .option('-c, --context <name>', 'Target context')
+    .action(async (node: string, opts: Record<string, any>) => {
+      const eff = resolveEffective(opts);
+      const port = parseInt(String(opts.port || '1080'), 10);
+      await handleProxyCommand({
+        server: eff.server,
+        key: eff.key,
+        node,
+        port,
+        bind: opts.bind,
+      });
     });
 
   // --- Task Management: gt task ---
