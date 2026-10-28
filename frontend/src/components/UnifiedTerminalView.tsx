@@ -3,12 +3,14 @@ import WebTerminalView, { WebTerminalHandle } from './WebTerminalView';
 import TerminalFileManagerView, { TerminalFileManagerHandle } from './terminal/TerminalFileManagerView';
 import TerminalCronView, { TerminalCronHandle } from './terminal/TerminalCronView';
 import TerminalTaskView, { TerminalTaskHandle } from './terminal/TerminalTaskView';
+import TerminalProxyView, { TerminalProxyHandle } from './terminal/TerminalProxyView';
 import { TerminalHostSelector } from './terminal/TerminalHostSelector';
 import {
   TerminalSquare,
   FolderOpen,
   Clock,
   Activity,
+  Globe,
   Maximize2,
   Minimize2,
   ZoomIn,
@@ -44,7 +46,7 @@ export interface UnifiedTerminalViewProps {
   onLogout?: () => void;
 }
 
-export type TerminalSubTab = 'interactive' | 'files' | 'cron' | 'tasks';
+export type TerminalSubTab = 'interactive' | 'files' | 'cron' | 'tasks' | 'proxy';
 
 
 export default function UnifiedTerminalView({
@@ -81,6 +83,7 @@ export default function UnifiedTerminalView({
   const fileManagerRef = useRef<TerminalFileManagerHandle>(null);
   const cronRef = useRef<TerminalCronHandle>(null);
   const taskRef = useRef<TerminalTaskHandle>(null);
+  const proxyRef = useRef<TerminalProxyHandle>(null);
   const [serverTimezone, setServerTimezone] = useState<string>('');
 
   useEffect(() => {
@@ -413,6 +416,20 @@ export default function UnifiedTerminalView({
               <Activity className="w-3.5 h-3.5 shrink-0" />
               <span className="hidden md:inline">{t('tasks.tabName', '任务管理')}</span>
             </button>
+            <button
+              type="button"
+              data-testid="subtab-proxy"
+              onClick={() => handleSubTabChange('proxy')}
+              title={t('proxy.tabName', '网络代理')}
+              className={`flex items-center space-x-1 lg:space-x-1.5 px-2 lg:px-2.5 py-1 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
+                subTab === 'proxy'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Globe className="w-3.5 h-3.5 shrink-0" />
+              <span className="hidden md:inline">{t('proxy.tabName', '网络代理')}</span>
+            </button>
           </div>
 
           {/* Global Server Timezone Badge (Concise UTC Offset format, e.g. UTC+8) */}
@@ -531,6 +548,17 @@ export default function UnifiedTerminalView({
               onClick={() => taskRef.current?.refresh()}
               className="p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border border-white/[0.06] transition-all"
               title={t('tasks.refresh', '刷新')}
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+            </button>
+          )}
+
+          {subTab === 'proxy' && (
+            <button
+              type="button"
+              onClick={() => proxyRef.current?.refresh()}
+              className="p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border border-white/[0.06] transition-all"
+              title={t('proxy.refresh', '刷新')}
             >
               <RefreshCw className="w-3.5 h-3.5" />
             </button>
@@ -775,6 +803,17 @@ export default function UnifiedTerminalView({
             activeHostId={activeHostId}
             isConnected={connectionStatus.isConnected}
             isActive={subTab === 'tasks'}
+            onRequestAddNode={() => setIsAddNodeModalOpen(true)}
+          />
+        </div>
+
+        <div className={`flex-1 min-h-0 ${subTab === 'proxy' ? 'flex' : 'hidden'} flex-col`}>
+          <TerminalProxyView
+            ref={proxyRef}
+            adminKey={adminKey}
+            activeHostId={activeHostId}
+            isConnected={connectionStatus.isConnected}
+            isActive={subTab === 'proxy'}
             onRequestAddNode={() => setIsAddNodeModalOpen(true)}
           />
         </div>
