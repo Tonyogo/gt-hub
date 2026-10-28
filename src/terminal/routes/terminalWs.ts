@@ -6,6 +6,7 @@ import logger from '../../utils/logger';
 import { safeCompareSecret } from '../../shared/utils/security';
 import { terminalHostManager } from '../services/terminalHostManager';
 import { terminalExecBridge } from '../services/terminalExecBridge';
+import { terminalProxyBridge } from '../services/terminalProxyBridge';
 import { ticketManager } from '../../server/modules/auth/ticketManager';
 import { terminalCronService } from '../services/terminalCronService';
 import { BIN_MSG_TYPE, decodeBinaryPacket } from '../../shared/protocol/binaryProtocol';
@@ -16,14 +17,16 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
   const wss = new WebSocketServer({ noServer: true, perMessageDeflate: TERMINAL_WS_DEFLATE_OPTIONS });
   const agentWss = new WebSocketServer({ noServer: true, perMessageDeflate: TERMINAL_WS_DEFLATE_OPTIONS });
   const execWss = new WebSocketServer({ noServer: true, perMessageDeflate: TERMINAL_WS_DEFLATE_OPTIONS });
+  const proxyWss = new WebSocketServer({ noServer: true, perMessageDeflate: TERMINAL_WS_DEFLATE_OPTIONS });
 
   const onUpgrade = (req: http.IncomingMessage, socket: any, head: Buffer) => {
     const reqUrl = req.url || '';
     const isClientWs = reqUrl.startsWith('/api/terminal/ws') || reqUrl.startsWith('/api/admin/terminal/ws');
     const isAgentWs = reqUrl.startsWith('/api/terminal/agent-ws') || reqUrl.startsWith('/api/admin/terminal/agent-ws');
     const isExecWs = reqUrl.startsWith('/api/terminal/exec-ws') || reqUrl.startsWith('/api/admin/terminal/exec-ws');
+    const isProxyWs = reqUrl.startsWith('/api/terminal/proxy-ws') || reqUrl.startsWith('/api/admin/terminal/proxy-ws');
 
-    if (!isClientWs && !isAgentWs && !isExecWs) {
+    if (!isClientWs && !isAgentWs && !isExecWs && !isProxyWs) {
       return;
     }
 
@@ -72,6 +75,10 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
       execWss.handleUpgrade(req, socket, head, (ws) => {
         terminalExecBridge.handleCliConnection(ws, req);
       });
+    } else if (isProxyWs) {
+      proxyWss.handleUpgrade(req, socket, head, (ws) => {
+        terminalProxyBridge.handleCliConnection(ws, req);
+      });
     } else {
       wss.handleUpgrade(req, socket, head, (ws) => {
         wss.emit('connection', ws, req);
@@ -82,7 +89,7 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
   server.on('upgrade', onUpgrade);
 
   const closeAllClients = (code = 1001, reason = 'Server shutting down') => {
-    const allServers = [wss, agentWss, execWss];
+    const allServers = [wss, agentWss, execWss, proxyWss];
     for (const wsServer of allServers) {
       for (const client of wsServer.clients) {
         try {
@@ -100,6 +107,7 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
       closeAllClients(1001, 'Server shutting down');
       agentWss.close();
       execWss.close();
+      proxyWss.close();
     } catch {}
     server.removeListener('upgrade', onUpgrade);
   });
@@ -170,6 +178,15 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
         if (isBinary) {
           const buf = Buffer.isBuffer(message) ? message : Buffer.from(message as any);
           const decoded = decodeBinaryPacket(buf);
+          if (
+            decoded &&
+            (decoded.msgType === BIN_MSG_TYPE.PROXY_HTTP_RES_BODY ||
+              decoded.msgType === BIN_MSG_TYPE.PROXY_TCP_DATA ||
+              decoded.msgType === BIN_MSG_TYPE.PROXY_HTTP_REQ_BODY)
+          ) {
+            terminalProxyBridge.handleAgentBinaryFrame(hostId, decoded);
+            return;
+          }
           if (decoded && decoded.msgType === BIN_MSG_TYPE.STREAM_OUTPUT) {
             terminalExecBridge.handleAgentStreamMessage(hostId, buf);
             return;
@@ -185,6 +202,9 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
         const msgStr = typeof message === 'string' ? message : message.toString('utf-8');
         if (msgStr.startsWith('JSON:')) {
           const control = JSON.parse(msgStr.slice(5));
+          if (terminalProxyBridge.handleAgentControlMessage(hostId, control)) {
+            return;
+          }
           if (control.type === 'ping') {
             lastTouch = now;
             hostMgr.touchAgent(hostId, ws, agentMeta);
@@ -255,6 +275,7 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
       logger.info(`[TerminalWS:Agent] Agent disconnected: ${hostId}`);
       if (hostMgr.isCurrentAgentWs(hostId, ws)) {
         terminalExecBridge.handleAgentDisconnected(hostId);
+        terminalProxyBridge.handleAgentDisconnected(hostId);
       }
       hostMgr.unregisterAgent(hostId, ws);
     });
@@ -263,6 +284,7 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
       logger.error(`[TerminalWS:Agent] Agent socket error (${hostId}): ${err.message}`);
       if (hostMgr.isCurrentAgentWs(hostId, ws)) {
         terminalExecBridge.handleAgentDisconnected(hostId);
+        terminalProxyBridge.handleAgentDisconnected(hostId);
       }
       hostMgr.unregisterAgent(hostId, ws);
     });

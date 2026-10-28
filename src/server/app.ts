@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import downloadRoutes from './modules/download/downloadRoutes';
 import authRoutes from './modules/auth/authRoutes';
 import terminalRoutes from '../terminal/routes/terminalRoutes';
+import proxyRoutes from '../terminal/routes/proxyRoutes';
 import scriptRoutes from './modules/scripts/scriptRoutes';
 import staticMiddleware from './modules/static/staticMiddleware';
 import errorHandlerMiddleware from './middlewares/errorHandler';
@@ -9,6 +10,10 @@ import compressionMiddleware from './middlewares/compressionMiddleware';
 import { getVersionInfo } from '../shared/version';
 
 const app = express();
+
+// Proxy API endpoints (mounted before express.json to preserve request stream)
+app.use('/api/proxy', proxyRoutes);
+app.use('/api/admin/proxy', proxyRoutes);
 
 app.use(express.json({ limit: '10mb' }));
 app.use(compressionMiddleware);
