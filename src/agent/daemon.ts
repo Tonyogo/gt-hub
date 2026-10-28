@@ -18,6 +18,7 @@ import { makeRequest } from '../client/utils/terminalUI';
 import { getVersionInfo } from '../shared/version';
 import { StreamBatcher } from '../shared/utils/streamBatcher';
 import { BIN_MSG_TYPE, decodeBinaryPacket, encodeBinaryPacket } from '../shared/protocol/binaryProtocol';
+import { ProxyHandler } from './handlers/proxyHandler';
 
 export const HANDSHAKE_TIMEOUT_MS = 4000;
 export const HEARTBEAT_INTERVAL_MS = 15000;
@@ -343,6 +344,8 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       options.workspace = arg.slice(12);
     } else if (arg.startsWith('-w=')) {
       options.workspace = arg.slice(3);
+    } else if (arg === '--no-proxy') {
+      options.noProxy = true;
     } else if (arg.startsWith('--')) {
       const eqIdx = arg.indexOf('=');
       if (eqIdx !== -1) {
@@ -363,6 +366,10 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
         options[k] = agentArgs[++i];
       }
     }
+  }
+
+  if (options['no-proxy'] || globalOpts.noProxy || options.noProxy) {
+    options.noProxy = true;
   }
 
   // Handle status subcommand
@@ -599,6 +606,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
   let lastPtyRows = 24;
   let ws: any = null;
   let streamSessionManager: StreamSessionManager | null = null;
+  let proxyHandler: ProxyHandler | null = null;
   let reconnectAttempts = 0;
   let reconnectTimer: NodeJS.Timeout | null = null;
   let isExiting = false;
@@ -951,6 +959,11 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     }
     stopHeartbeat();
 
+    if (proxyHandler) {
+      proxyHandler.destroyAll();
+      proxyHandler = null;
+    }
+
     if (ws) {
       try {
         ws.removeAllListeners();
@@ -1017,6 +1030,21 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       }
 
       try {
+        if (proxyHandler) {
+          proxyHandler.destroyAll();
+          proxyHandler = null;
+        }
+        proxyHandler = new ProxyHandler({
+          send: (payload: string | Buffer) => {
+            if (ws && (ws.readyState === 1 || ws.readyState === WebSocket.OPEN)) {
+              ws.send(payload);
+            }
+          },
+          getBufferedAmount: () => (ws && typeof ws.bufferedAmount === 'number' ? ws.bufferedAmount : 0),
+          onActivity: onHeartbeatActivity,
+          allowProxy: !options.noProxy,
+        });
+
         streamSessionManager = new StreamSessionManager((data: any) => {
           if (ws && (ws.readyState === 1 || ws.readyState === WebSocket.OPEN)) {
             if (Buffer.isBuffer(data)) {
@@ -1042,20 +1070,35 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     ws.on('message', (data: any, isBinary?: boolean) => {
       onHeartbeatActivity();
       try {
-        if (isBinary || (Buffer.isBuffer(data) && data.length > 0 && data[0] === BIN_MSG_TYPE.STREAM_INPUT)) {
+        if (
+          isBinary ||
+          (Buffer.isBuffer(data) &&
+            data.length > 0 &&
+            (data[0] === BIN_MSG_TYPE.STREAM_INPUT ||
+              data[0] === BIN_MSG_TYPE.PROXY_HTTP_REQ_BODY ||
+              data[0] === BIN_MSG_TYPE.PROXY_TCP_DATA))
+        ) {
           const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as any);
           const decoded = decodeBinaryPacket(buf);
-          if (decoded && decoded.msgType === BIN_MSG_TYPE.STREAM_INPUT) {
-            if (streamSessionManager) {
-              streamSessionManager.writeRawInput(decoded.id, decoded.payload);
+          if (decoded) {
+            if (decoded.msgType === BIN_MSG_TYPE.STREAM_INPUT) {
+              if (streamSessionManager) {
+                streamSessionManager.writeRawInput(decoded.id, decoded.payload);
+              }
+              return;
             }
-            return;
+            if (proxyHandler && proxyHandler.handleBinaryFrame(decoded)) {
+              return;
+            }
           }
         }
 
         const msgStr = data.toString();
         const control = parseControlMessage(msgStr);
         if (control) {
+          if (proxyHandler && proxyHandler.handleControlMessage(control)) {
+            return;
+          }
           if (control.type === 'rejected') {
             isExiting = true;
             console.error(`\x1b[31m[Error] Registration rejected by server: ${control.reason || 'Registration conflict'}\x1b[0m`);
@@ -1181,6 +1224,10 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       if (streamSessionManager) {
         streamSessionManager.killAll();
       }
+      if (proxyHandler) {
+        proxyHandler.destroyAll();
+        proxyHandler = null;
+      }
       if (code === 4009) {
         isExiting = true;
         console.error(`\x1b[31m[Error] Registration rejected by server: ${reason?.toString() || 'Host name conflict'}\x1b[0m`);
@@ -1195,6 +1242,10 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     ws.on('error', (err: any) => {
       if (connectTimeoutTimer) clearTimeout(connectTimeoutTimer);
       stopHeartbeat();
+      if (proxyHandler) {
+        proxyHandler.destroyAll();
+        proxyHandler = null;
+      }
       const msg = err && (err.message || err.code || err.name || String(err));
       console.error(`[Agent] Connection error: ${msg || 'Unknown error'}`);
     });
@@ -1224,6 +1275,10 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       reconnectTimer = null;
     }
     stopHeartbeat();
+    if (proxyHandler) {
+      proxyHandler.destroyAll();
+      proxyHandler = null;
+    }
     try {
       cronScheduler.stop();
     } catch {}

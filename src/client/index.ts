@@ -517,12 +517,14 @@ Command Shortcuts:
     .option('-c, --context <name>', 'Target context')
     .option('-p, --permission-mode <mode>', 'Permission mode: default or bypass', 'default')
     .option('-w, --workspace <path>', 'Restrict file operations to workspace directory')
+    .option('--no-proxy', 'Disable HTTP/TCP proxy capabilities on this agent')
     .option('--internal-daemon', 'Internal daemon flag')
     .action(async (opts: Record<string, any>) => {
       const eff = resolveEffective(opts);
       const args = ['start'];
       if (opts.permissionMode) args.push(`--permission-mode=${opts.permissionMode}`);
       if (opts.workspace) args.push(`--workspace=${opts.workspace}`);
+      if (opts.proxy === false || opts.noProxy) args.push('--no-proxy');
       if (opts.internalDaemon) args.push('--internal-daemon');
       await runAgent(args, { server: eff.server, key: eff.key, context: eff.context });
     });
@@ -542,12 +544,14 @@ Command Shortcuts:
     .option('-c, --context <name>', 'Target context')
     .option('-p, --permission-mode <mode>', 'Permission mode: default or bypass', 'default')
     .option('-w, --workspace <path>', 'Restrict file operations to workspace directory')
+    .option('--no-proxy', 'Disable HTTP/TCP proxy capabilities on this agent')
     .option('--internal-daemon', 'Internal daemon flag')
     .action(async (opts: Record<string, any>) => {
       const eff = resolveEffective(opts);
       const args = ['restart'];
       if (opts.permissionMode) args.push(`--permission-mode=${opts.permissionMode}`);
       if (opts.workspace) args.push(`--workspace=${opts.workspace}`);
+      if (opts.proxy === false || opts.noProxy) args.push('--no-proxy');
       if (opts.internalDaemon) args.push('--internal-daemon');
       await runAgent(args, { server: eff.server, key: eff.key, context: eff.context });
     });
