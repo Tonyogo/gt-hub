@@ -13,8 +13,10 @@ import {
 
 const MAX_CHUNK_BYTES = 32 * 1024;
 const DEFAULT_MAX_CONCURRENT = 128;
-const HIGH_WATERMARK_BUFFERED_AMOUNT = 4 * 1024 * 1024;
-const LOW_WATERMARK_BUFFERED_AMOUNT = 1 * 1024 * 1024;
+const HIGH_WATERMARK_BUFFERED_AMOUNT = 512 * 1024;
+const LOW_WATERMARK_BUFFERED_AMOUNT = 128 * 1024;
+const SPEEDTEST_MAX_BUFFERED_AMOUNT = 256 * 1024;
+const SPEEDTEST_CHUNKS_PER_TICK = 2;
 
 export interface ListeningPortInfo {
   port: number;
@@ -362,7 +364,7 @@ export async function scanListeningTcpPorts(): Promise<ListeningPortInfo[]> {
 }
 
 export interface ProxyHandlerOptions {
-  send: (data: string | Buffer) => void;
+  send: (data: string | Buffer, options?: { binary?: boolean; compress?: boolean }) => void;
   getBufferedAmount?: () => number;
   onActivity?: () => void;
   allowProxy?: boolean;
@@ -373,8 +375,11 @@ interface HttpRequestState {
   req?: http.ClientRequest;
   res?: http.IncomingMessage;
   pauseInterval?: NodeJS.Timeout;
+  stepTimer?: NodeJS.Timeout;
   isSpeedtest?: boolean;
   speedtestAborted?: boolean;
+  downstreamPaused?: boolean;
+  resumeNext?: () => void;
   receivedBytes?: number;
   startTime?: number;
 }
@@ -411,7 +416,7 @@ export class ProxyHandler {
 
   private sendChunked(msgType: number, id: string, payload: Buffer): void {
     if (payload.length <= MAX_CHUNK_BYTES) {
-      this.options.send(encodeBinaryPacket(msgType, id, payload));
+      this.options.send(encodeBinaryPacket(msgType, id, payload), { binary: true, compress: false });
       return;
     }
 
@@ -419,7 +424,7 @@ export class ProxyHandler {
     while (offset < payload.length) {
       const end = Math.min(offset + MAX_CHUNK_BYTES, payload.length);
       const slice = payload.subarray(offset, end);
-      this.options.send(encodeBinaryPacket(msgType, id, slice));
+      this.options.send(encodeBinaryPacket(msgType, id, slice), { binary: true, compress: false });
       offset = end;
     }
   }
@@ -451,6 +456,33 @@ export class ProxyHandler {
       }
       case 'proxy_http_abort': {
         this.handleHttpAbort(msg);
+        return true;
+      }
+      case 'proxy_http_pause': {
+        const state = this.activeHttpRequests.get(msg.reqId);
+        if (state) {
+          state.downstreamPaused = true;
+          if (state.res) {
+            try {
+              state.res.pause();
+            } catch {}
+          }
+        }
+        return true;
+      }
+      case 'proxy_http_resume': {
+        const state = this.activeHttpRequests.get(msg.reqId);
+        if (state) {
+          state.downstreamPaused = false;
+          if (state.res && !state.pauseInterval) {
+            try {
+              state.res.resume();
+            } catch {}
+          }
+          if (state.resumeNext) {
+            state.resumeNext();
+          }
+        }
         return true;
       }
       case 'proxy_tcp_connect': {
@@ -586,36 +618,36 @@ export class ProxyHandler {
         });
 
         let sentBytes = 0;
+        let isScheduled = false;
+
+        const scheduleNext = (delayMs: number = 1) => {
+          if (isScheduled || !this.activeHttpRequests.has(reqId) || state.speedtestAborted) {
+            return;
+          }
+          isScheduled = true;
+          state.stepTimer = setTimeout(() => {
+            isScheduled = false;
+            state.stepTimer = undefined;
+            sendNext();
+          }, delayMs);
+          if (typeof state.stepTimer.unref === 'function') {
+            state.stepTimer.unref();
+          }
+        };
+
         const sendNext = () => {
-          while (sentBytes < totalBytes) {
-            if (!this.activeHttpRequests.has(reqId) || state.speedtestAborted) {
+          if (!this.activeHttpRequests.has(reqId) || state.speedtestAborted || state.downstreamPaused) {
+            return;
+          }
+
+          let chunksSentThisTick = 0;
+          while (sentBytes < totalBytes && chunksSentThisTick < SPEEDTEST_CHUNKS_PER_TICK) {
+            if (!this.activeHttpRequests.has(reqId) || state.speedtestAborted || state.downstreamPaused) {
               return;
             }
-            if (
-              this.options.getBufferedAmount &&
-              this.options.getBufferedAmount() > HIGH_WATERMARK_BUFFERED_AMOUNT
-            ) {
-              if (!state.pauseInterval) {
-                state.pauseInterval = setInterval(() => {
-                  if (!this.activeHttpRequests.has(reqId) || state.speedtestAborted) {
-                    if (state.pauseInterval) clearInterval(state.pauseInterval);
-                    return;
-                  }
-                  if (
-                    !this.options.getBufferedAmount ||
-                    this.options.getBufferedAmount() < LOW_WATERMARK_BUFFERED_AMOUNT
-                  ) {
-                    if (state.pauseInterval) {
-                      clearInterval(state.pauseInterval);
-                      state.pauseInterval = undefined;
-                    }
-                    sendNext();
-                  }
-                }, 20);
-                if (typeof state.pauseInterval.unref === 'function') {
-                  state.pauseInterval.unref();
-                }
-              }
+            const buffered = this.options.getBufferedAmount ? this.options.getBufferedAmount() : 0;
+            if (buffered >= SPEEDTEST_MAX_BUFFERED_AMOUNT) {
+              scheduleNext(5);
               return;
             }
 
@@ -624,6 +656,15 @@ export class ProxyHandler {
             this.options.onActivity?.();
             this.sendChunked(BIN_MSG_TYPE.PROXY_HTTP_RES_BODY, reqId, chunk);
             sentBytes += chunkSize;
+            chunksSentThisTick++;
+          }
+
+          if (sentBytes < totalBytes) {
+            if (!state.downstreamPaused && !state.speedtestAborted && this.activeHttpRequests.has(reqId)) {
+              const buffered = this.options.getBufferedAmount ? this.options.getBufferedAmount() : 0;
+              scheduleNext(buffered > 64 * 1024 ? 2 : 0);
+            }
+            return;
           }
 
           if (this.activeHttpRequests.has(reqId) && !state.speedtestAborted) {
@@ -636,7 +677,11 @@ export class ProxyHandler {
           }
         };
 
-        setImmediate(sendNext);
+        state.resumeNext = () => {
+          scheduleNext(0);
+        };
+
+        scheduleNext(0);
         return;
       }
 
@@ -814,6 +859,10 @@ export class ProxyHandler {
     const state = this.activeHttpRequests.get(reqId);
     if (state) {
       state.speedtestAborted = true;
+      if (state.stepTimer) {
+        clearTimeout(state.stepTimer);
+        state.stepTimer = undefined;
+      }
       if (state.pauseInterval) {
         clearInterval(state.pauseInterval);
         state.pauseInterval = undefined;
@@ -1043,6 +1092,10 @@ export class ProxyHandler {
   public destroyAll(): void {
     for (const [reqId, state] of this.activeHttpRequests.entries()) {
       state.speedtestAborted = true;
+      if (state.stepTimer) {
+        clearTimeout(state.stepTimer);
+        state.stepTimer = undefined;
+      }
       if (state.pauseInterval) {
         clearInterval(state.pauseInterval);
         state.pauseInterval = undefined;

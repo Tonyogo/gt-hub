@@ -49,6 +49,8 @@ interface ActiveHttpRequestState {
   hostId: string;
   req: Request;
   res: Response;
+  downstreamPaused?: boolean;
+  reqPauseTimer?: NodeJS.Timeout;
 }
 
 interface ActiveTcpStreamState {
@@ -106,7 +108,7 @@ export class TerminalProxyBridge {
 
   private sendChunked(ws: any, msgType: number, id: string, payload: Buffer): void {
     if (payload.length <= MAX_CHUNK_BYTES) {
-      ws.send(encodeBinaryPacket(msgType, id, payload));
+      ws.send(encodeBinaryPacket(msgType, id, payload), { binary: true, compress: false });
       return;
     }
 
@@ -114,7 +116,7 @@ export class TerminalProxyBridge {
     while (offset < payload.length) {
       const end = Math.min(offset + MAX_CHUNK_BYTES, payload.length);
       const slice = payload.subarray(offset, end);
-      ws.send(encodeBinaryPacket(msgType, id, slice));
+      ws.send(encodeBinaryPacket(msgType, id, slice), { binary: true, compress: false });
       offset = end;
     }
   }
@@ -177,6 +179,10 @@ export class TerminalProxyBridge {
     this.hostToHttpRequests.get(canonicalHostId)!.add(reqId);
 
     const cleanup = () => {
+      if (reqState.reqPauseTimer) {
+        clearInterval(reqState.reqPauseTimer);
+        reqState.reqPauseTimer = undefined;
+      }
       this.activeHttpRequests.delete(reqId);
       const set = this.hostToHttpRequests.get(canonicalHostId);
       if (set) {
@@ -203,6 +209,11 @@ export class TerminalProxyBridge {
     });
 
     req.on('aborted', onClientAbort);
+    req.on('close', () => {
+      if (!req.complete && !res.writableEnded) {
+        onClientAbort();
+      }
+    });
 
     const method = (req.method || 'GET').toUpperCase();
     const isBodyless =
@@ -231,14 +242,45 @@ export class TerminalProxyBridge {
 
     if (!isBodyless) {
       req.on('data', (chunk: Buffer) => {
+        if (!this.activeHttpRequests.has(reqId)) return;
         if (agentWs.readyState === 1) {
           try {
             this.sendChunked(agentWs, BIN_MSG_TYPE.PROXY_HTTP_REQ_BODY, reqId, chunk);
+            const isStreamEnded = req.readableEnded || Boolean((req as any)._readableState?.ended);
+            if (
+              !isStreamEnded &&
+              typeof agentWs.bufferedAmount === 'number' &&
+              agentWs.bufferedAmount >= 512 * 1024
+            ) {
+              if (!reqState.reqPauseTimer) {
+                req.pause();
+                reqState.reqPauseTimer = setInterval(() => {
+                  if (!this.activeHttpRequests.has(reqId) || agentWs.readyState !== 1) {
+                    if (reqState.reqPauseTimer) {
+                      clearInterval(reqState.reqPauseTimer);
+                      reqState.reqPauseTimer = undefined;
+                    }
+                    return;
+                  }
+                  if (typeof agentWs.bufferedAmount !== 'number' || agentWs.bufferedAmount < 128 * 1024) {
+                    if (reqState.reqPauseTimer) {
+                      clearInterval(reqState.reqPauseTimer);
+                      reqState.reqPauseTimer = undefined;
+                    }
+                    req.resume();
+                  }
+                }, 10);
+                if (typeof reqState.reqPauseTimer.unref === 'function') {
+                  reqState.reqPauseTimer.unref();
+                }
+              }
+            }
           } catch {}
         }
       });
 
       req.on('end', () => {
+        if (!this.activeHttpRequests.has(reqId)) return;
         if (agentWs.readyState === 1) {
           try {
             agentWs.send(`JSON:${JSON.stringify({ type: 'proxy_http_req_end', reqId })}`);
@@ -252,7 +294,30 @@ export class TerminalProxyBridge {
     if (decoded.msgType === BIN_MSG_TYPE.PROXY_HTTP_RES_BODY) {
       const state = this.activeHttpRequests.get(decoded.id);
       if (state && !state.res.writableEnded) {
-        state.res.write(decoded.payload);
+        const canContinue = state.res.write(decoded.payload);
+        if (!canContinue || state.res.writableLength >= 256 * 1024) {
+          if (!state.downstreamPaused) {
+            state.downstreamPaused = true;
+            const session = terminalHostManager.getSession(state.hostId);
+            const agentWs = session?.getAgentWs();
+            if (agentWs && agentWs.readyState === 1) {
+              try {
+                agentWs.send(`JSON:${JSON.stringify({ type: 'proxy_http_pause', reqId: state.reqId })}`);
+              } catch {}
+            }
+            state.res.once('drain', () => {
+              state.downstreamPaused = false;
+              if (!this.activeHttpRequests.has(state.reqId)) return;
+              const sess = terminalHostManager.getSession(state.hostId);
+              const ws = sess?.getAgentWs();
+              if (ws && ws.readyState === 1) {
+                try {
+                  ws.send(`JSON:${JSON.stringify({ type: 'proxy_http_resume', reqId: state.reqId })}`);
+                } catch {}
+              }
+            });
+          }
+        }
       }
       return true;
     }
@@ -261,7 +326,10 @@ export class TerminalProxyBridge {
       const state = this.activeTcpStreams.get(decoded.id);
       if (state && state.cliWs && state.cliWs.readyState === 1) {
         try {
-          state.cliWs.send(encodeBinaryPacket(BIN_MSG_TYPE.PROXY_TCP_DATA, decoded.id, decoded.payload));
+          state.cliWs.send(encodeBinaryPacket(BIN_MSG_TYPE.PROXY_TCP_DATA, decoded.id, decoded.payload), {
+            binary: true,
+            compress: false,
+          });
         } catch {}
       }
       return true;
@@ -315,6 +383,10 @@ export class TerminalProxyBridge {
     if (control.type === 'proxy_http_end') {
       const state = this.activeHttpRequests.get(control.reqId);
       if (state) {
+        if (state.reqPauseTimer) {
+          clearInterval(state.reqPauseTimer);
+          state.reqPauseTimer = undefined;
+        }
         const { res } = state;
         this.activeHttpRequests.delete(control.reqId);
         const set = this.hostToHttpRequests.get(state.hostId);
@@ -553,6 +625,10 @@ export class TerminalProxyBridge {
       for (const reqId of Array.from(reqIds)) {
         const state = this.activeHttpRequests.get(reqId);
         if (state) {
+          if (state.reqPauseTimer) {
+            clearInterval(state.reqPauseTimer);
+            state.reqPauseTimer = undefined;
+          }
           if (!state.res.headersSent) {
             state.res.status(502).json({
               error: 'Agent disconnected unexpectedly',

@@ -107,6 +107,10 @@ export function createWebSocketAdapter(customWs?: any): any {
       return this._ws.readyState;
     }
 
+    get bufferedAmount(): number {
+      return this._ws && typeof this._ws.bufferedAmount === 'number' ? this._ws.bufferedAmount : 0;
+    }
+
     send(data: any, options?: any, cb?: any): any {
       if (typeof options === 'function') {
         cb = options;

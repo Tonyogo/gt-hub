@@ -1035,9 +1035,13 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
           proxyHandler = null;
         }
         proxyHandler = new ProxyHandler({
-          send: (payload: string | Buffer) => {
+          send: (payload: string | Buffer, sendOpts?: { binary?: boolean; compress?: boolean }) => {
             if (ws && (ws.readyState === 1 || ws.readyState === WebSocket.OPEN)) {
-              ws.send(payload);
+              if (Buffer.isBuffer(payload)) {
+                ws.send(payload, { binary: true, compress: sendOpts?.compress ?? false });
+              } else {
+                ws.send(payload);
+              }
             }
           },
           getBufferedAmount: () => (ws && typeof ws.bufferedAmount === 'number' ? ws.bufferedAmount : 0),

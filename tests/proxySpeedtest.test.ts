@@ -23,6 +23,7 @@ describe('Agent Proxy Network Latency & Bandwidth Speedtest', () => {
 
   let agentWs: WebSocket | null = null;
   let agentProxyHandler: ProxyHandler | null = null;
+  let agentSentBytes = 0;
   const testHostId = 'speedtest-test-agent';
   const originalKey = config.adminSecretKey;
   const adminSecret = 'test-secret-speedtest';
@@ -68,11 +69,17 @@ describe('Agent Proxy Network Latency & Bandwidth Speedtest', () => {
 
       agentWs.on('open', () => {
         agentProxyHandler = new ProxyHandler({
-          send: (data: string | Buffer) => {
+          send: (data: string | Buffer, opts?: { binary?: boolean; compress?: boolean }) => {
             if (agentWs && agentWs.readyState === WebSocket.OPEN) {
-              agentWs.send(data);
+              if (Buffer.isBuffer(data)) {
+                agentSentBytes += data.length;
+                agentWs.send(data, { binary: true, compress: opts?.compress ?? false });
+              } else {
+                agentWs.send(data);
+              }
             }
           },
+          getBufferedAmount: () => (agentWs ? agentWs.bufferedAmount : 0),
           allowProxy: true,
         });
         resolve();
@@ -197,8 +204,10 @@ describe('Agent Proxy Network Latency & Bandwidth Speedtest', () => {
       const compressed = zlib.deflateSync(res.body);
       expect(compressed.length).toBeGreaterThan(250000);
 
-      // Test mid-stream abort cleanup
+      // Test mid-stream abort cleanup: ensure Agent does NOT dump all 64MB into the socket before abort is processed
+      agentSentBytes = 0;
       await new Promise<void>((resolve, reject) => {
+        let aborted = false;
         const abortReq = http.request(
           {
             hostname: '127.0.0.1',
@@ -211,13 +220,20 @@ describe('Agent Proxy Network Latency & Bandwidth Speedtest', () => {
             let received = 0;
             abortRes.on('data', (chunk) => {
               received += chunk.length;
-              if (received >= 131072) {
+              if (!aborted && received >= 131072) {
+                aborted = true;
                 // Abort after 128KB received
                 abortReq.destroy();
                 setTimeout(() => {
-                  expect(agentProxyHandler?.getActiveCount().httpCount).toBe(0);
-                  resolve();
-                }, 50);
+                  try {
+                    expect(agentProxyHandler?.getActiveCount().httpCount).toBe(0);
+                    // Agent should have sent only a small fraction (< 4MB), NOT all 64MB!
+                    expect(agentSentBytes).toBeLessThan(4 * 1024 * 1024);
+                    resolve();
+                  } catch (err) {
+                    reject(err);
+                  }
+                }, 80);
               }
             });
             abortRes.on('error', () => {

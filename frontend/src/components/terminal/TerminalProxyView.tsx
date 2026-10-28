@@ -74,7 +74,7 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
     const [port, setPort] = useState<string>('3000');
 
     // Speedtest State
-    const [speedtestSizeMb, setSpeedtestSizeMb] = useState<number>(16);
+    const [speedtestSizeMb, setSpeedtestSizeMb] = useState<number>(4);
     const [isRunningSpeedtest, setIsRunningSpeedtest] = useState<boolean>(false);
     const [speedtestPhase, setSpeedtestPhase] = useState<'idle' | 'ping' | 'download' | 'upload' | 'done'>('idle');
     const [dlProgress, setDlProgress] = useState<number>(0);
@@ -362,16 +362,28 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
         }
 
         const reader = dlRes.body.getReader();
+        const onAbortReader = () => {
+          reader.cancel().catch(() => {});
+        };
+        controller.signal.addEventListener('abort', onAbortReader, { once: true });
+
         let received = 0;
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          received += value?.length || 0;
-          const elapsedSec = Math.max(0.001, (performance.now() - dlStart) / 1000);
-          const mbps = (received * 8) / (elapsedSec * 1_000_000);
-          setDlProgress(Math.min(100, Math.round((received / sizeBytes) * 100)));
-          setDlCurrentMbps(Number(mbps.toFixed(2)));
+        try {
+          while (true) {
+            if (controller.signal.aborted) break;
+            const { done, value } = await reader.read();
+            if (done) break;
+            received += value?.length || 0;
+            const elapsedSec = Math.max(0.001, (performance.now() - dlStart) / 1000);
+            const mbps = (received * 8) / (elapsedSec * 1_000_000);
+            setDlProgress(Math.min(100, Math.round((received / sizeBytes) * 100)));
+            setDlCurrentMbps(Number(mbps.toFixed(2)));
+          }
+        } finally {
+          controller.signal.removeEventListener('abort', onAbortReader);
         }
+
+        if (controller.signal.aborted) return;
 
         const dlDurationMs = Math.max(1, performance.now() - dlStart);
         const dlSec = dlDurationMs / 1000;
@@ -382,83 +394,56 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
           mbPerSec: Number((received / (dlSec * 1024 * 1024)).toFixed(2)),
         });
 
-        // Phase 3: Upload
+        // Phase 3: Upload (Sliced in <= 512KB batches so abort is instant and reverse proxies don't buffer 16MB+)
         if (controller.signal.aborted) return;
         setSpeedtestPhase('upload');
 
-        const uploadChunk = new Uint8Array(32 * 1024);
+        const seedChunk = new Uint8Array(32 * 1024);
         if (typeof window !== 'undefined' && window.crypto) {
-          window.crypto.getRandomValues(uploadChunk);
+          window.crypto.getRandomValues(seedChunk);
         }
+        const batchMaxBytes = Math.min(512 * 1024, sizeBytes);
+        const batchBuf = new Uint8Array(batchMaxBytes);
+        for (let offset = 0; offset < batchMaxBytes; offset += seedChunk.byteLength) {
+          const copyLen = Math.min(seedChunk.byteLength, batchMaxBytes - offset);
+          batchBuf.set(seedChunk.subarray(0, copyLen), offset);
+        }
+
         let uploaded = 0;
         const ulStart = performance.now();
 
-        try {
-          const ulStream = new ReadableStream({
-            pull(ctrl) {
-              if (controller.signal.aborted) {
-                ctrl.close();
-                return;
-              }
-              if (uploaded >= sizeBytes) {
-                ctrl.close();
-                return;
-              }
-              const remaining = sizeBytes - uploaded;
-              const thisChunkSize = Math.min(uploadChunk.byteLength, remaining);
-              const view = new DataView(uploadChunk.buffer);
-              view.setUint32(0, (view.getUint32(0, true) ^ (uploaded + 1)) >>> 0, true);
-              const slice = uploadChunk.subarray(0, thisChunkSize);
-              ctrl.enqueue(slice);
-              uploaded += thisChunkSize;
-
-              const elapsedSec = Math.max(0.001, (performance.now() - ulStart) / 1000);
-              const mbps = (uploaded * 8) / (elapsedSec * 1_000_000);
-              setUlProgress(Math.min(100, Math.round((uploaded / sizeBytes) * 100)));
-              setUlCurrentMbps(Number(mbps.toFixed(2)));
-            },
-          });
-
-          const ulRes = await fetch(`/api/proxy/${encodeURIComponent(activeHostId)}/speedtest/upload`, {
-            method: 'POST',
-            headers: {
-              ...getHeaders(),
-              'Content-Type': 'application/octet-stream',
-            },
-            body: ulStream,
-            signal: controller.signal,
-            // @ts-ignore
-            duplex: 'half',
-          });
-          if (!ulRes.ok) throw new Error(`Upload failed (${ulRes.status})`);
-        } catch (streamErr: any) {
+        while (uploaded < sizeBytes) {
           if (controller.signal.aborted) return;
-          const fullBuf = new Uint8Array(sizeBytes);
-          for (let o = 0; o < sizeBytes; o += uploadChunk.byteLength) {
-            const sliceSize = Math.min(uploadChunk.byteLength, sizeBytes - o);
-            fullBuf.set(uploadChunk.subarray(0, sliceSize), o);
-          }
+          const remaining = sizeBytes - uploaded;
+          const currentBatchSize = Math.min(batchMaxBytes, remaining);
+          const payloadSlice =
+            currentBatchSize === batchMaxBytes ? batchBuf : batchBuf.subarray(0, currentBatchSize);
+
           const ulRes = await fetch(`/api/proxy/${encodeURIComponent(activeHostId)}/speedtest/upload`, {
             method: 'POST',
             headers: {
               ...getHeaders(),
               'Content-Type': 'application/octet-stream',
             },
-            body: new Blob([fullBuf]),
+            body: new Blob([payloadSlice]),
             signal: controller.signal,
           });
           if (!ulRes.ok) throw new Error(`Upload failed (${ulRes.status})`);
-          uploaded = sizeBytes;
-          setUlProgress(100);
+
+          uploaded += currentBatchSize;
+          const elapsedSec = Math.max(0.001, (performance.now() - ulStart) / 1000);
+          const mbps = (uploaded * 8) / (elapsedSec * 1_000_000);
+          setUlProgress(Math.min(100, Math.round((uploaded / sizeBytes) * 100)));
+          setUlCurrentMbps(Number(mbps.toFixed(2)));
         }
 
         const ulDurationMs = Math.max(1, performance.now() - ulStart);
         const ulSec = ulDurationMs / 1000;
         setUploadMetrics({
-          bytes: sizeBytes,
+          bytes: uploaded,
           durationMs: Math.round(ulDurationMs),
-          mbps: Number(((sizeBytes * 8) / (ulSec * 1_000_000)).toFixed(2)),
-          mbPerSec: Number((sizeBytes / (ulSec * 1024 * 1024)).toFixed(2)),
+          mbps: Number(((uploaded * 8) / (ulSec * 1_000_000)).toFixed(2)),
+          mbPerSec: Number((uploaded / (ulSec * 1024 * 1024)).toFixed(2)),
         });
 
         setSpeedtestPhase('done');
