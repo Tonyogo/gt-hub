@@ -98,6 +98,77 @@ router.get('/:hostId/ports', async (req: Request, res: Response) => {
   res.status(200).json({ ports: result.ports || [] });
 });
 
+async function parseJsonBody(req: Request): Promise<any> {
+  if (req.body && typeof req.body === 'object') {
+    return req.body;
+  }
+  return new Promise((resolve) => {
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+    req.on('end', () => {
+      const raw = Buffer.concat(chunks).toString('utf-8').trim();
+      if (!raw) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(raw));
+      } catch {
+        resolve({});
+      }
+    });
+    req.on('error', () => resolve({}));
+  });
+}
+
+router.get('/:hostId/speedtest/ping', async (req: Request, res: Response) => {
+  const hostId = Array.isArray(req.params.hostId) ? req.params.hostId[0] : req.params.hostId;
+  const timeoutMs = req.query.timeout ? parseInt(req.query.timeout as string, 10) : 10000;
+  const result = await terminalProxyBridge.pingAgent(hostId, timeoutMs);
+  if (!result.success) {
+    res.status(result.status || 500).json({ error: result.error || 'Ping failed' });
+    return;
+  }
+  res.status(200).json({
+    hubAgentRttMs: result.hubAgentRttMs,
+    timestamp: result.agentTimestamp || Date.now(),
+  });
+});
+
+router.get('/:hostId/speedtest/download', (req: Request, res: Response) => {
+  const hostId = Array.isArray(req.params.hostId) ? req.params.hostId[0] : req.params.hostId;
+  const rawBytes = req.query.bytes ? parseInt(req.query.bytes as string, 10) : 16 * 1024 * 1024;
+  const bytes = isNaN(rawBytes) ? 16 * 1024 * 1024 : rawBytes;
+  terminalProxyBridge.handleHttpProxyRequest(req, res, {
+    hostId,
+    targetUrl: `http://internal.speedtest/download?bytes=${bytes}`,
+    timeoutMs: 120000,
+  });
+});
+
+router.post('/:hostId/speedtest/upload', (req: Request, res: Response) => {
+  const hostId = Array.isArray(req.params.hostId) ? req.params.hostId[0] : req.params.hostId;
+  terminalProxyBridge.handleHttpProxyRequest(req, res, {
+    hostId,
+    targetUrl: 'http://internal.speedtest/upload',
+    timeoutMs: 120000,
+  });
+});
+
+router.post('/:hostId/speedtest/probe', async (req: Request, res: Response) => {
+  const hostId = Array.isArray(req.params.hostId) ? req.params.hostId[0] : req.params.hostId;
+  const body = await parseJsonBody(req);
+  const targets = Array.isArray(body?.targets) ? body.targets : undefined;
+  const timeoutMs = typeof body?.timeoutMs === 'number' ? body.timeoutMs : undefined;
+
+  const result = await terminalProxyBridge.probeTargets(hostId, targets, timeoutMs);
+  if (!result.success) {
+    res.status(result.status || 500).json({ error: result.error || 'Probe failed' });
+    return;
+  }
+  res.status(200).json({ results: result.results || [] });
+});
+
 router.all(['/:hostId/port/:port', '/:hostId/port/:port/*'], (req: Request, res: Response) => {
   const hostId = Array.isArray(req.params.hostId) ? req.params.hostId[0] : req.params.hostId;
   const portStr = Array.isArray(req.params.port) ? req.params.port[0] : req.params.port;

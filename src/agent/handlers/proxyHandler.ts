@@ -2,6 +2,7 @@ import http from 'http';
 import https from 'https';
 import net from 'net';
 import fs from 'fs';
+import crypto from 'crypto';
 import { exec } from 'child_process';
 import { URL } from 'url';
 import {
@@ -20,6 +21,110 @@ export interface ListeningPortInfo {
   address: string;
   pid?: number;
   process?: string;
+}
+
+export interface TargetProbeResult {
+  url: string;
+  ok: boolean;
+  statusCode?: number;
+  latencyMs: number;
+  error?: string;
+}
+
+export const DEFAULT_PROBE_TARGETS: string[] = [
+  'https://1.1.1.1/cdn-cgi/trace',
+  'https://api.github.com',
+  'https://www.google.com/generate_204',
+  'https://registry.npmjs.org/-/ping',
+];
+
+export async function probeOutboundTarget(
+  targetUrl: string,
+  timeoutMs: number = 8000
+): Promise<TargetProbeResult> {
+  const start = Date.now();
+  let parsed: URL;
+  try {
+    parsed = new URL(targetUrl);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return {
+        url: targetUrl,
+        ok: false,
+        latencyMs: Math.max(1, Date.now() - start),
+        error: `Unsupported protocol: ${parsed.protocol}`,
+      };
+    }
+  } catch (err: any) {
+    return {
+      url: targetUrl,
+      ok: false,
+      latencyMs: Math.max(1, Date.now() - start),
+      error: `Invalid URL: ${err.message}`,
+    };
+  }
+
+  const isHttps = parsed.protocol === 'https:';
+  const transport = isHttps ? https : http;
+
+  return new Promise((resolve) => {
+    let finished = false;
+    let timer: NodeJS.Timeout | null = null;
+
+    const finish = (result: TargetProbeResult) => {
+      if (finished) return;
+      finished = true;
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      resolve(result);
+    };
+
+    const req = transport.request(parsed, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'gt-agent-probe/1.0',
+        Accept: '*/*',
+      },
+    });
+
+    timer = setTimeout(() => {
+      req.destroy(new Error('Request timed out'));
+      finish({
+        url: targetUrl,
+        ok: false,
+        latencyMs: Math.max(1, Date.now() - start),
+        error: 'Request timed out',
+      });
+    }, timeoutMs);
+    if (typeof timer.unref === 'function') {
+      timer.unref();
+    }
+
+    req.on('response', (res) => {
+      const latencyMs = Math.max(1, Date.now() - start);
+      const statusCode = res.statusCode;
+      const ok = statusCode !== undefined && statusCode >= 200 && statusCode < 400;
+      res.destroy();
+      finish({
+        url: targetUrl,
+        ok,
+        statusCode,
+        latencyMs,
+      });
+    });
+
+    req.on('error', (err: any) => {
+      finish({
+        url: targetUrl,
+        ok: false,
+        latencyMs: Math.max(1, Date.now() - start),
+        error: err.message || 'Connection failed',
+      });
+    });
+
+    req.end();
+  });
 }
 
 export function parseProcNetTcp(content: string, isIpv6: boolean = false): ListeningPortInfo[] {
@@ -265,9 +370,13 @@ export interface ProxyHandlerOptions {
 }
 
 interface HttpRequestState {
-  req: http.ClientRequest;
+  req?: http.ClientRequest;
   res?: http.IncomingMessage;
   pauseInterval?: NodeJS.Timeout;
+  isSpeedtest?: boolean;
+  speedtestAborted?: boolean;
+  receivedBytes?: number;
+  startTime?: number;
 }
 
 interface TcpSocketState {
@@ -279,9 +388,21 @@ export class ProxyHandler {
   private options: ProxyHandlerOptions;
   private activeHttpRequests = new Map<string, HttpRequestState>();
   private activeTcpSockets = new Map<string, TcpSocketState>();
+  private randomSeedBuffer: Buffer;
+  private randomChunkCounter: number = 0;
 
   constructor(options: ProxyHandlerOptions) {
     this.options = options;
+    this.randomSeedBuffer = crypto.randomBytes(32 * 1024);
+  }
+
+  private getNextRandomChunk(size: number = 32 * 1024): Buffer {
+    this.randomChunkCounter = (this.randomChunkCounter + 1) >>> 0;
+    this.randomSeedBuffer.writeUInt32LE(
+      (this.randomSeedBuffer.readUInt32LE(0) ^ this.randomChunkCounter) >>> 0,
+      0
+    );
+    return Buffer.from(this.randomSeedBuffer.subarray(0, size));
   }
 
   private sendControl(msg: any): void {
@@ -344,6 +465,14 @@ export class ProxyHandler {
         this.handleListPorts(msg);
         return true;
       }
+      case 'proxy_net_ping': {
+        this.handleNetPing(msg);
+        return true;
+      }
+      case 'proxy_net_probe': {
+        this.handleNetProbe(msg);
+        return true;
+      }
       default:
         return false;
     }
@@ -354,9 +483,13 @@ export class ProxyHandler {
       const state = this.activeHttpRequests.get(decoded.id);
       if (state) {
         this.options.onActivity?.();
-        try {
-          state.req.write(decoded.payload);
-        } catch {}
+        if (state.isSpeedtest) {
+          state.receivedBytes = (state.receivedBytes || 0) + decoded.payload.length;
+        } else if (state.req) {
+          try {
+            state.req.write(decoded.payload);
+          } catch {}
+        }
       }
       return true;
     }
@@ -422,6 +555,110 @@ export class ProxyHandler {
         reqId,
         error: `Unsupported protocol: ${parsedUrl.protocol}`,
         code: 'EPROTONOSUPPORT',
+      });
+      return;
+    }
+
+    if (parsedUrl.hostname === 'internal.speedtest') {
+      if (parsedUrl.pathname === '/download') {
+        const rawBytes = parseInt(parsedUrl.searchParams.get('bytes') || '', 10);
+        const totalBytes = Math.min(
+          256 * 1024 * 1024,
+          Math.max(64 * 1024, isNaN(rawBytes) ? 16 * 1024 * 1024 : rawBytes)
+        );
+
+        const state: HttpRequestState = {
+          isSpeedtest: true,
+          speedtestAborted: false,
+        };
+        this.activeHttpRequests.set(reqId, state);
+
+        this.sendControl({
+          type: 'proxy_http_headers',
+          reqId,
+          statusCode: 200,
+          statusMessage: 'OK',
+          headers: {
+            'content-type': 'application/octet-stream',
+            'content-length': String(totalBytes),
+            'cache-control': 'no-store',
+          },
+        });
+
+        let sentBytes = 0;
+        const sendNext = () => {
+          while (sentBytes < totalBytes) {
+            if (!this.activeHttpRequests.has(reqId) || state.speedtestAborted) {
+              return;
+            }
+            if (
+              this.options.getBufferedAmount &&
+              this.options.getBufferedAmount() > HIGH_WATERMARK_BUFFERED_AMOUNT
+            ) {
+              if (!state.pauseInterval) {
+                state.pauseInterval = setInterval(() => {
+                  if (!this.activeHttpRequests.has(reqId) || state.speedtestAborted) {
+                    if (state.pauseInterval) clearInterval(state.pauseInterval);
+                    return;
+                  }
+                  if (
+                    !this.options.getBufferedAmount ||
+                    this.options.getBufferedAmount() < LOW_WATERMARK_BUFFERED_AMOUNT
+                  ) {
+                    if (state.pauseInterval) {
+                      clearInterval(state.pauseInterval);
+                      state.pauseInterval = undefined;
+                    }
+                    sendNext();
+                  }
+                }, 20);
+                if (typeof state.pauseInterval.unref === 'function') {
+                  state.pauseInterval.unref();
+                }
+              }
+              return;
+            }
+
+            const chunkSize = Math.min(MAX_CHUNK_BYTES, totalBytes - sentBytes);
+            const chunk = this.getNextRandomChunk(chunkSize);
+            this.options.onActivity?.();
+            this.sendChunked(BIN_MSG_TYPE.PROXY_HTTP_RES_BODY, reqId, chunk);
+            sentBytes += chunkSize;
+          }
+
+          if (this.activeHttpRequests.has(reqId) && !state.speedtestAborted) {
+            this.options.onActivity?.();
+            this.sendControl({
+              type: 'proxy_http_end',
+              reqId,
+            });
+            this.activeHttpRequests.delete(reqId);
+          }
+        };
+
+        setImmediate(sendNext);
+        return;
+      }
+
+      if (parsedUrl.pathname === '/upload') {
+        const state: HttpRequestState = {
+          isSpeedtest: true,
+          speedtestAborted: false,
+          receivedBytes: 0,
+          startTime: Date.now(),
+        };
+        this.activeHttpRequests.set(reqId, state);
+        if (bodyEnd) {
+          this.handleHttpReqEnd({ reqId });
+        }
+        return;
+      }
+
+      this.sendControl({
+        type: 'proxy_http_end',
+        reqId,
+        error: `Unknown internal speedtest endpoint: ${parsedUrl.pathname}`,
+        code: 'ENOENT',
       });
       return;
     }
@@ -541,8 +778,33 @@ export class ProxyHandler {
     const state = this.activeHttpRequests.get(reqId);
     if (state) {
       this.options.onActivity?.();
+      if (state.isSpeedtest) {
+        const receivedBytes = state.receivedBytes || 0;
+        const durationMs = Math.max(1, Date.now() - (state.startTime || Date.now()));
+        const resBody = Buffer.from(
+          JSON.stringify({ receivedBytes, agentDurationMs: durationMs })
+        );
+        this.sendControl({
+          type: 'proxy_http_headers',
+          reqId,
+          statusCode: 200,
+          statusMessage: 'OK',
+          headers: {
+            'content-type': 'application/json',
+            'content-length': String(resBody.length),
+            'cache-control': 'no-store',
+          },
+        });
+        this.sendChunked(BIN_MSG_TYPE.PROXY_HTTP_RES_BODY, reqId, resBody);
+        this.sendControl({
+          type: 'proxy_http_end',
+          reqId,
+        });
+        this.activeHttpRequests.delete(reqId);
+        return;
+      }
       try {
-        state.req.end();
+        state.req?.end();
       } catch {}
     }
   }
@@ -551,12 +813,13 @@ export class ProxyHandler {
     const { reqId } = msg;
     const state = this.activeHttpRequests.get(reqId);
     if (state) {
+      state.speedtestAborted = true;
       if (state.pauseInterval) {
         clearInterval(state.pauseInterval);
         state.pauseInterval = undefined;
       }
       try {
-        state.req.destroy();
+        state.req?.destroy();
       } catch {}
       this.activeHttpRequests.delete(reqId);
     }
@@ -725,13 +988,67 @@ export class ProxyHandler {
       });
   }
 
+  private handleNetPing(msg: any): void {
+    const reqId = msg?.reqId;
+    if (!reqId) return;
+    this.options.onActivity?.();
+    this.sendControl({
+      type: 'proxy_net_ping_res',
+      reqId,
+      agentTimestamp: Date.now(),
+    });
+  }
+
+  private handleNetProbe(msg: any): void {
+    const reqId = msg?.reqId;
+    if (!reqId) return;
+
+    if (this.options.allowProxy === false) {
+      this.sendControl({
+        type: 'proxy_net_probe_res',
+        reqId,
+        success: false,
+        error: 'Proxy disabled on this agent',
+        results: [],
+      });
+      return;
+    }
+
+    const rawTargets = Array.isArray(msg.targets) && msg.targets.length > 0
+      ? msg.targets
+      : DEFAULT_PROBE_TARGETS;
+    const timeoutMs = typeof msg.timeoutMs === 'number' ? msg.timeoutMs : 8000;
+
+    this.options.onActivity?.();
+    Promise.all(rawTargets.map((t: string) => probeOutboundTarget(String(t), timeoutMs)))
+      .then((results) => {
+        this.sendControl({
+          type: 'proxy_net_probe_res',
+          reqId,
+          success: true,
+          results,
+        });
+      })
+      .catch((err) => {
+        this.sendControl({
+          type: 'proxy_net_probe_res',
+          reqId,
+          success: false,
+          error: err?.message || 'Outbound probe failed',
+          results: [],
+        });
+      });
+  }
+
   public destroyAll(): void {
     for (const [reqId, state] of this.activeHttpRequests.entries()) {
+      state.speedtestAborted = true;
       if (state.pauseInterval) {
         clearInterval(state.pauseInterval);
+        state.pauseInterval = undefined;
       }
       try {
-        state.req.destroy();
+        state.req?.destroy();
       } catch {}
     }
     this.activeHttpRequests.clear();
@@ -739,6 +1056,7 @@ export class ProxyHandler {
     for (const [streamId, state] of this.activeTcpSockets.entries()) {
       if (state.pauseInterval) {
         clearInterval(state.pauseInterval);
+        state.pauseInterval = undefined;
       }
       try {
         state.socket.destroy();

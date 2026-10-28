@@ -10,9 +10,9 @@ import {
   encodeBinaryPacket,
   decodeBinaryPacket,
 } from '../../shared/protocol/binaryProtocol';
-import { ListeningPortInfo } from '../../agent/handlers/proxyHandler';
+import { ListeningPortInfo, TargetProbeResult } from '../../agent/handlers/proxyHandler';
 
-export { ListeningPortInfo };
+export { ListeningPortInfo, TargetProbeResult };
 
 export function stripProxySessionCookie(cookieHeader: string | string[] | undefined): string | undefined {
   if (!cookieHeader) return undefined;
@@ -71,6 +71,36 @@ export class TerminalProxyBridge {
       hostId: string;
       timer: NodeJS.Timeout;
       resolve: (res: { success: boolean; status?: number; ports?: ListeningPortInfo[]; error?: string }) => void;
+    }
+  >();
+
+  private pendingPingRpcs = new Map<
+    string,
+    {
+      hostId: string;
+      startNs: bigint;
+      timer: NodeJS.Timeout;
+      resolve: (res: {
+        success: boolean;
+        status?: number;
+        hubAgentRttMs?: number;
+        agentTimestamp?: number;
+        error?: string;
+      }) => void;
+    }
+  >();
+
+  private pendingProbeRpcs = new Map<
+    string,
+    {
+      hostId: string;
+      timer: NodeJS.Timeout;
+      resolve: (res: {
+        success: boolean;
+        status?: number;
+        results?: TargetProbeResult[];
+        error?: string;
+      }) => void;
     }
   >();
 
@@ -355,6 +385,46 @@ export class TerminalProxyBridge {
       return true;
     }
 
+    if (control.type === 'proxy_net_ping_res') {
+      const pending = this.pendingPingRpcs.get(control.reqId);
+      if (pending) {
+        clearTimeout(pending.timer);
+        this.pendingPingRpcs.delete(control.reqId);
+        const endNs = process.hrtime.bigint();
+        const elapsedMs = Number(endNs - pending.startNs) / 1e6;
+        pending.resolve({
+          success: true,
+          status: 200,
+          hubAgentRttMs: Number(elapsedMs.toFixed(2)),
+          agentTimestamp: control.agentTimestamp,
+        });
+      }
+      return true;
+    }
+
+    if (control.type === 'proxy_net_probe_res') {
+      const pending = this.pendingProbeRpcs.get(control.reqId);
+      if (pending) {
+        clearTimeout(pending.timer);
+        this.pendingProbeRpcs.delete(control.reqId);
+        if (control.success !== false) {
+          pending.resolve({
+            success: true,
+            status: 200,
+            results: control.results || [],
+          });
+        } else {
+          pending.resolve({
+            success: false,
+            status: control.error && /disabled/i.test(control.error) ? 403 : 500,
+            error: control.error || 'Failed to probe targets',
+            results: [],
+          });
+        }
+      }
+      return true;
+    }
+
     return false;
   }
 
@@ -531,6 +601,152 @@ export class TerminalProxyBridge {
         });
       }
     }
+
+    for (const [reqId, pending] of Array.from(this.pendingPingRpcs.entries())) {
+      if (pending.hostId === hostId) {
+        clearTimeout(pending.timer);
+        this.pendingPingRpcs.delete(reqId);
+        pending.resolve({
+          success: false,
+          status: 502,
+          error: 'Agent disconnected',
+        });
+      }
+    }
+
+    for (const [reqId, pending] of Array.from(this.pendingProbeRpcs.entries())) {
+      if (pending.hostId === hostId) {
+        clearTimeout(pending.timer);
+        this.pendingProbeRpcs.delete(reqId);
+        pending.resolve({
+          success: false,
+          status: 502,
+          error: 'Agent disconnected',
+        });
+      }
+    }
+  }
+
+  public pingAgent(
+    hostId: string,
+    timeoutMs: number = 10000
+  ): Promise<{ success: boolean; status?: number; hubAgentRttMs?: number; agentTimestamp?: number; error?: string }> {
+    const canonicalHostId = terminalHostManager.resolveCanonicalHostId(hostId);
+    const host = canonicalHostId ? terminalHostManager.getHost(canonicalHostId) : null;
+    const session = canonicalHostId ? terminalHostManager.getSession(canonicalHostId) : null;
+    const agentWs = session?.getAgentWs();
+
+    if (!canonicalHostId || !host) {
+      return Promise.resolve({
+        success: false,
+        status: 404,
+        error: `Host '${hostId}' not found`,
+      });
+    }
+
+    if (host.status !== 'online' || !agentWs || agentWs.readyState !== 1) {
+      return Promise.resolve({
+        success: false,
+        status: 502,
+        error: `Agent '${hostId}' is offline`,
+      });
+    }
+
+    return new Promise((resolve) => {
+      const reqId = `ping-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const startNs = process.hrtime.bigint();
+      const timer = setTimeout(() => {
+        this.pendingPingRpcs.delete(reqId);
+        resolve({
+          success: false,
+          status: 504,
+          error: 'Timeout waiting for ping response from agent',
+        });
+      }, timeoutMs);
+
+      this.pendingPingRpcs.set(reqId, {
+        hostId: canonicalHostId,
+        startNs,
+        timer,
+        resolve,
+      });
+
+      try {
+        agentWs.send(`JSON:${JSON.stringify({ type: 'proxy_net_ping', reqId })}`);
+      } catch (err: any) {
+        clearTimeout(timer);
+        this.pendingPingRpcs.delete(reqId);
+        resolve({
+          success: false,
+          status: 502,
+          error: `Failed to send ping request: ${err.message}`,
+        });
+      }
+    });
+  }
+
+  public probeTargets(
+    hostId: string,
+    targets?: string[],
+    timeoutMs: number = 10000
+  ): Promise<{ success: boolean; status?: number; results?: TargetProbeResult[]; error?: string }> {
+    const canonicalHostId = terminalHostManager.resolveCanonicalHostId(hostId);
+    const host = canonicalHostId ? terminalHostManager.getHost(canonicalHostId) : null;
+    const session = canonicalHostId ? terminalHostManager.getSession(canonicalHostId) : null;
+    const agentWs = session?.getAgentWs();
+
+    if (!canonicalHostId || !host) {
+      return Promise.resolve({
+        success: false,
+        status: 404,
+        error: `Host '${hostId}' not found`,
+      });
+    }
+
+    if (host.status !== 'online' || !agentWs || agentWs.readyState !== 1) {
+      return Promise.resolve({
+        success: false,
+        status: 502,
+        error: `Agent '${hostId}' is offline`,
+      });
+    }
+
+    return new Promise((resolve) => {
+      const reqId = `probe-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const timer = setTimeout(() => {
+        this.pendingProbeRpcs.delete(reqId);
+        resolve({
+          success: false,
+          status: 504,
+          error: 'Timeout waiting for probe response from agent',
+        });
+      }, timeoutMs);
+
+      this.pendingProbeRpcs.set(reqId, {
+        hostId: canonicalHostId,
+        timer,
+        resolve,
+      });
+
+      try {
+        agentWs.send(
+          `JSON:${JSON.stringify({
+            type: 'proxy_net_probe',
+            reqId,
+            targets,
+            timeoutMs: Math.max(1000, timeoutMs - 1000),
+          })}`
+        );
+      } catch (err: any) {
+        clearTimeout(timer);
+        this.pendingProbeRpcs.delete(reqId);
+        resolve({
+          success: false,
+          status: 502,
+          error: `Failed to send probe request: ${err.message}`,
+        });
+      }
+    });
   }
 
   public listListeningPorts(
