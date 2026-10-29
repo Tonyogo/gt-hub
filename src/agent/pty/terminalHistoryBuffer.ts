@@ -11,6 +11,8 @@ const RIS_RESET_BUFFER = Buffer.from('\x1bc', 'binary');
 const ED3_CLEAR_BUFFER = Buffer.from('\x1b[3J', 'binary');
 const ALT_SCREEN_ENTER_BUFFER = Buffer.from('\x1b[?1049h', 'binary');
 const ALT_SCREEN_EXIT_BUFFER = Buffer.from('\x1b[?1049l', 'binary');
+const TUI_HOME_CLEAR_BUFFER = Buffer.from('\x1b[H\x1b[2K', 'binary');
+const TUI_LINE_CLEAR_BUFFER = Buffer.from('\x1b[2K\x1b[1B', 'binary');
 
 export const DEFAULT_MAX_HISTORY_BYTES = 1 * 1024 * 1024;
 export const DEFAULT_MAX_HISTORY_LINES = 2000;
@@ -113,6 +115,7 @@ export class TerminalHistoryBuffer {
 
   private pushNormal(buf: Buffer): void {
     if (buf.length === 0) return;
+    const isTuiRedraw = buf.includes(TUI_HOME_CLEAR_BUFFER) || buf.includes(TUI_LINE_CLEAR_BUFFER);
     const lastEd3Idx = this.clearOnEd3 ? buf.lastIndexOf(ED3_CLEAR_BUFFER) : -1;
     if (lastEd3Idx !== -1) {
       this.chunks = [];
@@ -120,13 +123,13 @@ export class TerminalHistoryBuffer {
       this.totalBytes = 0;
       this.totalLines = 0;
       const sliced = buf.subarray(lastEd3Idx);
-      const lines = countBufferNewlines(sliced);
+      const lines = isTuiRedraw ? 0 : countBufferNewlines(sliced);
       this.chunks.push(sliced);
       this.chunkLineCounts.push(lines);
       this.totalBytes = sliced.length;
       this.totalLines = lines;
     } else {
-      const lines = countBufferNewlines(buf);
+      const lines = isTuiRedraw ? 0 : countBufferNewlines(buf);
       this.chunks.push(buf);
       this.chunkLineCounts.push(lines);
       this.totalBytes += buf.length;

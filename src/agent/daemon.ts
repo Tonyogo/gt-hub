@@ -623,9 +623,9 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
   const pty = tryRequirePty();
 
   const maxScrollbackBytes = options.scrollback
-    ? Math.max(1024, parseInt(String(options.scrollback), 10) || (1 * 1024 * 1024))
-    : (1 * 1024 * 1024);
-  const terminalHistory = new TerminalHistoryBuffer(maxScrollbackBytes);
+    ? Math.max(1024, parseInt(String(options.scrollback), 10) || (4 * 1024 * 1024))
+    : (4 * 1024 * 1024);
+  const terminalHistory = new TerminalHistoryBuffer(maxScrollbackBytes, true, 10000);
 
   const secondaryPaneManager = new SecondaryPanePtyManager({
     shell: getDefaultShell(options),

@@ -851,12 +851,12 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     if (!terminalContainerRef.current) return;
 
     const MAX_SCROLLBACK_LINES = 2000;
-    const defaultScrollback = MAX_SCROLLBACK_LINES;
+    const defaultScrollback = 10000;
     const configuredScrollback = typeof localStorage !== 'undefined'
       ? parseInt(localStorage.getItem('terminal_scrollback_lines') || '', 10)
       : NaN;
     const scrollback = !isNaN(configuredScrollback) && configuredScrollback > 0
-      ? Math.min(configuredScrollback, MAX_SCROLLBACK_LINES)
+      ? configuredScrollback
       : defaultScrollback;
 
     const term = new Terminal({
@@ -892,6 +892,25 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     patchCompositionHelper(term);
     patchXtermNoopSelectionRefresh(term);
     patchXtermTransparentScrollbar(term);
+
+    // iTerm2-style Alternate Screen Mouse Wheel / Trackpad Scroll:
+    // When in Alternate Screen (Claude Code full-screen / transcript view, vim, htop, less),
+    // forward mouse wheel as PageUp / PageDown keys so TUI viewports can be scrolled natively.
+    term.attachCustomWheelEventHandler((domEvent: WheelEvent) => {
+      if (term.buffer.active.type === 'alternate') {
+        if (domEvent.deltaY < 0) {
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send('\x1b[5~');
+          }
+        } else if (domEvent.deltaY > 0) {
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send('\x1b[6~');
+          }
+        }
+        return false;
+      }
+      return true;
+    });
 
     if (isMobileRef.current && terminalContainerRef.current) {
       const initialViewport = terminalContainerRef.current.querySelector('.xterm-viewport') as HTMLElement | null;
@@ -1226,6 +1245,20 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
     const applyScrollDelta = (deltaPx: number): boolean => {
       if (!term || !isMountedRef.current) return true;
+      if (term.buffer?.active?.type === 'alternate') {
+        const lineHeight = getTouchLineHeight();
+        const step = stepTouchScrollLines(deltaPx, lineHeight);
+        if (step.linesToScroll !== 0) {
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            if (step.linesToScroll < 0) {
+              wsRef.current.send('\x1b[5~');
+            } else {
+              wsRef.current.send('\x1b[6~');
+            }
+          }
+        }
+        return false;
+      }
       const viewportEl = container?.querySelector('.xterm-viewport') as HTMLElement | null;
       const lineHeight = getTouchLineHeight();
       const res = applyViewportTouchScrollDelta({
@@ -1592,9 +1625,11 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send(data);
       }
-      isAtBottomRef.current = true;
-      setIsAtBottom(true);
-      scrollToBottomSafe(term);
+      if (data === '\r' || data === '\n' || isAtBottomRef.current) {
+        isAtBottomRef.current = true;
+        setIsAtBottom(true);
+        scrollToBottomSafe(term);
+      }
     });
 
     term.onKey(() => {});
