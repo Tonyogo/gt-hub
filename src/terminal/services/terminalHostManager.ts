@@ -46,9 +46,11 @@ export { stripTerminalQuerySequences } from '../../shared/utils/terminalSanitize
 import { stripTerminalQuerySequences } from '../../shared/utils/terminalSanitizer';
 import { TerminalHistoryBuffer } from '../../agent/pty/terminalHistoryBuffer';
 import { StringDecoder } from 'string_decoder';
+import { BIN_MSG_TYPE, encodeBinaryPacket } from '../../shared/protocol/binaryProtocol';
 
 export class RemoteAgentTerminalSession implements ITerminalSession {
   public hostId: string;
+  public readonly paneId: string;
   private agentWs: any = null;
   private activeSockets: Set<any> = new Set();
   private replayedSockets: WeakSet<any> = new WeakSet();
@@ -63,13 +65,14 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
   private idleEvictionTimer: NodeJS.Timeout | null = null;
   private static readonly IDLE_EVICTION_MS = 10 * 60 * 1000; // 10 minutes
   private static readonly HISTORY_CHUNK_SIZE = 64 * 1024;
-  private pendingInputBuffer: string[] = [];
+  private pendingInputBuffer: Array<string | Buffer> = [];
   private pendingInputBytes: number = 0;
   private readonly maxPendingInputBytes: number = 4 * 1024;
 
-  constructor(hostId: string, agentWs?: any) {
+  constructor(hostId: string, agentWs?: any, paneId: string = 'main') {
     this.hostId = hostId;
     this.agentWs = agentWs;
+    this.paneId = paneId;
     this.history = new TerminalHistoryBuffer(this.maxBufferSize, false);
     this.broadcastBatcher = new StreamBatcher((batchedText) => {
       const deadSockets: any[] = [];
@@ -165,9 +168,13 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
     } else if (this.history.getSize() === 0 && this.agentWs && this.agentWs.readyState === 1) {
       // Hub has no cached history (e.g. Hub restarted or cache was pruned) -> request from Agent on demand
       try {
-        this.agentWs.send(`JSON:${JSON.stringify({ type: 'history_req' })}`);
+        if (this.paneId === 'main') {
+          this.agentWs.send(`JSON:${JSON.stringify({ type: 'history_req' })}`);
+        } else {
+          this.agentWs.send(`JSON:${JSON.stringify({ type: 'history_req', paneId: this.paneId })}`);
+        }
       } catch (err: any) {
-        logger.warn(`[RemoteAgentTerminal:${this.hostId}] Failed to request history from agent: ${err.message}`);
+        logger.warn(`[RemoteAgentTerminal:${this.hostId}:${this.paneId}] Failed to request history from agent: ${err.message}`);
       }
     }
   }
@@ -180,18 +187,36 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
   }
 
   public write(data: string): void {
-    if (this.agentWs && this.agentWs.readyState === 1) {
-      try {
-        this.agentWs.send(data);
-      } catch (err: any) {
-        logger.warn(`[RemoteAgentTerminal:${this.hostId}] Failed to send data to agent: ${err.message}`);
+    if (this.paneId === 'main') {
+      if (this.agentWs && this.agentWs.readyState === 1) {
+        try {
+          this.agentWs.send(data);
+        } catch (err: any) {
+          logger.warn(`[RemoteAgentTerminal:${this.hostId}] Failed to send data to agent: ${err.message}`);
+        }
+      } else {
+        this.pendingInputBuffer.push(data);
+        this.pendingInputBytes += data.length;
+        while (this.pendingInputBytes > this.maxPendingInputBytes && this.pendingInputBuffer.length > 0) {
+          const shifted = this.pendingInputBuffer.shift()!;
+          this.pendingInputBytes -= typeof shifted === 'string' ? shifted.length : shifted.length;
+        }
       }
     } else {
-      this.pendingInputBuffer.push(data);
-      this.pendingInputBytes += data.length;
-      while (this.pendingInputBytes > this.maxPendingInputBytes && this.pendingInputBuffer.length > 0) {
-        const shifted = this.pendingInputBuffer.shift()!;
-        this.pendingInputBytes -= shifted.length;
+      const packet = encodeBinaryPacket(BIN_MSG_TYPE.TERMINAL_RAW, this.paneId, Buffer.from(data, 'utf-8'));
+      if (this.agentWs && this.agentWs.readyState === 1) {
+        try {
+          this.agentWs.send(packet);
+        } catch (err: any) {
+          logger.warn(`[RemoteAgentTerminal:${this.hostId}:${this.paneId}] Failed to send data to agent: ${err.message}`);
+        }
+      } else {
+        this.pendingInputBuffer.push(packet);
+        this.pendingInputBytes += packet.length;
+        while (this.pendingInputBytes > this.maxPendingInputBytes && this.pendingInputBuffer.length > 0) {
+          const shifted = this.pendingInputBuffer.shift()!;
+          this.pendingInputBytes -= typeof shifted === 'string' ? shifted.length : shifted.length;
+        }
       }
     }
   }
@@ -216,27 +241,49 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
     this.currentRows = rows;
     if (this.agentWs && this.agentWs.readyState === 1) {
       try {
-        if (shouldNudge) {
-          const nudgeCols = cols > 10 ? cols - 1 : cols + 1;
-          this.agentWs.send(`JSON:${JSON.stringify({ type: 'resize', cols: nudgeCols, rows })}`);
-          this.nudgeTimer = setTimeout(() => {
-            this.nudgeTimer = null;
-            if (this.agentWs && this.agentWs.readyState === 1) {
-              try {
-                this.agentWs.send(`JSON:${JSON.stringify({ type: 'resize', cols: this.currentCols, rows: this.currentRows })}`);
-              } catch (err: any) {
-                logger.warn(`[RemoteAgentTerminal:${this.hostId}] Failed to send restore resize to agent: ${err.message}`);
+        if (this.paneId === 'main') {
+          if (shouldNudge) {
+            const nudgeCols = cols > 10 ? cols - 1 : cols + 1;
+            this.agentWs.send(`JSON:${JSON.stringify({ type: 'resize', cols: nudgeCols, rows })}`);
+            this.nudgeTimer = setTimeout(() => {
+              this.nudgeTimer = null;
+              if (this.agentWs && this.agentWs.readyState === 1) {
+                try {
+                  this.agentWs.send(`JSON:${JSON.stringify({ type: 'resize', cols: this.currentCols, rows: this.currentRows })}`);
+                } catch (err: any) {
+                  logger.warn(`[RemoteAgentTerminal:${this.hostId}] Failed to send restore resize to agent: ${err.message}`);
+                }
               }
+            }, 60);
+            if (this.nudgeTimer && typeof this.nudgeTimer.unref === 'function') {
+              this.nudgeTimer.unref();
             }
-          }, 60);
-          if (this.nudgeTimer && typeof this.nudgeTimer.unref === 'function') {
-            this.nudgeTimer.unref();
+          } else {
+            this.agentWs.send(`JSON:${JSON.stringify({ type: 'resize', cols, rows })}`);
           }
         } else {
-          this.agentWs.send(`JSON:${JSON.stringify({ type: 'resize', cols, rows })}`);
+          if (shouldNudge) {
+            const nudgeCols = cols > 10 ? cols - 1 : cols + 1;
+            this.agentWs.send(`JSON:${JSON.stringify({ type: 'resize', paneId: this.paneId, cols: nudgeCols, rows })}`);
+            this.nudgeTimer = setTimeout(() => {
+              this.nudgeTimer = null;
+              if (this.agentWs && this.agentWs.readyState === 1) {
+                try {
+                  this.agentWs.send(`JSON:${JSON.stringify({ type: 'resize', paneId: this.paneId, cols: this.currentCols, rows: this.currentRows })}`);
+                } catch (err: any) {
+                  logger.warn(`[RemoteAgentTerminal:${this.hostId}:${this.paneId}] Failed to send restore resize to agent: ${err.message}`);
+                }
+              }
+            }, 60);
+            if (this.nudgeTimer && typeof this.nudgeTimer.unref === 'function') {
+              this.nudgeTimer.unref();
+            }
+          } else {
+            this.agentWs.send(`JSON:${JSON.stringify({ type: 'resize', paneId: this.paneId, cols, rows })}`);
+          }
         }
       } catch (err: any) {
-        logger.warn(`[RemoteAgentTerminal:${this.hostId}] Failed to send resize to agent: ${err.message}`);
+        logger.warn(`[RemoteAgentTerminal:${this.hostId}:${this.paneId}] Failed to send resize to agent: ${err.message}`);
       }
     }
   }
@@ -264,7 +311,7 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
   }
 
   public notifyAgentDisconnected(): void {
-    const offlineMsg = `JSON:${JSON.stringify({ type: 'agent_offline', hostId: this.hostId })}`;
+    const offlineMsg = `JSON:${JSON.stringify({ type: 'agent_offline', hostId: this.hostId, paneId: this.paneId })}`;
     for (const ws of this.activeSockets) {
       try {
         if (ws && ws.readyState === 1) {
@@ -278,6 +325,23 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
       }
     }
     this.activeSockets.clear();
+  }
+
+  public notifyPaneExited(exitCode: number = 0): void {
+    const exitMsg = `JSON:${JSON.stringify({ type: 'pane_exit', paneId: this.paneId, exitCode })}`;
+    for (const ws of this.activeSockets) {
+      try {
+        if (ws && ws.readyState === 1) {
+          ws.send(exitMsg);
+        }
+      } catch {
+        // Ignore write errors
+      }
+    }
+    this.history.clear();
+    if (this.broadcastBatcher) {
+      this.broadcastBatcher.flush();
+    }
   }
 
   private scheduleIdleEviction(): void {
@@ -315,9 +379,13 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
     this.currentRows = 0;
     if (resetAgentPty && this.agentWs && this.agentWs.readyState === 1) {
       try {
-        this.agentWs.send(`JSON:${JSON.stringify({ type: 'reset' })}`);
+        if (this.paneId === 'main') {
+          this.agentWs.send(`JSON:${JSON.stringify({ type: 'reset' })}`);
+        } else {
+          this.agentWs.send(`JSON:${JSON.stringify({ type: 'reset', paneId: this.paneId })}`);
+        }
       } catch (err: any) {
-        logger.warn(`[RemoteAgentTerminal:${this.hostId}] Failed to send reset to agent: ${err.message}`);
+        logger.warn(`[RemoteAgentTerminal:${this.hostId}:${this.paneId}] Failed to send reset to agent: ${err.message}`);
       }
     }
     if (notifyClients) {
@@ -377,8 +445,16 @@ export class TerminalHostManager {
   public static readonly OFFLINE_HOST_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
   private hosts: Map<string, ManagedHost> = new Map();
   private sessions: Map<string, RemoteAgentTerminalSession> = new Map();
+  private paneSessions: Map<string, RemoteAgentTerminalSession> = new Map();
   private pruneTimer: NodeJS.Timeout | null = null;
   private rpcDispatcher: RpcDispatcher;
+
+  public static normalizePaneId(paneId?: string | null): string {
+    if (!paneId || typeof paneId !== 'string') return 'main';
+    const trimmed = paneId.trim();
+    if (!/^[a-zA-Z0-9_-]{1,32}$/.test(trimmed)) return 'main';
+    return trimmed;
+  }
 
   constructor(rpcDispatcherInstance?: RpcDispatcher) {
     this.rpcDispatcher = rpcDispatcherInstance || new RpcDispatcher();
@@ -453,6 +529,13 @@ export class TerminalHostManager {
             session.destroy();
             this.sessions.delete(id);
           }
+          const prefix = `${id}::`;
+          for (const [key, paneSession] of this.paneSessions.entries()) {
+            if (key.startsWith(prefix)) {
+              paneSession.destroy();
+              this.paneSessions.delete(key);
+            }
+          }
           this.clearPendingRpcForHost(id);
           this.hosts.delete(id);
           logger.info(`[TerminalHostManager] Pruned offline host: ${id} (lastSeen: ${new Date(host.lastSeen).toISOString()})`);
@@ -502,8 +585,9 @@ export class TerminalHostManager {
     return host || null;
   }
 
-  public getSession(hostIdOrName?: string): RemoteAgentTerminalSession | null {
+  public getSession(hostIdOrName?: string, paneId: string = 'main'): RemoteAgentTerminalSession | null {
     if (!hostIdOrName || !hostIdOrName.trim()) return null;
+    const normalizedPaneId = TerminalHostManager.normalizePaneId(paneId);
     const canonicalId = this.resolveCanonicalHostId(hostIdOrName);
     if (!canonicalId) return null;
     const host = this.hosts.get(canonicalId);
@@ -516,13 +600,26 @@ export class TerminalHostManager {
         host.lastSeen = Date.now();
         logger.info(`[TerminalHostManager] Auto-healed host status to online for ${canonicalId} in getSession`);
       }
-      return session;
+      if (normalizedPaneId === 'main') {
+        return session;
+      }
     }
 
     if (!host || host.status !== 'online') {
       return null;
     }
-    return session || null;
+    if (normalizedPaneId === 'main') {
+      return session || null;
+    }
+
+    const paneKey = `${canonicalId}::${normalizedPaneId}`;
+    let paneSession = this.paneSessions.get(paneKey);
+    if (!paneSession) {
+      const agentWs = session ? session.getAgentWs() : null;
+      paneSession = new RemoteAgentTerminalSession(canonicalId, agentWs, normalizedPaneId);
+      this.paneSessions.set(paneKey, paneSession);
+    }
+    return paneSession;
   }
 
   public isAgentOnline(agentIdentifier?: string): boolean {
@@ -604,6 +701,13 @@ export class TerminalHostManager {
               session.destroy();
               this.sessions.delete(existingId);
             }
+            const prefix = `${existingId}::`;
+            for (const [key, paneSession] of this.paneSessions.entries()) {
+              if (key.startsWith(prefix)) {
+                paneSession.destroy();
+                this.paneSessions.delete(key);
+              }
+            }
             this.clearPendingRpcForHost(existingId);
             this.hosts.delete(existingId);
             logger.info(`[TerminalHostManager] Pruned offline host with matching machineId "${machineId}": ${existingId}`);
@@ -627,6 +731,13 @@ export class TerminalHostManager {
           if (session) {
             session.destroy();
             this.sessions.delete(existingId);
+          }
+          const prefix = `${existingId}::`;
+          for (const [key, paneSession] of this.paneSessions.entries()) {
+            if (key.startsWith(prefix)) {
+              paneSession.destroy();
+              this.paneSessions.delete(key);
+            }
           }
           this.clearPendingRpcForHost(existingId);
           this.hosts.delete(existingId);
@@ -689,6 +800,12 @@ export class TerminalHostManager {
       } else {
         session.updateAgentWs(metadata.agentWs);
       }
+      const prefix = `${id}::`;
+      for (const [key, paneSession] of this.paneSessions.entries()) {
+        if (key.startsWith(prefix)) {
+          paneSession.updateAgentWs(metadata.agentWs);
+        }
+      }
     }
 
     logger.info(`[TerminalHostManager] Agent registered: ${id} (${host.name})`);
@@ -726,6 +843,18 @@ export class TerminalHostManager {
       session.notifyAgentDisconnected();
       session.updateAgentWs(null);
       this.clearPendingRpcForHost(canonicalId, `Agent ${canonicalId} disconnected; RPC cancelled`);
+    }
+
+    const prefix = `${canonicalId}::`;
+    for (const [key, paneSession] of this.paneSessions.entries()) {
+      if (key.startsWith(prefix)) {
+        if (!closingWs || paneSession.getAgentWs() === closingWs) {
+          paneSession.notifyAgentDisconnected();
+          paneSession.updateAgentWs(null);
+          paneSession.destroy();
+          this.paneSessions.delete(key);
+        }
+      }
     }
   }
 
@@ -786,6 +915,12 @@ export class TerminalHostManager {
 
     if (session && ws && currentWs !== ws) {
       session.updateAgentWs(ws);
+      const prefix = `${canonicalId}::`;
+      for (const [key, paneSession] of this.paneSessions.entries()) {
+        if (key.startsWith(prefix)) {
+          paneSession.updateAgentWs(ws);
+        }
+      }
     }
   }
 
@@ -814,6 +949,88 @@ export class TerminalHostManager {
     if (host) {
       host.lastSeen = Date.now();
       host.status = 'online';
+    }
+  }
+
+  public destroyPaneSession(hostIdOrName: string, paneId: string, notifyAgent: boolean = false): boolean {
+    const normalizedPaneId = TerminalHostManager.normalizePaneId(paneId);
+    if (normalizedPaneId === 'main') {
+      return false;
+    }
+    const canonicalId = this.resolveCanonicalHostId(hostIdOrName);
+    if (!canonicalId) return false;
+    const paneKey = `${canonicalId}::${normalizedPaneId}`;
+    const paneSession = this.paneSessions.get(paneKey);
+    const agentWs = paneSession ? paneSession.getAgentWs() : this.getAgentWs(canonicalId);
+    if (notifyAgent && agentWs && agentWs.readyState === 1) {
+      try {
+        agentWs.send(`JSON:${JSON.stringify({ type: 'pane_close', paneId: normalizedPaneId })}`);
+      } catch {}
+    }
+    if (paneSession) {
+      paneSession.destroy();
+      this.paneSessions.delete(paneKey);
+      return true;
+    }
+    return Boolean(agentWs);
+  }
+
+  public handleAgentPaneData(hostId: string, paneId: string, data: any): void {
+    const normalizedPaneId = TerminalHostManager.normalizePaneId(paneId);
+    if (normalizedPaneId === 'main') {
+      this.handleAgentData(hostId, data);
+      return;
+    }
+    const canonicalId = this.resolveCanonicalHostId(hostId) || hostId;
+    const paneKey = `${canonicalId}::${normalizedPaneId}`;
+    let session = this.paneSessions.get(paneKey);
+    if (!session) {
+      const mainSession = this.sessions.get(canonicalId);
+      session = new RemoteAgentTerminalSession(canonicalId, mainSession ? mainSession.getAgentWs() : null, normalizedPaneId);
+      this.paneSessions.set(paneKey, session);
+    }
+    session.handleData(data);
+
+    const host = this.hosts.get(canonicalId);
+    if (host) {
+      host.lastSeen = Date.now();
+      host.status = 'online';
+    }
+  }
+
+  public handleAgentPaneHistorySync(hostId: string, paneId: string, history: Buffer | string): void {
+    const normalizedPaneId = TerminalHostManager.normalizePaneId(paneId);
+    if (normalizedPaneId === 'main') {
+      this.handleAgentHistorySync(hostId, history);
+      return;
+    }
+    const canonicalId = this.resolveCanonicalHostId(hostId) || hostId;
+    const paneKey = `${canonicalId}::${normalizedPaneId}`;
+    let session = this.paneSessions.get(paneKey);
+    if (!session) {
+      const mainSession = this.sessions.get(canonicalId);
+      session = new RemoteAgentTerminalSession(canonicalId, mainSession ? mainSession.getAgentWs() : null, normalizedPaneId);
+      this.paneSessions.set(paneKey, session);
+    }
+    session.handleHistorySync(history);
+
+    const host = this.hosts.get(canonicalId);
+    if (host) {
+      host.lastSeen = Date.now();
+      host.status = 'online';
+    }
+  }
+
+  public handleAgentPaneExit(hostId: string, paneId: string, exitCode?: number): void {
+    const normalizedPaneId = TerminalHostManager.normalizePaneId(paneId);
+    if (normalizedPaneId === 'main') return;
+    const canonicalId = this.resolveCanonicalHostId(hostId) || hostId;
+    const paneKey = `${canonicalId}::${normalizedPaneId}`;
+    const session = this.paneSessions.get(paneKey);
+    if (session) {
+      session.notifyPaneExited(exitCode ?? 0);
+      session.destroy();
+      this.paneSessions.delete(paneKey);
     }
   }
 

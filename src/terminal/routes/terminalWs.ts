@@ -4,7 +4,7 @@ import { WebSocketServer, WebSocket, RawData } from 'ws';
 import config from '../../../config/default';
 import logger from '../../utils/logger';
 import { safeCompareSecret } from '../../shared/utils/security';
-import { terminalHostManager } from '../services/terminalHostManager';
+import { terminalHostManager, TerminalHostManager } from '../services/terminalHostManager';
 import { terminalExecBridge } from '../services/terminalExecBridge';
 import { terminalProxyBridge } from '../services/terminalProxyBridge';
 import { ticketManager } from '../../server/modules/auth/ticketManager';
@@ -191,8 +191,16 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
             terminalExecBridge.handleAgentStreamMessage(hostId, buf);
             return;
           }
+          if (decoded && decoded.msgType === BIN_MSG_TYPE.TERMINAL_RAW) {
+            hostMgr.handleAgentPaneData(hostId, decoded.id, decoded.payload);
+            return;
+          }
           if (decoded && decoded.msgType === BIN_MSG_TYPE.HISTORY_SYNC) {
-            hostMgr.handleAgentHistorySync(hostId, decoded.payload);
+            if (decoded.id && decoded.id !== hostId) {
+              hostMgr.handleAgentPaneHistorySync(hostId, decoded.id, decoded.payload);
+            } else {
+              hostMgr.handleAgentHistorySync(hostId, decoded.payload);
+            }
             return;
           }
           hostMgr.handleAgentData(hostId, message);
@@ -248,7 +256,11 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
             return;
           }
           if (control.type === 'history_sync') {
-            hostMgr.handleAgentHistorySync(hostId, control.history);
+            if (control.paneId && control.paneId !== 'main') {
+              hostMgr.handleAgentPaneHistorySync(hostId, control.paneId, control.history);
+            } else {
+              hostMgr.handleAgentHistorySync(hostId, control.history);
+            }
             return;
           }
           if (control.type === 'cron_report' && control.record) {
@@ -256,10 +268,15 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
             return;
           }
           if (control.type === 'reset') {
-            const session = hostMgr.getSession(hostId);
+            const targetPane = control.paneId || 'main';
+            const session = hostMgr.getSession(hostId, targetPane);
             if (session) {
               session.reset(true, false);
             }
+            return;
+          }
+          if (control.type === 'pane_exit') {
+            hostMgr.handleAgentPaneExit(hostId, control.paneId || 'split', control.exitCode);
             return;
           }
           // Any other control frame is consumed here
@@ -297,6 +314,9 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
     }
     const parsedUrl = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
     const hostId = (parsedUrl.searchParams.get('hostId') || '').trim();
+    const paneId = (hostMgr && typeof (hostMgr.constructor as typeof TerminalHostManager).normalizePaneId === 'function')
+      ? (hostMgr.constructor as typeof TerminalHostManager).normalizePaneId(parsedUrl.searchParams.get('paneId'))
+      : TerminalHostManager.normalizePaneId(parsedUrl.searchParams.get('paneId'));
 
     if (!hostId) {
       logger.warn('[TerminalWS] Interactive terminal client connected without hostId');
@@ -305,11 +325,11 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
       return;
     }
 
-    logger.info(`[TerminalWS] Interactive terminal client attached to host: ${hostId}`);
-    const session = hostMgr.getSession(hostId);
+    logger.info(`[TerminalWS] Interactive terminal client attached to host: ${hostId} (pane: ${paneId})`);
+    const session = hostMgr.getSession(hostId, paneId);
 
     if (!session) {
-      logger.warn(`[TerminalWS] No active session found for host: ${hostId}`);
+      logger.warn(`[TerminalWS] No active session found for host: ${hostId} (pane: ${paneId})`);
       ws.send(`\r\n\x1b[33m[Host Offline] Host "${hostId}" is offline or unavailable.\x1b[0m\r\n`);
       ws.close(1008, 'Host session unavailable');
       return;
@@ -322,7 +342,7 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
         const msgStr = message.toString();
         if (msgStr.startsWith('JSON:')) {
           const control = JSON.parse(msgStr.slice(5));
-          logger.debug(`[TerminalWS:${hostId}] Control frame: ${JSON.stringify(control)}`);
+          logger.debug(`[TerminalWS:${hostId}:${paneId}] Control frame: ${JSON.stringify(control)}`);
           if (
             control.type === 'resize' &&
             typeof control.cols === 'number' &&
@@ -336,8 +356,13 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
             return;
           }
           if (control.type === 'reset') {
-            logger.info(`[TerminalWS:${hostId}] Reset session requested by client`);
+            logger.info(`[TerminalWS:${hostId}:${paneId}] Reset session requested by client`);
             session.reset(true, true);
+            return;
+          }
+          if (control.type === 'pane_close') {
+            logger.info(`[TerminalWS:${hostId}:${paneId}] Pane close requested by client`);
+            hostMgr.destroyPaneSession(hostId, paneId, true);
             return;
           }
           if (control.type === 'ping') {

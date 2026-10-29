@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { isSyntheticTerminalReport, isUnsolicitedShellDeviceReport } from '../../../utils/terminalFilter';
@@ -8,6 +8,7 @@ import { requestAuthTicket } from '../../../utils/apiClient';
 export interface UseTerminalWebSocketOptions {
   adminKey: string;
   activeHostId: string;
+  paneId?: 'main' | 'split';
   xtermRef: React.RefObject<Terminal | null>;
   fitAddonRef: React.RefObject<FitAddon | null>;
   isMountedRef: React.RefObject<boolean>;
@@ -16,6 +17,7 @@ export interface UseTerminalWebSocketOptions {
   isMobileRef: React.RefObject<boolean>;
   safeFit: (forceResize?: boolean) => boolean;
   onConnectionChange?: (status: { isConnected: boolean; isConnecting: boolean }) => void;
+  onPaneExit?: () => void;
 }
 
 export interface UseTerminalWebSocketReturn {
@@ -40,6 +42,7 @@ export interface UseTerminalWebSocketReturn {
 export function useTerminalWebSocket({
   adminKey,
   activeHostId,
+  paneId = 'main',
   xtermRef,
   fitAddonRef,
   isMountedRef,
@@ -48,6 +51,7 @@ export function useTerminalWebSocket({
   isMobileRef,
   safeFit,
   onConnectionChange,
+  onPaneExit,
 }: UseTerminalWebSocketOptions): UseTerminalWebSocketReturn {
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isConnecting, setIsConnecting] = useState<boolean>(true);
@@ -65,6 +69,10 @@ export function useTerminalWebSocket({
   const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const connectSeqRef = useRef<number>(0);
   const lastPongTimeRef = useRef<number>(Date.now());
+  const onPaneExitRef = useRef(onPaneExit);
+  useEffect(() => {
+    onPaneExitRef.current = onPaneExit;
+  }, [onPaneExit]);
 
   const clearPingInterval = useCallback(() => {
     if (pingIntervalRef.current) {
@@ -147,7 +155,8 @@ export function useTerminalWebSocket({
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const host = window.location.host;
       const ticketParam = ticket ? `ticket=${encodeURIComponent(ticket)}` : (adminKey ? `x-admin-key=${encodeURIComponent(adminKey)}` : '');
-      const wsUrl = `${protocol}//${host}/api/terminal/ws?${ticketParam ? ticketParam + '&' : ''}hostId=${encodeURIComponent(activeHostId)}`;
+      const paneParam = paneId && paneId !== 'main' ? `&paneId=${encodeURIComponent(paneId)}` : '';
+      const wsUrl = `${protocol}//${host}/api/terminal/ws?${ticketParam ? ticketParam + '&' : ''}hostId=${encodeURIComponent(activeHostId)}${paneParam}`;
 
       const ws = new WebSocket(wsUrl);
       ws.binaryType = 'arraybuffer';
@@ -217,6 +226,14 @@ export function useTerminalWebSocket({
                 try {
                   ws.close(1012, 'Agent disconnected');
                 } catch {}
+                return;
+              }
+              if (parsed.type === 'pane_exit') {
+                isProcessExitedRef.current = true;
+                setIsConnected(false);
+                setIsConnecting(false);
+                clearReconnectTimers();
+                onPaneExitRef.current?.();
                 return;
               }
               if (parsed.type === 'pong') {

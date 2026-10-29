@@ -26,6 +26,8 @@ import {
   LogOut,
   ScrollText,
   MoreVertical,
+  Columns2,
+  X,
 } from 'lucide-react';
 import { useTranslation } from '../i18n/LanguageContext';
 import { useTheme } from '../theme/ThemeContext';
@@ -80,11 +82,26 @@ export default function UnifiedTerminalView({
   });
 
   const terminalRef = useRef<WebTerminalHandle>(null);
+  const splitTerminalRef = useRef<WebTerminalHandle>(null);
+  const splitContainerRef = useRef<HTMLDivElement>(null);
   const fileManagerRef = useRef<TerminalFileManagerHandle>(null);
   const cronRef = useRef<TerminalCronHandle>(null);
   const taskRef = useRef<TerminalTaskHandle>(null);
   const proxyRef = useRef<TerminalProxyHandle>(null);
   const [serverTimezone, setServerTimezone] = useState<string>('');
+
+  const [isSplitMode, setIsSplitMode] = useState<boolean>(() => {
+    return localStorage.getItem('terminal_split_enabled') === 'true';
+  });
+  const [splitRatio, setSplitRatio] = useState<number>(() => {
+    const saved = localStorage.getItem('terminal_split_ratio');
+    if (!saved) return 50;
+    const parsed = parseInt(saved, 10);
+    if (Number.isNaN(parsed)) return 50;
+    return Math.max(20, Math.min(80, parsed));
+  });
+  const [activePane, setActivePane] = useState<'main' | 'split'>('main');
+  const isDraggingSplitterRef = useRef<boolean>(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -277,17 +294,175 @@ export default function UnifiedTerminalView({
     localStorage.setItem('terminal_active_host', newHostId);
   }, []);
 
+  const getActiveTerminalRef = useCallback((): WebTerminalHandle | null => {
+    if (isSplitMode && activePane === 'split') {
+      return splitTerminalRef.current;
+    }
+    return terminalRef.current;
+  }, [isSplitMode, activePane]);
+
+  const fitAllPanes = useCallback((force: boolean = false) => {
+    terminalRef.current?.fit(force);
+    if (isSplitMode) {
+      splitTerminalRef.current?.fit(force);
+    }
+  }, [isSplitMode]);
+
+  const openSplitPane = useCallback(() => {
+    setIsSplitMode(true);
+    localStorage.setItem('terminal_split_enabled', 'true');
+    setActivePane('split');
+    setTimeout(() => {
+      terminalRef.current?.fit(true);
+      splitTerminalRef.current?.fit(true);
+      splitTerminalRef.current?.focus();
+    }, 100);
+  }, []);
+
+  const closeSplitPane = useCallback((notifyBackend: boolean = true) => {
+    if (notifyBackend) {
+      splitTerminalRef.current?.closePaneSession();
+    }
+    setIsSplitMode(false);
+    localStorage.setItem('terminal_split_enabled', 'false');
+    setActivePane('main');
+    setTimeout(() => {
+      terminalRef.current?.fit(true);
+      terminalRef.current?.focus();
+    }, 100);
+  }, []);
+
+  const handleSplitterMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingSplitterRef.current = true;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      if (!isDraggingSplitterRef.current || !splitContainerRef.current) return;
+      const rect = splitContainerRef.current.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      const rawRatio = ((moveEvent.clientX - rect.left) / rect.width) * 100;
+      const clamped = Math.max(20, Math.min(80, Math.round(rawRatio)));
+      setSplitRatio(clamped);
+      localStorage.setItem('terminal_split_ratio', String(clamped));
+      requestAnimationFrame(() => {
+        terminalRef.current?.fit();
+        splitTerminalRef.current?.fit();
+      });
+    };
+
+    const onMouseUp = () => {
+      isDraggingSplitterRef.current = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      terminalRef.current?.fit(true);
+      splitTerminalRef.current?.fit(true);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, []);
+
+  const handleSplitterTouchStart = useCallback((e: React.TouchEvent) => {
+    isDraggingSplitterRef.current = true;
+
+    const onTouchMove = (moveEvent: TouchEvent) => {
+      if (!isDraggingSplitterRef.current || !splitContainerRef.current || moveEvent.touches.length === 0) return;
+      const touch = moveEvent.touches[0];
+      const rect = splitContainerRef.current.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      const rawRatio = ((touch.clientX - rect.left) / rect.width) * 100;
+      const clamped = Math.max(20, Math.min(80, Math.round(rawRatio)));
+      setSplitRatio(clamped);
+      localStorage.setItem('terminal_split_ratio', String(clamped));
+      requestAnimationFrame(() => {
+        terminalRef.current?.fit();
+        splitTerminalRef.current?.fit();
+      });
+    };
+
+    const onTouchEnd = () => {
+      isDraggingSplitterRef.current = false;
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onTouchEnd);
+      terminalRef.current?.fit(true);
+      splitTerminalRef.current?.fit(true);
+    };
+
+    window.addEventListener('touchmove', onTouchMove, { passive: true });
+    window.addEventListener('touchend', onTouchEnd);
+  }, []);
+
+  const handleSplitterDoubleClick = useCallback(() => {
+    setSplitRatio(50);
+    localStorage.setItem('terminal_split_ratio', '50');
+    setTimeout(() => {
+      terminalRef.current?.fit(true);
+      splitTerminalRef.current?.fit(true);
+    }, 50);
+  }, []);
+
+  useEffect(() => {
+    if (subTab !== 'interactive') return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!e.altKey) return;
+
+      if (e.code === 'KeyD' || e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        if (isSplitMode) {
+          closeSplitPane(true);
+        } else {
+          openSplitPane();
+        }
+        return;
+      }
+
+      if (e.code === 'KeyW' || e.key.toLowerCase() === 'w') {
+        if (isSplitMode) {
+          e.preventDefault();
+          closeSplitPane(true);
+        }
+        return;
+      }
+
+      if (e.key === 'ArrowLeft' || e.code === 'ArrowLeft') {
+        if (isSplitMode) {
+          e.preventDefault();
+          setActivePane('main');
+          terminalRef.current?.focus();
+        }
+        return;
+      }
+
+      if (e.key === 'ArrowRight' || e.code === 'ArrowRight') {
+        if (isSplitMode) {
+          e.preventDefault();
+          setActivePane('split');
+          splitTerminalRef.current?.focus();
+        }
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [subTab, isSplitMode, openSplitPane, closeSplitPane]);
+
   const handleSubTabChange = useCallback((newTab: TerminalSubTab) => {
     setSubTab(newTab);
     if (newTab === 'interactive') {
       setTimeout(() => {
-        terminalRef.current?.fit(true);
+        fitAllPanes(true);
       }, 50);
       setTimeout(() => {
-        terminalRef.current?.fit(true);
+        fitAllPanes(true);
       }, 200);
     }
-  }, []);
+  }, [fitAllPanes]);
 
   const handleFullscreenToggle = useCallback(() => {
     toggleBrowserFullscreen(isMobile).catch(() => {});
@@ -295,36 +470,36 @@ export default function UnifiedTerminalView({
 
   const handleResetSession = useCallback(() => {
     if (window.confirm(t('webTerminal.resetConfirm'))) {
-      terminalRef.current?.resetSession();
+      getActiveTerminalRef()?.resetSession();
     }
-  }, [t]);
+  }, [t, getActiveTerminalRef]);
 
   const handleToggleSelectMode = useCallback(() => {
-    terminalRef.current?.toggleSelectMode();
-  }, []);
+    getActiveTerminalRef()?.toggleSelectMode();
+  }, [getActiveTerminalRef]);
 
   useEffect(() => {
     if (subTab === 'interactive' && activeHostId) {
-      const t1 = setTimeout(() => terminalRef.current?.fit(true), 60);
-      const t2 = setTimeout(() => terminalRef.current?.fit(), 200);
-      const t3 = setTimeout(() => terminalRef.current?.fit(), 500);
+      const t1 = setTimeout(() => fitAllPanes(true), 60);
+      const t2 = setTimeout(() => fitAllPanes(), 200);
+      const t3 = setTimeout(() => fitAllPanes(), 500);
       return () => {
         clearTimeout(t1);
         clearTimeout(t2);
         clearTimeout(t3);
       };
     }
-  }, [subTab, activeHostId]);
+  }, [subTab, activeHostId, fitAllPanes]);
 
   useEffect(() => {
     const handleWindowResize = () => {
       if (subTab === 'interactive' && !isMobile) {
-        terminalRef.current?.fit();
+        fitAllPanes();
       }
     };
     window.addEventListener('resize', handleWindowResize);
     return () => window.removeEventListener('resize', handleWindowResize);
-  }, [subTab, isMobile]);
+  }, [subTab, isMobile, fitAllPanes]);
 
   return (
     <div
@@ -452,7 +627,12 @@ export default function UnifiedTerminalView({
               {/* Zoom Out */}
               <button
                 type="button"
-                onClick={() => terminalRef.current?.zoomOut()}
+                onClick={() => {
+                  terminalRef.current?.zoomOut();
+                  if (isSplitMode) {
+                    splitTerminalRef.current?.zoomOut();
+                  }
+                }}
                 className="hidden lg:inline-flex p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border border-white/[0.06] transition-all"
                 title="Zoom Out"
               >
@@ -462,7 +642,12 @@ export default function UnifiedTerminalView({
               {/* Zoom In */}
               <button
                 type="button"
-                onClick={() => terminalRef.current?.zoomIn()}
+                onClick={() => {
+                  terminalRef.current?.zoomIn();
+                  if (isSplitMode) {
+                    splitTerminalRef.current?.zoomIn();
+                  }
+                }}
                 className="hidden lg:inline-flex p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border border-white/[0.06] transition-all"
                 title="Zoom In"
               >
@@ -472,7 +657,7 @@ export default function UnifiedTerminalView({
               {/* Reconnect */}
               <button
                 type="button"
-                onClick={() => terminalRef.current?.reconnect()}
+                onClick={() => getActiveTerminalRef()?.reconnect()}
                 className="hidden sm:inline-flex p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border border-white/[0.06] transition-all"
                 title={t('webTerminal.reconnect')}
               >
@@ -494,11 +679,32 @@ export default function UnifiedTerminalView({
                 type="button"
                 data-testid="unified-open-scripts-btn"
                 className="hidden sm:inline-flex p-1 sm:p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border border-white/[0.06] transition-all items-center space-x-1 text-xs whitespace-nowrap"
-                onClick={() => terminalRef.current?.openScriptDrawer()}
+                onClick={() => getActiveTerminalRef()?.openScriptDrawer()}
                 title={t('scripts.title', '常用脚本库')}
               >
                 <ScrollText className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
                 <span className="hidden xl:inline font-sans text-[11px]">{t('scripts.title', '常用脚本库')}</span>
+              </button>
+
+              {/* Split Terminal Toggle Button */}
+              <button
+                type="button"
+                data-testid="split-terminal-btn"
+                onClick={() => {
+                  if (isSplitMode) {
+                    closeSplitPane(true);
+                  } else {
+                    openSplitPane();
+                  }
+                }}
+                className={`p-1 sm:p-1.5 rounded-lg border transition-all ${
+                  isSplitMode
+                    ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                    : 'bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border border-white/[0.06]'
+                }`}
+                title={isSplitMode ? t('webTerminal.closeSplitPane', '关闭分屏') : t('webTerminal.splitPane', '左右分屏')}
+              >
+                <Columns2 className="w-3.5 h-3.5" />
               </button>
 
               {/* Select / Copy Mode Toggle */}
@@ -605,8 +811,25 @@ export default function UnifiedTerminalView({
                   <div className="py-1">
                     <button
                       type="button"
+                      data-testid="mobile-split-terminal-btn"
                       onClick={() => {
-                        terminalRef.current?.openScriptDrawer();
+                        if (isSplitMode) {
+                          closeSplitPane(true);
+                        } else {
+                          openSplitPane();
+                        }
+                        setIsMoreMenuOpen(false);
+                      }}
+                      className="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-white/[0.06] text-left transition-colors"
+                    >
+                      <Columns2 className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>{isSplitMode ? t('webTerminal.closeSplitPane', '关闭分屏') : t('webTerminal.splitPane', '左右分屏')}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        getActiveTerminalRef()?.openScriptDrawer();
                         setIsMoreMenuOpen(false);
                       }}
                       className="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-white/[0.06] text-left transition-colors"
@@ -618,7 +841,7 @@ export default function UnifiedTerminalView({
                     <button
                       type="button"
                       onClick={() => {
-                        terminalRef.current?.reconnect();
+                        getActiveTerminalRef()?.reconnect();
                         setIsMoreMenuOpen(false);
                       }}
                       className="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-white/[0.06] text-left transition-colors"
@@ -751,28 +974,129 @@ export default function UnifiedTerminalView({
         className="flex-1 min-h-0 flex flex-col relative overflow-hidden"
       >
         {/* Main Dual Panels Workspace (Preserved via CSS hidden / flex toggle) */}
-        <div className={`flex-1 min-h-0 ${subTab === 'interactive' ? 'flex' : 'hidden'} flex-col`}>
-          <WebTerminalView
-            ref={terminalRef}
-            adminKey={adminKey}
-            hideHeader={true}
-            standalone={Boolean(isStandalone)}
-            isActive={subTab === 'interactive'}
-            onExitStandalone={onExitStandalone}
-            onToggleStandalone={(val) => {
-              if (val && onEnterStandalone) {
-                onEnterStandalone();
-              } else if (!val && onExitStandalone) {
-                onExitStandalone();
-              }
-            }}
-            controlledHostId={activeHostId}
-            onControlledHostChange={handleHostChange}
-            hideInnerHostSelector={true}
-            onConnectionChange={setConnectionStatus}
-            onSelectModeChange={setIsSelectMode}
-            onRequestAddNode={() => setIsAddNodeModalOpen(true)}
-          />
+        <div
+          ref={splitContainerRef}
+          className={`flex-1 min-h-0 ${subTab === 'interactive' ? 'flex' : 'hidden'} ${isSplitMode ? 'flex-row' : 'flex-col'} relative overflow-hidden`}
+        >
+          {/* Main Terminal Pane */}
+          <div
+            style={isSplitMode ? { width: `${splitRatio}%` } : undefined}
+            className={`h-full flex flex-col min-w-0 min-h-0 relative ${
+              isSplitMode
+                ? activePane === 'main'
+                  ? 'border-r border-indigo-500/40 ring-1 ring-indigo-500/20'
+                  : 'border-r border-white/[0.06]'
+                : 'w-full flex-1'
+            }`}
+          >
+            {isSplitMode && (
+              <div className="flex items-center justify-between px-2 py-0.5 bg-black/40 border-b border-white/[0.06] text-[10px] select-none text-slate-400 shrink-0">
+                <div className="flex items-center space-x-1.5">
+                  <span className={`w-1.5 h-1.5 rounded-full ${activePane === 'main' ? 'bg-indigo-400 ring-2 ring-indigo-400/30' : 'bg-slate-600'}`} />
+                  <span className={activePane === 'main' ? 'font-semibold text-slate-200' : 'text-slate-400'}>
+                    {t('webTerminal.paneMain', '终端 #1')}
+                  </span>
+                </div>
+              </div>
+            )}
+            <div className="flex-1 min-h-0 min-w-0 h-full relative">
+              <WebTerminalView
+                ref={terminalRef}
+                paneId="main"
+                isFocusedPane={!isSplitMode || activePane === 'main'}
+                onFocusPane={() => setActivePane('main')}
+                adminKey={adminKey}
+                hideHeader={true}
+                standalone={Boolean(isStandalone)}
+                isActive={subTab === 'interactive'}
+                onExitStandalone={onExitStandalone}
+                onToggleStandalone={(val) => {
+                  if (val && onEnterStandalone) {
+                    onEnterStandalone();
+                  } else if (!val && onExitStandalone) {
+                    onExitStandalone();
+                  }
+                }}
+                controlledHostId={activeHostId}
+                onControlledHostChange={handleHostChange}
+                hideInnerHostSelector={true}
+                onConnectionChange={setConnectionStatus}
+                onSelectModeChange={setIsSelectMode}
+                onRequestAddNode={() => setIsAddNodeModalOpen(true)}
+              />
+            </div>
+          </div>
+
+          {/* Draggable Vertical Splitter Divider */}
+          {isSplitMode && (
+            <div
+              data-testid="terminal-split-divider"
+              onMouseDown={handleSplitterMouseDown}
+              onTouchStart={handleSplitterTouchStart}
+              onDoubleClick={handleSplitterDoubleClick}
+              className="w-1.5 hover:w-2 bg-[var(--border-subtle)] hover:bg-indigo-500/50 cursor-col-resize transition-all shrink-0 z-20 flex items-center justify-center select-none"
+              title="双击恢复 50% 居中，拖拽调整比例"
+            >
+              <div className="w-0.5 h-6 bg-slate-500/40 rounded-full" />
+            </div>
+          )}
+
+          {/* Secondary Split Terminal Pane */}
+          {isSplitMode && (
+            <div
+              style={{ width: `${100 - splitRatio}%` }}
+              className={`h-full flex flex-col min-w-0 min-h-0 relative ${
+                activePane === 'split'
+                  ? 'ring-1 ring-indigo-500/20'
+                  : ''
+              }`}
+            >
+              <div className="flex items-center justify-between px-2 py-0.5 bg-black/40 border-b border-white/[0.06] text-[10px] select-none text-slate-400 shrink-0">
+                <div className="flex items-center space-x-1.5">
+                  <span className={`w-1.5 h-1.5 rounded-full ${activePane === 'split' ? 'bg-indigo-400 ring-2 ring-indigo-400/30' : 'bg-slate-600'}`} />
+                  <span className={activePane === 'split' ? 'font-semibold text-slate-200' : 'text-slate-400'}>
+                    {t('webTerminal.paneSplit', '终端 #2')}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  data-testid="close-split-pane-btn"
+                  onClick={() => closeSplitPane(true)}
+                  className="p-0.5 rounded hover:bg-white/[0.1] text-slate-400 hover:text-white transition-colors"
+                  title={t('webTerminal.closeSplitPane', '关闭分屏')}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+              <div className="flex-1 min-h-0 min-w-0 h-full relative">
+                <WebTerminalView
+                  ref={splitTerminalRef}
+                  paneId="split"
+                  isFocusedPane={activePane === 'split'}
+                  onFocusPane={() => setActivePane('split')}
+                  onPaneExit={() => closeSplitPane(false)}
+                  adminKey={adminKey}
+                  hideHeader={true}
+                  standalone={Boolean(isStandalone)}
+                  isActive={subTab === 'interactive'}
+                  onExitStandalone={onExitStandalone}
+                  onToggleStandalone={(val) => {
+                    if (val && onEnterStandalone) {
+                      onEnterStandalone();
+                    } else if (!val && onExitStandalone) {
+                      onExitStandalone();
+                    }
+                  }}
+                  controlledHostId={activeHostId}
+                  onControlledHostChange={handleHostChange}
+                  hideInnerHostSelector={true}
+                  onConnectionChange={setConnectionStatus}
+                  onSelectModeChange={setIsSelectMode}
+                  onRequestAddNode={() => setIsAddNodeModalOpen(true)}
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         <div className={`flex-1 min-h-0 ${subTab === 'files' ? 'flex' : 'hidden'} flex-col`}>

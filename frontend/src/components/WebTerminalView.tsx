@@ -130,6 +130,9 @@ export interface WebTerminalHandle {
   isAtBottom?: () => boolean;
   updateCursorShift?: () => void;
   isSelectMode: boolean;
+  closePaneSession: () => void;
+  focus: () => void;
+  setFontSizeSynced?: (size: number) => void;
 }
 
 export interface WebTerminalViewProps {
@@ -148,6 +151,10 @@ export interface WebTerminalViewProps {
   onConnectionChange?: (status: { isConnected: boolean; isConnecting: boolean }) => void;
   onSelectModeChange?: (isSelect: boolean) => void;
   onRequestAddNode?: () => void;
+  paneId?: 'main' | 'split';
+  isFocusedPane?: boolean;
+  onFocusPane?: () => void;
+  onPaneExit?: () => void;
 }
 
 const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps>(function WebTerminalView({
@@ -166,6 +173,10 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
   onConnectionChange,
   onSelectModeChange,
   onRequestAddNode,
+  paneId = 'main',
+  isFocusedPane = true,
+  onFocusPane,
+  onPaneExit,
 }: WebTerminalViewProps, ref) {
   const { t } = useTranslation();
   const { resolvedTheme } = useTheme();
@@ -173,6 +184,15 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
   const xtermRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
+
+  const onPaneExitRef = useRef(onPaneExit);
+  useEffect(() => {
+    onPaneExitRef.current = onPaneExit;
+  }, [onPaneExit]);
+  const onFocusPaneRef = useRef(onFocusPane);
+  useEffect(() => {
+    onFocusPaneRef.current = onFocusPane;
+  }, [onFocusPane]);
 
   const isActiveRef = useRef<boolean>(isActive);
   isActiveRef.current = isActive;
@@ -587,7 +607,8 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const host = window.location.host;
       const ticketParam = ticket ? `ticket=${encodeURIComponent(ticket)}` : (adminKey ? `x-admin-key=${encodeURIComponent(adminKey)}` : '');
-      const wsUrl = `${protocol}//${host}/api/terminal/ws?${ticketParam ? ticketParam + '&' : ''}hostId=${encodeURIComponent(activeHostIdRef.current)}`;
+      const paneParam = paneId && paneId !== 'main' ? `&paneId=${encodeURIComponent(paneId)}` : '';
+      const wsUrl = `${protocol}//${host}/api/terminal/ws?${ticketParam ? ticketParam + '&' : ''}hostId=${encodeURIComponent(activeHostIdRef.current)}${paneParam}`;
 
       const ws = new WebSocket(wsUrl);
       ws.binaryType = 'arraybuffer';
@@ -663,6 +684,14 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
                 try {
                   ws.close(1012, 'Agent disconnected');
                 } catch {}
+                return;
+              }
+              if (parsed.type === 'pane_exit') {
+                isProcessExitedRef.current = true;
+                setIsConnected(false);
+                setIsConnecting(false);
+                clearReconnectTimers();
+                onPaneExitRef.current?.();
                 return;
               }
               if (parsed.type === 'pong') {
@@ -2513,7 +2542,27 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     get isSelectMode() {
       return isSelectModeRef.current;
     },
-  }), [handleManualReconnect, executeReset, handleToggleSelectMode, safeFit, sendResize, updateCursorShift, handleScrollToBottom]);
+    closePaneSession: () => {
+      isProcessExitedRef.current = true;
+      clearReconnectTimers();
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        try {
+          wsRef.current.send(`JSON:${JSON.stringify({ type: 'pane_close', paneId })}`);
+        } catch {}
+        try {
+          wsRef.current.close(1000, 'Pane closed');
+        } catch {}
+      }
+      setIsConnected(false);
+      setIsConnecting(false);
+    },
+    focus: () => {
+      xtermRef.current?.focus();
+    },
+    setFontSizeSynced: (size: number) => {
+      setFontSize(Math.max(9, Math.min(22, size)));
+    },
+  }), [handleManualReconnect, executeReset, handleToggleSelectMode, safeFit, sendResize, updateCursorShift, handleScrollToBottom, clearReconnectTimers, paneId]);
 
   const handleFullscreenToggle = () => {
     if (standalone) {
@@ -2839,6 +2888,8 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
         <div
           ref={terminalContainerRef}
+          onMouseDown={() => onFocusPaneRef.current?.()}
+          onTouchStart={() => onFocusPaneRef.current?.()}
           className={`h-full w-full ${isSelectMode ? 'terminal-select-mode select-none cursor-crosshair' : 'cursor-text'}`}
           style={{
             touchAction: isSelectMode || isMobile ? 'none' : undefined,

@@ -10,6 +10,7 @@ import { taskManager, killProcessTree, killProcessTreeSync, getDefaultShell } fr
 import { tryRequirePty, hasSystemPython3, PosixPtyDriver, InteractivePipeDriver } from './pty/drivers';
 import { StreamSessionManager } from './pty/sessionManager';
 import { TerminalHistoryBuffer } from './pty/terminalHistoryBuffer';
+import { SecondaryPanePtyManager } from './pty/panePtyManager';
 import { handleFileRpc } from './handlers/fileRpcHandler';
 import { handleCmdExec } from './handlers/cmdExecHandler';
 import { AgentCronScheduler } from './cron/cronScheduler';
@@ -626,6 +627,25 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     : (1 * 1024 * 1024);
   const terminalHistory = new TerminalHistoryBuffer(maxScrollbackBytes);
 
+  const secondaryPaneManager = new SecondaryPanePtyManager({
+    shell: getDefaultShell(options),
+    maxScrollbackBytes,
+    sendBinary: (packet: Buffer) => {
+      if (ws && (ws.readyState === 1 || ws.readyState === WebSocket.OPEN)) {
+        try {
+          ws.send(packet);
+        } catch {}
+      }
+    },
+    sendControl: (msg: Record<string, any>) => {
+      if (ws && (ws.readyState === 1 || ws.readyState === WebSocket.OPEN)) {
+        try {
+          ws.send(`JSON:${JSON.stringify(msg)}`);
+        } catch {}
+      }
+    },
+  });
+
   const cronScheduler = new AgentCronScheduler({
     getScriptContent: async (name: string) => {
       const res = await makeRequest({
@@ -1079,6 +1099,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
           (Buffer.isBuffer(data) &&
             data.length > 0 &&
             (data[0] === BIN_MSG_TYPE.STREAM_INPUT ||
+              data[0] === BIN_MSG_TYPE.TERMINAL_RAW ||
               data[0] === BIN_MSG_TYPE.PROXY_HTTP_REQ_BODY ||
               data[0] === BIN_MSG_TYPE.PROXY_TCP_DATA))
         ) {
@@ -1089,6 +1110,10 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
               if (streamSessionManager) {
                 streamSessionManager.writeRawInput(decoded.id, decoded.payload);
               }
+              return;
+            }
+            if (decoded.msgType === BIN_MSG_TYPE.TERMINAL_RAW) {
+              secondaryPaneManager.write(decoded.id, decoded.payload);
               return;
             }
             if (proxyHandler && proxyHandler.handleBinaryFrame(decoded)) {
@@ -1161,6 +1186,10 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
             return;
           }
           if (control.type === 'resize') {
+            if (control.paneId && control.paneId !== 'main') {
+              secondaryPaneManager.resize(control.paneId, control.cols, control.rows);
+              return;
+            }
             const cols = Math.max(10, Math.min(500, Math.floor(control.cols || 80)));
             const rows = Math.max(5, Math.min(200, Math.floor(control.rows || 24)));
             lastPtyCols = cols;
@@ -1178,6 +1207,10 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
             return;
           }
           if (control.type === 'reset') {
+            if (control.paneId && control.paneId !== 'main') {
+              secondaryPaneManager.reset(control.paneId);
+              return;
+            }
             console.log('[Agent] Resetting PTY shell session...');
             spawnPty();
             if (ptyProcess && ws && (ws.readyState === 1 || ws.readyState === WebSocket.OPEN)) {
@@ -1196,7 +1229,17 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
             return;
           }
           if (control.type === 'history_req') {
+            if (control.paneId && control.paneId !== 'main') {
+              secondaryPaneManager.sendHistorySync(control.paneId);
+              return;
+            }
             sendHistorySync();
+            return;
+          }
+          if (control.type === 'pane_close') {
+            if (control.paneId && control.paneId !== 'main') {
+              secondaryPaneManager.closePane(control.paneId);
+            }
             return;
           }
           if (control.type === 'registered') {
@@ -1204,6 +1247,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
             if (isReconnection && terminalHistory.getSize() > 0) {
               sendHistorySync();
             }
+            secondaryPaneManager.sendAllHistorySync();
             return;
           }
           return;
@@ -1292,6 +1336,9 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     }
     if (streamSessionManager) {
       streamSessionManager.killAll();
+    }
+    if (secondaryPaneManager) {
+      secondaryPaneManager.destroyAll();
     }
     if (ptyProcess) {
       try { ptyProcess.kill('SIGTERM'); } catch {}
