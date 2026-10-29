@@ -73,7 +73,7 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
     const [port, setPort] = useState<string>('8000');
 
     // Speedtest State
-    const [speedtestSizeMb, setSpeedtestSizeMb] = useState<number>(4);
+    const [speedtestSizeMb, setSpeedtestSizeMb] = useState<number>(1);
     const [isRunningSpeedtest, setIsRunningSpeedtest] = useState<boolean>(false);
     const [speedtestPhase, setSpeedtestPhase] = useState<'idle' | 'ping' | 'download' | 'upload' | 'done'>('idle');
     const [dlProgress, setDlProgress] = useState<number>(0);
