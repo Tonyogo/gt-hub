@@ -68,6 +68,11 @@ export class StreamSessionManager {
       LANG: process.env.LANG || 'en_US.UTF-8',
       PROMPT_EOL_MARK: '',
     };
+    if (!env.TMUX) delete taskEnv.TMUX;
+    if (!env.TMUX_PANE) delete taskEnv.TMUX_PANE;
+    if (!env.STY) delete taskEnv.STY;
+    if (!env.WINDOW) delete taskEnv.WINDOW;
+    if (!env.TERM_SESSION_ID) delete taskEnv.TERM_SESSION_ID;
 
     let driver: any = null;
     let driverType: string | null = null;
