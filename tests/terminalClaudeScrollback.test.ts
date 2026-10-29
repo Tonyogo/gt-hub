@@ -32,19 +32,29 @@ describe('Terminal Claude Code In-Session Scrollback & Alternate Wheel Navigatio
     expect(output).toContain('Claude: Here is the code solution');
   });
 
-  it('WebTerminalView registers custom wheel handler forwarding PageUp and PageDown in alternate screen buffer', () => {
+  it('WebTerminalView registers custom wheel handler using stepAlternateScreenScroll in alternate screen buffer', () => {
     expect(webTerminalContent).toContain('attachCustomWheelEventHandler');
     expect(webTerminalContent).toContain("term.buffer.active.type === 'alternate'");
-    expect(webTerminalContent).toContain('\\x1b[5~'); // PageUp
-    expect(webTerminalContent).toContain('\\x1b[6~'); // PageDown
+    const wheelHandlerIdx = webTerminalContent.indexOf('term.attachCustomWheelEventHandler');
+    const wheelHandlerBlock = webTerminalContent.slice(wheelHandlerIdx, wheelHandlerIdx + 800);
+    expect(wheelHandlerBlock).toContain('stepAlternateScreenScroll');
+    expect(wheelHandlerBlock).toContain('mouseTrackingActive');
   });
 
-  it('WebTerminalView maps mobile touch scroll to PageUp/PageDown when in alternate screen buffer', () => {
+  it('WebTerminalView maps mobile touch scroll using stepAlternateScreenScroll in alternate screen buffer', () => {
     const applyScrollDeltaIdx = webTerminalContent.indexOf('const applyScrollDelta =');
     const applyScrollDeltaBlock = webTerminalContent.slice(applyScrollDeltaIdx, applyScrollDeltaIdx + 1000);
     expect(applyScrollDeltaBlock).toContain("term.buffer?.active?.type === 'alternate'");
-    expect(applyScrollDeltaBlock).toContain('\\x1b[5~');
-    expect(applyScrollDeltaBlock).toContain('\\x1b[6~');
+    expect(applyScrollDeltaBlock).toContain('stepAlternateScreenScroll');
+    expect(applyScrollDeltaBlock).toContain('mouseTrackingActive');
+  });
+
+  it('WebTerminalView handleTouchEnd disables momentum scroll in alternate screen buffer', () => {
+    const touchEndIdx = webTerminalContent.indexOf('const handleTouchEnd =');
+    const touchCancelIdx = webTerminalContent.indexOf('const handleTouchCancel =', touchEndIdx);
+    const touchEndBlock = webTerminalContent.slice(touchEndIdx, touchCancelIdx);
+    expect(touchEndBlock).toContain("term.buffer?.active?.type !== 'alternate'");
+    expect(touchEndBlock).toContain('startMomentumScroll');
   });
 
   it('WebTerminalView onData does not unconditionally force scrollToBottomSafe when user is scrolled up', () => {

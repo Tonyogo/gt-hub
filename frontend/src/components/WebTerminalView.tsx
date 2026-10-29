@@ -49,6 +49,8 @@ import {
   patchXtermNoopSelectionRefresh,
   patchXtermTransparentScrollbar,
   flushXtermScrollFrameSync,
+  stepAlternateScreenScroll,
+  AlternateScrollState,
 } from '../utils/terminalScrollHelper';
 import {
   calculateMagnifierPosition,
@@ -893,19 +895,30 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     patchXtermNoopSelectionRefresh(term);
     patchXtermTransparentScrollbar(term);
 
+    const getNow = () => (typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now());
+    let altScrollState: AlternateScrollState = {
+      accumulatedPx: 0,
+      lastEventTimeMs: 0,
+      lastDispatchTimeMs: 0,
+    };
+
     // iTerm2-style Alternate Screen Mouse Wheel / Trackpad Scroll:
     // When in Alternate Screen (Claude Code full-screen / transcript view, vim, htop, less),
-    // forward mouse wheel as PageUp / PageDown keys so TUI viewports can be scrolled natively.
+    // pace scroll events: line-by-line SGR wheel sequences when mouse tracking is active,
+    // or PageUp / PageDown keys with threshold and cooldown.
     term.attachCustomWheelEventHandler((domEvent: WheelEvent) => {
       if (term.buffer.active.type === 'alternate') {
-        if (domEvent.deltaY < 0) {
-          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-            wsRef.current.send('\x1b[5~');
-          }
-        } else if (domEvent.deltaY > 0) {
-          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-            wsRef.current.send('\x1b[6~');
-          }
+        const mouseTrackingActive = Boolean(term.modes?.mouseTrackingMode && term.modes.mouseTrackingMode !== 'none');
+        const stepRes = stepAlternateScreenScroll({
+          state: altScrollState,
+          deltaY: domEvent.deltaY,
+          deltaMode: domEvent.deltaMode,
+          nowMs: getNow(),
+          mouseTrackingActive,
+        });
+        altScrollState = stepRes.nextState;
+        if (stepRes.payload && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(stepRes.payload);
         }
         return false;
       }
@@ -1207,8 +1220,6 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     let selectionStartPos: { col: number; viewportRow: number; bufferRow: number } | null = null;
     const container = terminalContainerRef.current;
 
-    const getNow = () => (typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now());
-
     const stopMomentumScroll = () => {
       if (touchScrollRaf !== null) {
         if (typeof cancelAnimationFrame !== 'undefined') {
@@ -1246,16 +1257,17 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     const applyScrollDelta = (deltaPx: number): boolean => {
       if (!term || !isMountedRef.current) return true;
       if (term.buffer?.active?.type === 'alternate') {
-        const lineHeight = getTouchLineHeight();
-        const step = stepTouchScrollLines(deltaPx, lineHeight);
-        if (step.linesToScroll !== 0) {
-          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-            if (step.linesToScroll < 0) {
-              wsRef.current.send('\x1b[5~');
-            } else {
-              wsRef.current.send('\x1b[6~');
-            }
-          }
+        const mouseTrackingActive = Boolean(term.modes?.mouseTrackingMode && term.modes.mouseTrackingMode !== 'none');
+        const stepRes = stepAlternateScreenScroll({
+          state: altScrollState,
+          deltaY: deltaPx,
+          deltaMode: 0,
+          nowMs: getNow(),
+          mouseTrackingActive,
+        });
+        altScrollState = stepRes.nextState;
+        if (stepRes.payload && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(stepRes.payload);
         }
         return false;
       }
@@ -1553,7 +1565,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           e.preventDefault();
         }
         const timeSinceLastMove = now - lastTouchMoveTime;
-        if (timeSinceLastMove < 80 && Math.abs(touchVelocityY) >= 0.12) {
+        if (timeSinceLastMove < 80 && Math.abs(touchVelocityY) >= 0.12 && term.buffer?.active?.type !== 'alternate') {
           startMomentumScroll(touchVelocityY);
         } else {
           touchVelocityY = 0;

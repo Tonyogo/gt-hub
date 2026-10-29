@@ -384,5 +384,138 @@ export function flushXtermScrollFrameSync(term: any): void {
   }
 }
 
+export interface AlternateScrollState {
+  accumulatedPx: number;
+  lastEventTimeMs: number;
+  lastDispatchTimeMs: number;
+}
+
+export interface StepAlternateScrollOptions {
+  state: AlternateScrollState;
+  deltaY: number;
+  deltaMode?: number;
+  nowMs: number;
+  mouseTrackingActive?: boolean;
+  lineThresholdPx?: number;      // default 40
+  pageThresholdPx?: number;      // default 160
+  pageCooldownMs?: number;       // default 120
+  idleResetMs?: number;          // default 250
+  maxLineStepsPerEvent?: number; // default 3
+}
+
+export interface StepAlternateScrollResult {
+  payload: string | null;
+  nextState: AlternateScrollState;
+}
+
+/**
+ * Normalizes wheel delta into equivalent pixel distance based on deltaMode:
+ * - deltaMode 0 (DOM_DELTA_PIXEL): 1x
+ * - deltaMode 1 (DOM_DELTA_LINE): 20px per line
+ * - deltaMode 2 (DOM_DELTA_PAGE): 160px per page
+ */
+export function normalizeWheelDeltaToPx(deltaY: number, deltaMode = 0): number {
+  if (!Number.isFinite(deltaY)) {
+    return 0;
+  }
+  if (deltaMode === 1) {
+    return deltaY * 20;
+  }
+  if (deltaMode === 2) {
+    return deltaY * 160;
+  }
+  return deltaY;
+}
+
+/**
+ * Steps alternate-screen scroll state by accumulating micro-deltas, enforcing cooldowns,
+ * and dispatching either line-by-line SGR mouse wheel sequences or PageUp / PageDown keys.
+ */
+export function stepAlternateScreenScroll(options: StepAlternateScrollOptions): StepAlternateScrollResult {
+  const {
+    state,
+    deltaY,
+    deltaMode = 0,
+    nowMs,
+    mouseTrackingActive = false,
+    lineThresholdPx = 40,
+    pageThresholdPx = 160,
+    pageCooldownMs = 120,
+    idleResetMs = 250,
+    maxLineStepsPerEvent = 3,
+  } = options;
+
+  const deltaPx = normalizeWheelDeltaToPx(deltaY, deltaMode);
+  if (deltaPx === 0) {
+    return { payload: null, nextState: state };
+  }
+
+  const isIdle = state.lastEventTimeMs > 0 && nowMs - state.lastEventTimeMs > idleResetMs;
+  const isReversal = state.accumulatedPx * deltaPx < 0;
+  const baseAccum = (isIdle || isReversal) ? 0 : state.accumulatedPx;
+  const totalPx = baseAccum + deltaPx;
+
+  if (mouseTrackingActive) {
+    const threshold = lineThresholdPx;
+    if (Math.abs(totalPx) < threshold) {
+      return {
+        payload: null,
+        nextState: {
+          accumulatedPx: totalPx,
+          lastEventTimeMs: nowMs,
+          lastDispatchTimeMs: state.lastDispatchTimeMs,
+        },
+      };
+    }
+
+    const rawSteps = Math.trunc(totalPx / threshold);
+    const remainder = totalPx - rawSteps * threshold;
+    const clampedSteps = Math.min(maxLineStepsPerEvent, Math.abs(rawSteps));
+    const seq = rawSteps < 0 ? '\x1b[<64;1;1M' : '\x1b[<65;1;1M';
+    return {
+      payload: seq.repeat(clampedSteps),
+      nextState: {
+        accumulatedPx: remainder,
+        lastEventTimeMs: nowMs,
+        lastDispatchTimeMs: nowMs,
+      },
+    };
+  }
+
+  // Fallback to PageUp / PageDown
+  const threshold = pageThresholdPx;
+  if (Math.abs(totalPx) < threshold) {
+    return {
+      payload: null,
+      nextState: {
+        accumulatedPx: totalPx,
+        lastEventTimeMs: nowMs,
+        lastDispatchTimeMs: state.lastDispatchTimeMs,
+      },
+    };
+  }
+
+  if (state.lastDispatchTimeMs > 0 && nowMs - state.lastDispatchTimeMs < pageCooldownMs) {
+    return {
+      payload: null,
+      nextState: {
+        accumulatedPx: 0,
+        lastEventTimeMs: nowMs,
+        lastDispatchTimeMs: state.lastDispatchTimeMs,
+      },
+    };
+  }
+
+  const seq = totalPx < 0 ? '\x1b[5~' : '\x1b[6~';
+  return {
+    payload: seq,
+    nextState: {
+      accumulatedPx: 0,
+      lastEventTimeMs: nowMs,
+      lastDispatchTimeMs: nowMs,
+    },
+  };
+}
+
 
 

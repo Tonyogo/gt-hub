@@ -9,6 +9,9 @@ import {
   patchXtermNoopSelectionRefresh,
   patchXtermTransparentScrollbar,
   flushXtermScrollFrameSync,
+  normalizeWheelDeltaToPx,
+  stepAlternateScreenScroll,
+  AlternateScrollState,
 } from '../frontend/src/utils/terminalScrollHelper';
 
 describe('terminalScrollHelper', () => {
@@ -523,6 +526,198 @@ describe('terminalScrollHelper', () => {
       expect(() => patchXtermTransparentScrollbar({})).not.toThrow();
       expect(() => patchXtermTransparentScrollbar({ _core: {} })).not.toThrow();
       expect(() => patchXtermTransparentScrollbar({ _core: { viewport: {} } })).not.toThrow();
+    });
+  });
+
+  describe('normalizeWheelDeltaToPx and stepAlternateScreenScroll', () => {
+    describe('normalizeWheelDeltaToPx', () => {
+      it('converts pixel, line, and page wheel deltas correctly', () => {
+        expect(normalizeWheelDeltaToPx(15, 0)).toBe(15);
+        expect(normalizeWheelDeltaToPx(-25)).toBe(-25);
+        expect(normalizeWheelDeltaToPx(3, 1)).toBe(60); // 3 * 20
+        expect(normalizeWheelDeltaToPx(-2, 1)).toBe(-40);
+        expect(normalizeWheelDeltaToPx(2, 2)).toBe(320); // 2 * 160
+        expect(normalizeWheelDeltaToPx(-1, 2)).toBe(-160);
+        expect(normalizeWheelDeltaToPx(NaN)).toBe(0);
+        expect(normalizeWheelDeltaToPx(Infinity)).toBe(0);
+      });
+    });
+
+    describe('stepAlternateScreenScroll', () => {
+      it('accumulates micro trackpad deltas without emitting PageUp until reaching -160px', () => {
+        let state: AlternateScrollState = {
+          accumulatedPx: 0,
+          lastEventTimeMs: 0,
+          lastDispatchTimeMs: 0,
+        };
+
+        // 3 events with deltaY = -15 -> accumulated = -45, no payload
+        for (let i = 0; i < 3; i++) {
+          const res = stepAlternateScreenScroll({
+            state,
+            deltaY: -15,
+            nowMs: 1000 + i * 16,
+            mouseTrackingActive: false,
+          });
+          expect(res.payload).toBeNull();
+          expect(res.nextState.accumulatedPx).toBe(-15 * (i + 1));
+          state = res.nextState;
+        }
+
+        // Add -110px -> total accumulated -155px, still no payload (< 160)
+        let res = stepAlternateScreenScroll({
+          state,
+          deltaY: -110,
+          nowMs: 1060,
+          mouseTrackingActive: false,
+        });
+        expect(res.payload).toBeNull();
+        expect(res.nextState.accumulatedPx).toBe(-155);
+        state = res.nextState;
+
+        // Add -10px -> total -165px >= 160 threshold, emits PageUp and resets accumulated to 0
+        res = stepAlternateScreenScroll({
+          state,
+          deltaY: -10,
+          nowMs: 1076,
+          mouseTrackingActive: false,
+        });
+        expect(res.payload).toBe('\x1b[5~');
+        expect(res.nextState.accumulatedPx).toBe(0);
+        expect(res.nextState.lastDispatchTimeMs).toBe(1076);
+      });
+
+      it('enforces 120ms cooldown for PageUp / PageDown fallback', () => {
+        let state: AlternateScrollState = {
+          accumulatedPx: 0,
+          lastEventTimeMs: 0,
+          lastDispatchTimeMs: 0,
+        };
+
+        // First strong flick at t = 1000
+        let res = stepAlternateScreenScroll({
+          state,
+          deltaY: -200,
+          nowMs: 1000,
+          mouseTrackingActive: false,
+        });
+        expect(res.payload).toBe('\x1b[5~');
+        expect(res.nextState.lastDispatchTimeMs).toBe(1000);
+        state = res.nextState;
+
+        // Another -200px event at t = 1050 (50ms later, within 120ms cooldown)
+        res = stepAlternateScreenScroll({
+          state,
+          deltaY: -200,
+          nowMs: 1050,
+          mouseTrackingActive: false,
+        });
+        expect(res.payload).toBeNull();
+        expect(res.nextState.accumulatedPx).toBe(0);
+        expect(res.nextState.lastDispatchTimeMs).toBe(1000); // preserves lastDispatchTimeMs
+        state = res.nextState;
+
+        // Another event at t = 1125 (> 120ms cooldown since t = 1000)
+        res = stepAlternateScreenScroll({
+          state,
+          deltaY: -160,
+          nowMs: 1125,
+          mouseTrackingActive: false,
+        });
+        expect(res.payload).toBe('\x1b[5~');
+        expect(res.nextState.lastDispatchTimeMs).toBe(1125);
+      });
+
+      it('emits line-by-line SGR mouse wheel sequences when mouseTrackingActive is true', () => {
+        let state: AlternateScrollState = {
+          accumulatedPx: 0,
+          lastEventTimeMs: 0,
+          lastDispatchTimeMs: 0,
+        };
+
+        // -45px: exceeds 40px threshold -> 1 step up, remainder -5px
+        let res = stepAlternateScreenScroll({
+          state,
+          deltaY: -45,
+          nowMs: 1000,
+          mouseTrackingActive: true,
+        });
+        expect(res.payload).toBe('\x1b[<64;1;1M');
+        expect(res.nextState.accumulatedPx).toBe(-5);
+        state = res.nextState;
+
+        // +90px: -5 + 90 = 85px -> 2 steps down (80px), remainder 5px
+        // Wait, note about direction reversal: since state.accumulatedPx (-5) and deltaY (+90) have opposite signs,
+        // direction reversal resets baseAccum to 0!
+        // So totalPx = 0 + 90 = 90px -> 2 steps down (80px), remainder 10px.
+        res = stepAlternateScreenScroll({
+          state,
+          deltaY: 90,
+          nowMs: 1020,
+          mouseTrackingActive: true,
+        });
+        expect(res.payload).toBe('\x1b[<65;1;1M\x1b[<65;1;1M');
+        expect(res.nextState.accumulatedPx).toBe(10);
+        state = res.nextState;
+
+        // +200px: 10 + 200 = 210px -> 5 steps, but capped at maxLineStepsPerEvent = 3
+        res = stepAlternateScreenScroll({
+          state,
+          deltaY: 200,
+          nowMs: 1040,
+          mouseTrackingActive: true,
+        });
+        expect(res.payload).toBe('\x1b[<65;1;1M\x1b[<65;1;1M\x1b[<65;1;1M');
+        // rawSteps = Math.trunc(210 / 40) = 5, remainder = 210 - 5 * 40 = 10
+        expect(res.nextState.accumulatedPx).toBe(10);
+      });
+
+      it('resets accumulated delta on direction reversal or idle gap > 250ms', () => {
+        let state: AlternateScrollState = {
+          accumulatedPx: 30,
+          lastEventTimeMs: 1000,
+          lastDispatchTimeMs: 0,
+        };
+
+        // Reversal: previous accumulated +30, new delta -20 (opposite signs)
+        // Stale +30 should be dropped, so accumulated becomes -20 (< 40 threshold)
+        let res = stepAlternateScreenScroll({
+          state,
+          deltaY: -20,
+          nowMs: 1020,
+          mouseTrackingActive: true,
+        });
+        expect(res.payload).toBeNull();
+        expect(res.nextState.accumulatedPx).toBe(-20);
+        state = res.nextState;
+
+        // Idle pause: wait 300ms (> 250ms idleResetMs)
+        res = stepAlternateScreenScroll({
+          state,
+          deltaY: -30,
+          nowMs: 1350,
+          mouseTrackingActive: true,
+        });
+        // Previous -20 should be discarded due to idle timeout; totalPx = -30 (< 40 threshold)
+        expect(res.payload).toBeNull();
+        expect(res.nextState.accumulatedPx).toBe(-30);
+      });
+
+      it('returns null payload and unchanged state if normalized deltaPx is 0', () => {
+        const state: AlternateScrollState = {
+          accumulatedPx: 25,
+          lastEventTimeMs: 1000,
+          lastDispatchTimeMs: 500,
+        };
+        const res = stepAlternateScreenScroll({
+          state,
+          deltaY: 0,
+          nowMs: 1020,
+          mouseTrackingActive: true,
+        });
+        expect(res.payload).toBeNull();
+        expect(res.nextState).toEqual(state);
+      });
     });
   });
 });
