@@ -54,7 +54,7 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
   private activeSockets: Set<any> = new Set();
   private replayedSockets: WeakSet<any> = new WeakSet();
   private history: TerminalHistoryBuffer;
-  private readonly maxBufferSize: number = 4 * 1024 * 1024; // 4MB scrollback
+  private readonly maxBufferSize: number = 1 * 1024 * 1024; // 1MB scrollback
   private currentCols: number = 0;
   private currentRows: number = 0;
   private pendingAttachRefresh: boolean = false;
@@ -73,7 +73,7 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
     this.hostId = hostId;
     this.agentWs = agentWs;
     this.paneId = paneId;
-    this.history = new TerminalHistoryBuffer(this.maxBufferSize, false, 10000);
+    this.history = new TerminalHistoryBuffer(this.maxBufferSize, false);
     this.broadcastBatcher = new StreamBatcher((batchedText) => {
       const deadSockets: any[] = [];
       for (const ws of this.activeSockets) {

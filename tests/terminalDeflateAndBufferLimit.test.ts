@@ -4,6 +4,7 @@ import express from 'express';
 import { TerminalHistoryBuffer } from '../src/agent/pty/terminalHistoryBuffer';
 import { RemoteAgentTerminalSession } from '../src/terminal/services/terminalHostManager';
 import { setupTerminalWebSocket } from '../src/terminal/routes/terminalWs';
+import config from '../config/default';
 
 describe('Terminal Buffer 1MB Limit & WebSocket Deflate Compression', () => {
   describe('Buffer 1MB Sizing', () => {
@@ -32,8 +33,10 @@ describe('Terminal Buffer 1MB Limit & WebSocket Deflate Compression', () => {
     let port: number;
     let wss: any;
     let activeClient: WebSocket | null = null;
+    const origSecretKey = config.adminSecretKey;
 
     beforeAll((done) => {
+      config.adminSecretKey = '';
       const app = express();
       server = http.createServer(app);
       wss = setupTerminalWebSocket(server);
@@ -52,6 +55,7 @@ describe('Terminal Buffer 1MB Limit & WebSocket Deflate Compression', () => {
     });
 
     afterAll((done) => {
+      config.adminSecretKey = origSecretKey;
       if (wss) {
         try { wss.close(); } catch {}
       }
