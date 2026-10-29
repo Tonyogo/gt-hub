@@ -480,16 +480,25 @@ export default function UnifiedTerminalView({
 
   useEffect(() => {
     if (subTab === 'interactive' && activeHostId) {
-      const t1 = setTimeout(() => fitAllPanes(true), 60);
-      const t2 = setTimeout(() => fitAllPanes(), 200);
-      const t3 = setTimeout(() => fitAllPanes(), 500);
+      const t1 = setTimeout(() => {
+        terminalRef.current?.fit(true);
+        splitTerminalRef.current?.fit(true);
+      }, 60);
+      const t2 = setTimeout(() => {
+        terminalRef.current?.fit();
+        splitTerminalRef.current?.fit();
+      }, 200);
+      const t3 = setTimeout(() => {
+        terminalRef.current?.fit();
+        splitTerminalRef.current?.fit();
+      }, 500);
       return () => {
         clearTimeout(t1);
         clearTimeout(t2);
         clearTimeout(t3);
       };
     }
-  }, [subTab, activeHostId, fitAllPanes]);
+  }, [subTab, activeHostId]);
 
   useEffect(() => {
     const handleWindowResize = () => {

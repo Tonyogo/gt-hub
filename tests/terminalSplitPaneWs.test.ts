@@ -62,8 +62,7 @@ describe('Terminal WebSocket Split-Pane Multiplexing', () => {
           const decoded = decodeBinaryPacket(Buffer.from(data as any));
           if (decoded && decoded.msgType === BIN_MSG_TYPE.TERMINAL_RAW && decoded.id === 'split') {
             agentReceivedSplitInputs.push(decoded.payload.toString('utf-8'));
-            // Echo back to split pane only
-            agentWs.send(encodeBinaryPacket(BIN_MSG_TYPE.TERMINAL_RAW, 'split', 'SPLIT_ACK\r\n'));
+            agentWs.send(encodeBinaryPacket(BIN_MSG_TYPE.STREAM_OUTPUT, 'pane-split', 'SPLIT_ACK\r\n'));
           }
           return;
         }
@@ -71,8 +70,14 @@ describe('Terminal WebSocket Split-Pane Multiplexing', () => {
         if (str.startsWith('JSON:')) {
           const ctrl = JSON.parse(str.slice(5));
           agentReceivedControls.push(ctrl);
-          if (ctrl.type === 'pane_close' && ctrl.paneId === 'split') {
-            // Simulate agent confirming exit or closing
+          if (ctrl.type === 'cmd_stream_input' && ctrl.taskId === 'pane-split') {
+            const decodedInput = Buffer.from(ctrl.data, 'base64').toString('utf-8');
+            agentReceivedSplitInputs.push(decodedInput);
+            // Echo back to split pane using BIN_MSG_TYPE.STREAM_OUTPUT
+            agentWs.send(encodeBinaryPacket(BIN_MSG_TYPE.STREAM_OUTPUT, 'pane-split', 'SPLIT_ACK\r\n'));
+            return;
+          }
+          if (ctrl.type === 'cmd_stream_kill' && ctrl.taskId === 'pane-split') {
             mainClient.close();
             splitClient.close();
             agentWs.close();
@@ -82,7 +87,16 @@ describe('Terminal WebSocket Split-Pane Multiplexing', () => {
             expect(splitOutput).not.toContain('MAIN_ACK');
             expect(agentReceivedSplitInputs).toContain('echo split\n');
             expect(splitExited).toBe(true);
+            const hasStartStream = agentReceivedControls.some(
+              (c) => c.type === 'cmd_exec' && c.action === 'start_stream' && c.taskId === 'pane-split'
+            );
+            const hasResize = agentReceivedControls.some(
+              (c) => c.type === 'cmd_stream_resize' && c.taskId === 'pane-split'
+            );
+            expect(hasStartStream).toBe(true);
+            expect(hasResize).toBe(true);
             done();
+            return;
           }
           return;
         }
@@ -121,7 +135,7 @@ describe('Terminal WebSocket Split-Pane Multiplexing', () => {
         }
         splitOutput += str;
         if (splitOutput.includes('SPLIT_ACK') && !splitExited) {
-          agentWs.send(`JSON:${JSON.stringify({ type: 'pane_exit', paneId: 'split', exitCode: 0 })}`);
+          agentWs.send(`JSON:${JSON.stringify({ type: 'cmd_stream_exit', taskId: 'pane-split', exitCode: 0 })}`);
         }
       });
     });

@@ -46,7 +46,6 @@ export { stripTerminalQuerySequences } from '../../shared/utils/terminalSanitize
 import { stripTerminalQuerySequences } from '../../shared/utils/terminalSanitizer';
 import { TerminalHistoryBuffer } from '../../agent/pty/terminalHistoryBuffer';
 import { StringDecoder } from 'string_decoder';
-import { BIN_MSG_TYPE, encodeBinaryPacket } from '../../shared/protocol/binaryProtocol';
 
 export class RemoteAgentTerminalSession implements ITerminalSession {
   public hostId: string;
@@ -68,6 +67,7 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
   private pendingInputBuffer: Array<string | Buffer> = [];
   private pendingInputBytes: number = 0;
   private readonly maxPendingInputBytes: number = 4 * 1024;
+  private streamStarted: boolean = false;
 
   constructor(hostId: string, agentWs?: any, paneId: string = 'main') {
     this.hostId = hostId;
@@ -97,6 +97,37 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
     }, 16);
   }
 
+  public getStreamTaskId(): string {
+    return `pane-${this.paneId}`;
+  }
+
+  private ensurePaneStreamStarted(cols?: number, rows?: number): void {
+    if (this.paneId === 'main' || this.streamStarted) return;
+    if (this.agentWs && this.agentWs.readyState === 1) {
+      this.streamStarted = true;
+      try {
+        const streamCols = cols || this.currentCols || 80;
+        const streamRows = rows || this.currentRows || 24;
+        if (!this.currentCols) this.currentCols = streamCols;
+        if (!this.currentRows) this.currentRows = streamRows;
+        this.agentWs.send(
+          `JSON:${JSON.stringify({
+            type: 'cmd_exec',
+            action: 'start_stream',
+            taskId: this.getStreamTaskId(),
+            command: 'exec "${SHELL:-/bin/sh}" -l',
+            tty: true,
+            interactive: true,
+            cols: streamCols,
+            rows: streamRows,
+          })}`
+        );
+      } catch (err: any) {
+        logger.warn(`[RemoteAgentTerminal:${this.hostId}:${this.paneId}] Failed to start pane stream: ${err.message}`);
+      }
+    }
+  }
+
   public updateAgentWs(agentWs: any): void {
     this.cancelNudgeTimer();
     const prevCols = this.currentCols;
@@ -104,9 +135,12 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
     this.agentWs = agentWs;
     this.currentCols = 0;
     this.currentRows = 0;
+    this.streamStarted = false;
     if (this.agentWs && this.agentWs.readyState === 1) {
       if (this.activeSockets.size > 0 && prevCols > 0 && prevRows > 0) {
         this.resize(prevCols, prevRows);
+      } else if (this.activeSockets.size > 0 && this.paneId !== 'main') {
+        this.ensurePaneStreamStarted(prevCols || 80, prevRows || 24);
       }
       if (this.pendingInputBuffer.length > 0) {
         for (const item of this.pendingInputBuffer) {
@@ -171,7 +205,7 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
         if (this.paneId === 'main') {
           this.agentWs.send(`JSON:${JSON.stringify({ type: 'history_req' })}`);
         } else {
-          this.agentWs.send(`JSON:${JSON.stringify({ type: 'history_req', paneId: this.paneId })}`);
+          this.ensurePaneStreamStarted();
         }
       } catch (err: any) {
         logger.warn(`[RemoteAgentTerminal:${this.hostId}:${this.paneId}] Failed to request history from agent: ${err.message}`);
@@ -199,23 +233,28 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
         this.pendingInputBytes += data.length;
         while (this.pendingInputBytes > this.maxPendingInputBytes && this.pendingInputBuffer.length > 0) {
           const shifted = this.pendingInputBuffer.shift()!;
-          this.pendingInputBytes -= typeof shifted === 'string' ? shifted.length : shifted.length;
+          this.pendingInputBytes -= typeof shifted === 'string' ? shifted.length : (shifted as any).length;
         }
       }
     } else {
-      const packet = encodeBinaryPacket(BIN_MSG_TYPE.TERMINAL_RAW, this.paneId, Buffer.from(data, 'utf-8'));
+      this.ensurePaneStreamStarted();
+      const payload = `JSON:${JSON.stringify({
+        type: 'cmd_stream_input',
+        taskId: this.getStreamTaskId(),
+        data: Buffer.from(data, 'utf-8').toString('base64'),
+      })}`;
       if (this.agentWs && this.agentWs.readyState === 1) {
         try {
-          this.agentWs.send(packet);
+          this.agentWs.send(payload);
         } catch (err: any) {
-          logger.warn(`[RemoteAgentTerminal:${this.hostId}:${this.paneId}] Failed to send data to agent: ${err.message}`);
+          logger.warn(`[RemoteAgentTerminal:${this.hostId}:${this.paneId}] Failed to send stream input to agent: ${err.message}`);
         }
       } else {
-        this.pendingInputBuffer.push(packet);
-        this.pendingInputBytes += packet.length;
+        this.pendingInputBuffer.push(payload);
+        this.pendingInputBytes += payload.length;
         while (this.pendingInputBytes > this.maxPendingInputBytes && this.pendingInputBuffer.length > 0) {
           const shifted = this.pendingInputBuffer.shift()!;
-          this.pendingInputBytes -= typeof shifted === 'string' ? shifted.length : shifted.length;
+          this.pendingInputBytes -= typeof shifted === 'string' ? shifted.length : (shifted as any).length;
         }
       }
     }
@@ -262,14 +301,29 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
             this.agentWs.send(`JSON:${JSON.stringify({ type: 'resize', cols, rows })}`);
           }
         } else {
+          this.ensurePaneStreamStarted(cols, rows);
           if (shouldNudge) {
             const nudgeCols = cols > 10 ? cols - 1 : cols + 1;
-            this.agentWs.send(`JSON:${JSON.stringify({ type: 'resize', paneId: this.paneId, cols: nudgeCols, rows })}`);
+            this.agentWs.send(
+              `JSON:${JSON.stringify({
+                type: 'cmd_stream_resize',
+                taskId: this.getStreamTaskId(),
+                cols: nudgeCols,
+                rows,
+              })}`
+            );
             this.nudgeTimer = setTimeout(() => {
               this.nudgeTimer = null;
               if (this.agentWs && this.agentWs.readyState === 1) {
                 try {
-                  this.agentWs.send(`JSON:${JSON.stringify({ type: 'resize', paneId: this.paneId, cols: this.currentCols, rows: this.currentRows })}`);
+                  this.agentWs.send(
+                    `JSON:${JSON.stringify({
+                      type: 'cmd_stream_resize',
+                      taskId: this.getStreamTaskId(),
+                      cols: this.currentCols,
+                      rows: this.currentRows,
+                    })}`
+                  );
                 } catch (err: any) {
                   logger.warn(`[RemoteAgentTerminal:${this.hostId}:${this.paneId}] Failed to send restore resize to agent: ${err.message}`);
                 }
@@ -279,7 +333,14 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
               this.nudgeTimer.unref();
             }
           } else {
-            this.agentWs.send(`JSON:${JSON.stringify({ type: 'resize', paneId: this.paneId, cols, rows })}`);
+            this.agentWs.send(
+              `JSON:${JSON.stringify({
+                type: 'cmd_stream_resize',
+                taskId: this.getStreamTaskId(),
+                cols,
+                rows,
+              })}`
+            );
           }
         }
       } catch (err: any) {
@@ -375,6 +436,8 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
     this.utf8Decoder = new StringDecoder('utf8');
     this.pendingInputBuffer = [];
     this.pendingInputBytes = 0;
+    const prevCols = this.currentCols;
+    const prevRows = this.currentRows;
     this.currentCols = 0;
     this.currentRows = 0;
     if (resetAgentPty && this.agentWs && this.agentWs.readyState === 1) {
@@ -382,11 +445,21 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
         if (this.paneId === 'main') {
           this.agentWs.send(`JSON:${JSON.stringify({ type: 'reset' })}`);
         } else {
-          this.agentWs.send(`JSON:${JSON.stringify({ type: 'reset', paneId: this.paneId })}`);
+          this.agentWs.send(
+            `JSON:${JSON.stringify({
+              type: 'cmd_stream_kill',
+              taskId: this.getStreamTaskId(),
+              signal: 'SIGTERM',
+            })}`
+          );
+          this.streamStarted = false;
+          this.ensurePaneStreamStarted(prevCols || 80, prevRows || 24);
         }
       } catch (err: any) {
         logger.warn(`[RemoteAgentTerminal:${this.hostId}:${this.paneId}] Failed to send reset to agent: ${err.message}`);
       }
+    } else if (this.paneId !== 'main') {
+      this.streamStarted = false;
     }
     if (notifyClients) {
       for (const ws of this.activeSockets) {
@@ -416,6 +489,7 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
     this.agentWs = null;
     this.currentCols = 0;
     this.currentRows = 0;
+    this.streamStarted = false;
   }
 
   public flush(): void {
@@ -964,7 +1038,7 @@ export class TerminalHostManager {
     const agentWs = paneSession ? paneSession.getAgentWs() : this.getAgentWs(canonicalId);
     if (notifyAgent && agentWs && agentWs.readyState === 1) {
       try {
-        agentWs.send(`JSON:${JSON.stringify({ type: 'pane_close', paneId: normalizedPaneId })}`);
+        agentWs.send(`JSON:${JSON.stringify({ type: 'cmd_stream_kill', taskId: `pane-${normalizedPaneId}`, signal: 'SIGTERM' })}`);
       } catch {}
     }
     if (paneSession) {

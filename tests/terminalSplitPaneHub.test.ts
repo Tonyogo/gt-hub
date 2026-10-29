@@ -44,7 +44,19 @@ describe('TerminalHostManager Multi-Pane Session Management', () => {
       `JSON:${JSON.stringify({ type: 'resize', cols: 120, rows: 40 })}`
     );
     expect(mockAgentWs.send).toHaveBeenCalledWith(
-      `JSON:${JSON.stringify({ type: 'resize', paneId: 'split', cols: 60, rows: 40 })}`
+      `JSON:${JSON.stringify({
+        type: 'cmd_exec',
+        action: 'start_stream',
+        taskId: 'pane-split',
+        command: 'exec "${SHELL:-/bin/sh}" -l',
+        tty: true,
+        interactive: true,
+        cols: 60,
+        rows: 40,
+      })}`
+    );
+    expect(mockAgentWs.send).toHaveBeenCalledWith(
+      `JSON:${JSON.stringify({ type: 'cmd_stream_resize', taskId: 'pane-split', cols: 60, rows: 40 })}`
     );
 
     manager.handleAgentData(hostId, 'main-output-line\r\n');
@@ -56,7 +68,7 @@ describe('TerminalHostManager Multi-Pane Session Management', () => {
     expect(splitSession.getHistory()).not.toContain('main-output-line');
   });
 
-  it('encodes split pane input as BIN_MSG_TYPE.TERMINAL_RAW with paneId and keeps main input raw', () => {
+  it('encodes split pane input as cmd_stream_input with taskId and keeps main input raw', () => {
     const mainSession = manager.getSession(hostId, 'main')!;
     const splitSession = manager.getSession(hostId, 'split')!;
 
@@ -65,12 +77,14 @@ describe('TerminalHostManager Multi-Pane Session Management', () => {
 
     splitSession.write('pwd\r');
     const lastSent = mockAgentWs.send.mock.calls[mockAgentWs.send.mock.calls.length - 1][0];
-    expect(Buffer.isBuffer(lastSent)).toBe(true);
-    const decoded = decodeBinaryPacket(lastSent);
-    expect(decoded).not.toBeNull();
-    expect(decoded!.msgType).toBe(BIN_MSG_TYPE.TERMINAL_RAW);
-    expect(decoded!.id).toBe('split');
-    expect(decoded!.payload.toString('utf-8')).toBe('pwd\r');
+    expect(typeof lastSent).toBe('string');
+    expect(lastSent).toBe(
+      `JSON:${JSON.stringify({
+        type: 'cmd_stream_input',
+        taskId: 'pane-split',
+        data: Buffer.from('pwd\r', 'utf-8').toString('base64'),
+      })}`
+    );
   });
 
   it('destroys split pane session on destroyPaneSession and refuses to destroy main session', () => {
@@ -81,10 +95,10 @@ describe('TerminalHostManager Multi-Pane Session Management', () => {
     // Refuses to destroy main
     expect(manager.destroyPaneSession(hostId, 'main', true)).toBe(false);
 
-    // Destroys split and notifies agent
+    // Destroys split and notifies agent via cmd_stream_kill
     expect(manager.destroyPaneSession(hostId, 'split', true)).toBe(true);
     expect(mockAgentWs.send).toHaveBeenCalledWith(
-      `JSON:${JSON.stringify({ type: 'pane_close', paneId: 'split' })}`
+      `JSON:${JSON.stringify({ type: 'cmd_stream_kill', taskId: 'pane-split', signal: 'SIGTERM' })}`
     );
 
     // Subsequent getSession creates a fresh split session with empty history

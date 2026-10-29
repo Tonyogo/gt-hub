@@ -188,6 +188,11 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
             return;
           }
           if (decoded && decoded.msgType === BIN_MSG_TYPE.STREAM_OUTPUT) {
+            if (decoded.id && decoded.id.startsWith('pane-')) {
+              const paneId = decoded.id.slice(5);
+              hostMgr.handleAgentPaneData(hostId, paneId, decoded.payload);
+              return;
+            }
             terminalExecBridge.handleAgentStreamMessage(hostId, buf);
             return;
           }
@@ -252,6 +257,15 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
             return;
           }
           if (control.type === 'cmd_stream_data' || control.type === 'cmd_stream_exit') {
+            if (typeof control.taskId === 'string' && control.taskId.startsWith('pane-')) {
+              const paneId = control.taskId.slice(5);
+              if (control.type === 'cmd_stream_data' && control.data) {
+                hostMgr.handleAgentPaneData(hostId, paneId, Buffer.from(control.data, 'base64'));
+              } else if (control.type === 'cmd_stream_exit') {
+                hostMgr.handleAgentPaneExit(hostId, paneId, control.exitCode);
+              }
+              return;
+            }
             terminalExecBridge.handleAgentStreamMessage(hostId, control);
             return;
           }
