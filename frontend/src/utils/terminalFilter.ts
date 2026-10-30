@@ -24,15 +24,39 @@ export function isSyntheticTerminalReport(data: string): boolean {
 
 /**
  * Detects whether data contains any unsolicited color or device attribute reports
- * (OSC 4/10/11/12, DA, DECRPM) that should never be echoed to a standard shell prompt.
+ * (OSC 4/10/11/12, DA, DECRPM), mouse reports (SGR 1006, legacy X10/VT200),
+ * or focus reports (1004) that should never be echoed to a standard shell prompt.
  */
 export function isUnsolicitedShellDeviceReport(data: string): boolean {
   if (!data || typeof data !== 'string') {
     return false;
   }
   const stripped = data.replace(
-    /\x1b(?:\[[>?=]\d+(?:;\d+)*c|\](?:4|10|11|12);[^\x1b\x07]+(?:\x1b\\|\x07)|\[\??\d+(?:;\d+)*\$y)/g,
+    /\x1b(?:\[[>?=]\d+(?:;\d+)*c|\](?:4|10|11|12);[^\x1b\x07]+(?:\x1b\\|\x07)|\[\??\d+(?:;\d+)*\$y|\[<\d+;\d+;\d+[Mm]|\[M[\s\S]{3}|\[[IO])/g,
     ''
   );
   return stripped.length === 0;
 }
+
+/**
+ * Tracks whether the remote terminal stream has switched into or out of
+ * alternate screen buffer mode (DECSET/DECRST 1049, 1047, or 47).
+ * This inspects incoming stream frames immediately on arrival, avoiding
+ * asynchronous queue latency (such as TerminalWriteScheduler) for wheel/touch event gating.
+ */
+export function updateRemoteAltScreenState(prevInAltScreen: boolean, chunk: string): boolean {
+  if (!chunk || typeof chunk !== 'string' || !chunk.includes('\x1b[?')) {
+    return prevInAltScreen;
+  }
+  const regex = /\x1b\[\?(?:1049|1047|47)([hl])/g;
+  let lastMatch: RegExpExecArray | null = null;
+  let match: RegExpExecArray | null = null;
+  while ((match = regex.exec(chunk)) !== null) {
+    lastMatch = match;
+  }
+  if (lastMatch) {
+    return lastMatch[1] === 'h';
+  }
+  return prevInAltScreen;
+}
+

@@ -1,6 +1,7 @@
 import {
   isSyntheticTerminalReport,
   isUnsolicitedShellDeviceReport,
+  updateRemoteAltScreenState,
 } from '../frontend/src/utils/terminalFilter';
 import {
   stripTerminalQuerySequences,
@@ -80,6 +81,21 @@ describe('Terminal Synthetic Echo Protection (OSC 11 / DA / CPR)', () => {
       expect(stripTerminalQuerySequences(visualInput)).toBe('\x1b[0m\x1b[?25h' + visualInput);
     });
 
+    it('neutralizes unclosed mouse tracking modes when replayed history ends in normal buffer mode', () => {
+      const input = 'exit app\x1b[?1000h\x1b[?1006h\x1b[?1049lprompt$ ';
+      const output = stripTerminalQuerySequences(input);
+      expect(output.startsWith('\x1b[0m\x1b[?25h')).toBe(true);
+      expect(output.endsWith('\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1004l')).toBe(true);
+    });
+
+    it('preserves mouse tracking modes when replayed history ends in alternate screen mode', () => {
+      const input = 'launching vim\x1b[?1049h\x1b[?1000h\x1b[?1006hvim screen';
+      const output = stripTerminalQuerySequences(input);
+      expect(output.startsWith('\x1b[0m\x1b[?25h')).toBe(true);
+      expect(output.endsWith('\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1004l')).toBe(false);
+      expect(output).toContain('\x1b[?1006h');
+    });
+
     it('handles empty or non-string inputs safely', () => {
       expect(stripTerminalQuerySequences('')).toBe('');
       expect(stripTerminalQuerySequences(null as any)).toBe('');
@@ -115,6 +131,37 @@ describe('Terminal Synthetic Echo Protection (OSC 11 / DA / CPR)', () => {
       expect(output).not.toContain('\x1b[c');
 
       session.detach(mockWs);
+    });
+  });
+
+  describe('Normal Shell Mouse & Focus Leakage Protection', () => {
+    it('blocks SGR mouse wheel and movement reports in normal shell via isUnsolicitedShellDeviceReport', () => {
+      expect(isUnsolicitedShellDeviceReport('\x1b[<64;1;1M')).toBe(true);
+      expect(isUnsolicitedShellDeviceReport('\x1b[<65;40;15M')).toBe(true);
+      expect(isUnsolicitedShellDeviceReport('\x1b[<0;22;10M\x1b[<0;22;10m')).toBe(true);
+      expect(isUnsolicitedShellDeviceReport('\x1b[<35;80;24M')).toBe(true);
+      expect(isUnsolicitedShellDeviceReport('\x1b[<64;1;1M\x1b[<64;1;1M')).toBe(true);
+    });
+
+    it('blocks legacy X10/VT200 mouse reports and focus reports in normal shell', () => {
+      expect(isUnsolicitedShellDeviceReport('\x1b[M !#')).toBe(true);
+      expect(isUnsolicitedShellDeviceReport('\x1b[I')).toBe(true);
+      expect(isUnsolicitedShellDeviceReport('\x1b[O')).toBe(true);
+    });
+
+    it('tracks remote alternate screen entry and exit in real time via updateRemoteAltScreenState', () => {
+      let state = false;
+      state = updateRemoteAltScreenState(state, 'normal shell output\r\n');
+      expect(state).toBe(false);
+
+      state = updateRemoteAltScreenState(state, '\x1b[?1049h\x1b[?1000h\x1b[?1006hClaude TUI');
+      expect(state).toBe(true);
+
+      state = updateRemoteAltScreenState(state, 'still in TUI frame');
+      expect(state).toBe(true);
+
+      state = updateRemoteAltScreenState(state, 'exiting\x1b[?1049l\x1b[?1000luser@host:~$ ');
+      expect(state).toBe(false);
     });
   });
 });

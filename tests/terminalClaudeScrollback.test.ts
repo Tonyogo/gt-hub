@@ -79,4 +79,18 @@ describe('Terminal Claude Code In-Session Scrollback & Alternate Wheel Navigatio
     const safeFitBlock = webTerminalContent.slice(safeFitStart, safeFitEnd);
     expect(safeFitBlock).toContain('!forceResize && proposed.cols === term.cols && proposed.rows === term.rows');
   });
+
+  it('WebTerminalView tracks real-time alt-screen state via updateRemoteAltScreenState and gates wheel/touch scroll on isRemoteAltScreenRef', () => {
+    expect(webTerminalContent).toContain('updateRemoteAltScreenState');
+    expect(webTerminalContent).toContain('isRemoteAltScreenRef.current');
+    const wheelHandlerIdx = webTerminalContent.indexOf('term.attachCustomWheelEventHandler');
+    const wheelHandlerBlock = webTerminalContent.slice(wheelHandlerIdx, wheelHandlerIdx + 1200);
+    expect(wheelHandlerBlock).toContain('isRemoteAltScreenRef.current');
+    expect(wheelHandlerBlock).toContain('coreMouseService?.reset');
+  });
+
+  it('WebTerminalView resets altScrollState and orphaned mouse tracking on buffer change to normal', () => {
+    expect(webTerminalContent).toContain('term.buffer.onBufferChange');
+    expect(webTerminalContent).toContain('bufferChangeDisposable.dispose()');
+  });
 });

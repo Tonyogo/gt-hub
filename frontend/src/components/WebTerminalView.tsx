@@ -28,6 +28,7 @@ import { TerminalHostSelector } from './terminal/TerminalHostSelector';
 import {
   isSyntheticTerminalReport,
   isUnsolicitedShellDeviceReport,
+  updateRemoteAltScreenState,
 } from '../utils/terminalFilter';
 import {
   encodeModifierKey,
@@ -202,6 +203,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
   const backgroundQueueRef = useRef<BackgroundBufferQueue>(new BackgroundBufferQueue());
   const writeSchedulerRef = useRef<TerminalWriteScheduler | null>(null);
   const streamTextDecoderRef = useRef<TextDecoder>(new TextDecoder('utf-8'));
+  const isRemoteAltScreenRef = useRef<boolean>(false);
   const magnifierRafRef = useRef<number | null>(null);
 
   const [isConnected, setIsConnected] = useState<boolean>(false);
@@ -655,6 +657,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           xtermRef.current.clear();
           xtermRef.current.reset();
         }
+        isRemoteAltScreenRef.current = false;
         backgroundQueueRef.current.clear();
         writeSchedulerRef.current?.clear();
         streamTextDecoderRef.current.decode();
@@ -710,6 +713,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
             console.debug('[WebTerminal] Received backend control message:', parsed);
             if (parsed.type === 'reset') {
               console.debug('[WebTerminal] Received reset signal from backend, clearing buffer and muting synthetic reports');
+              isRemoteAltScreenRef.current = false;
               backgroundQueueRef.current.clear();
               writeSchedulerRef.current?.clear();
               streamTextDecoderRef.current.decode();
@@ -742,6 +746,8 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           }
         }
 
+        isRemoteAltScreenRef.current = updateRemoteAltScreenState(isRemoteAltScreenRef.current, data);
+
         if (!isActiveRef.current) {
           backgroundQueueRef.current.push(data);
           return;
@@ -767,12 +773,14 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           });
         }
       } else if (data instanceof ArrayBuffer) {
+        const text = streamTextDecoderRef.current.decode(data, { stream: true });
+        isRemoteAltScreenRef.current = updateRemoteAltScreenState(isRemoteAltScreenRef.current, text);
+
         if (!isActiveRef.current) {
           backgroundQueueRef.current.push(data);
           return;
         }
 
-        const text = streamTextDecoderRef.current.decode(data, { stream: true });
         if (writeSchedulerRef.current) {
           writeSchedulerRef.current.push(text);
         } else {
@@ -922,7 +930,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     // pace scroll events: line-by-line SGR wheel sequences when mouse tracking is active,
     // or PageUp / PageDown keys with threshold and cooldown.
     term.attachCustomWheelEventHandler((domEvent: WheelEvent) => {
-      if (term.buffer.active.type === 'alternate') {
+      if (term.buffer.active.type === 'alternate' && isRemoteAltScreenRef.current) {
         const mouseTrackingActive = Boolean(term.modes?.mouseTrackingMode && term.modes.mouseTrackingMode !== 'none');
         const stepRes = stepAlternateScreenScroll({
           state: altScrollState,
@@ -936,8 +944,16 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           wsRef.current.send(stepRes.payload);
         }
         return false;
+      } else {
+        altScrollState = { accumulatedPx: 0, lastEventTimeMs: 0, lastDispatchTimeMs: 0 };
+        if (term.buffer.active.type !== 'alternate' && term.modes?.mouseTrackingMode && term.modes.mouseTrackingMode !== 'none') {
+          (term as any)._core?.coreMouseService?.reset?.();
+        }
+        if (term.buffer.active.type !== 'alternate') {
+          return true;
+        }
+        return false;
       }
-      return true;
     });
 
     if (isMobileRef.current && terminalContainerRef.current) {
@@ -1276,6 +1292,10 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     const applyScrollDelta = (deltaPx: number): boolean => {
       if (!term || !isMountedRef.current) return true;
       if (term.buffer?.active?.type === 'alternate') {
+        if (!isRemoteAltScreenRef.current) {
+          altScrollState = { accumulatedPx: 0, lastEventTimeMs: 0, lastDispatchTimeMs: 0 };
+          return true;
+        }
         const mouseTrackingActive = Boolean(term.modes?.mouseTrackingMode && term.modes.mouseTrackingMode !== 'none');
         const stepRes = stepAlternateScreenScroll({
           state: altScrollState,
@@ -1640,6 +1660,16 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       container.addEventListener('touchcancel', handleTouchCancel, { passive: false, capture: true });
     }
 
+    const bufferChangeDisposable = term.buffer.onBufferChange((buf) => {
+      if (buf.type !== 'alternate') {
+        altScrollState = { accumulatedPx: 0, lastEventTimeMs: 0, lastDispatchTimeMs: 0 };
+        stopMomentumScroll();
+        if (term.modes?.mouseTrackingMode && term.modes.mouseTrackingMode !== 'none') {
+          (term as any)._core?.coreMouseService?.reset?.();
+        }
+      }
+    });
+
     term.onData((data) => {
       // 1. Suppress all synthetic reports during session replay or connect/reset window
       if (isReplayingRef.current && isSyntheticTerminalReport(data)) {
@@ -1989,6 +2019,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         clearTimeout(scrollDebounceTimer);
         scrollDebounceTimer = null;
       }
+      bufferChangeDisposable.dispose();
       csiDisposable.dispose();
       selectionDisposable.dispose();
       cursorMoveDisposable.dispose();
@@ -2564,12 +2595,16 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
   }, [controlledHostId, activeHostId, initWebSocket]);
 
   const executeReset = useCallback(() => {
+    isRemoteAltScreenRef.current = false;
     lastSentColsRef.current = 0;
     lastSentRowsRef.current = 0;
     reconnectAttemptRef.current = 0;
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(`JSON:${JSON.stringify({ type: 'reset' })}`);
     }
+    backgroundQueueRef.current.clear();
+    writeSchedulerRef.current?.clear();
+    streamTextDecoderRef.current.decode();
     xtermRef.current?.clear();
     xtermRef.current?.reset();
   }, []);
