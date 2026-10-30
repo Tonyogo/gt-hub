@@ -96,4 +96,26 @@ describe('StreamBatcher', () => {
     jest.advanceTimersByTime(8);
     expect(outputs).toEqual(['\x1b[2K\x1b[1A\x1b[2K\rRedrawn line\r\n']);
   });
+
+  it('handles DEC Mode 2026 sequences and split boundary chunks in StreamBatcher', () => {
+    const outputs: string[] = [];
+    const batcher = new StreamBatcher((data) => {
+      outputs.push(data);
+    }, 8, 64 * 1024, 4096);
+
+    // Split \x1b[?2026h across chunks
+    batcher.push('\x1b[?2026');
+    expect(outputs).toEqual([]);
+    batcher.push('h\x1b[2KHeader\r\n');
+    expect(outputs).toEqual([]);
+    expect(batcher.isSyncActive()).toBe(true);
+
+    // Split \x1b[?2026l across chunks
+    batcher.push('Content\x1b[?2026');
+    expect(outputs).toEqual([]);
+    batcher.push('l');
+    // Immediate flush upon closing sync frame
+    expect(outputs).toEqual(['\x1b[?2026h\x1b[2KHeader\r\nContent\x1b[?2026l']);
+    expect(batcher.isSyncActive()).toBe(false);
+  });
 });

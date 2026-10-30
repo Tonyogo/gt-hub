@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback, useMemo, useImperative
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { CanvasAddon } from '@xterm/addon-canvas';
 import '@xterm/xterm/css/xterm.css';
 import {
   RefreshCw,
@@ -121,6 +122,29 @@ const LIGHT_TERMINAL_THEME = {
   brightWhite: '#0F172A',
 };
 
+function initSafeCanvasAddon(term: Terminal): { canvasAddon: CanvasAddon | null; dispose: () => void } {
+  try {
+    const canvasAddon = new CanvasAddon();
+    term.loadAddon(canvasAddon);
+    return {
+      canvasAddon,
+      dispose: () => {
+        try {
+          canvasAddon.dispose();
+        } catch (e) {
+          console.warn('[WebTerminal] Error disposing CanvasAddon:', e);
+        }
+      },
+    };
+  } catch (err) {
+    console.warn('[WebTerminal] Failed to load CanvasAddon, falling back to DOM renderer:', err);
+    return {
+      canvasAddon: null,
+      dispose: () => {},
+    };
+  }
+}
+
 export interface WebTerminalHandle {
   zoomIn: () => void;
   zoomOut: () => void;
@@ -202,6 +226,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
   const backgroundQueueRef = useRef<BackgroundBufferQueue>(new BackgroundBufferQueue());
   const writeSchedulerRef = useRef<TerminalWriteScheduler | null>(null);
+  const canvasAddonRef = useRef<CanvasAddon | null>(null);
   const streamTextDecoderRef = useRef<TextDecoder>(new TextDecoder('utf-8'));
   const isRemoteAltScreenRef = useRef<boolean>(false);
   const magnifierRafRef = useRef<number | null>(null);
@@ -908,6 +933,40 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       return false;
     });
 
+    // Intercept DECRQM for private mode 2026 (Synchronized Output capability probe).
+    // Respond with DECRPM: \x1b[?2026;2$y (mode reset/supported) or 1$y (if sync active),
+    // allowing Claude Code / agy to detect synchronized output support and negotiate flicker-free output.
+    const decrqmDisposable = term.parser.registerCsiHandler(
+      { prefix: '?', intermediates: '$', final: 'p' },
+      (params) => {
+        const mode = typeof params[0] === 'number' ? params[0] : (Array.isArray(params[0]) ? params[0][0] : 0);
+        if (mode === 2026) {
+          if (isReplayingRef.current) {
+            return true;
+          }
+          const isSync = writeSchedulerRef.current?.isSyncActive?.() ?? false;
+          const response = `\x1b[?2026;${isSync ? 1 : 2}$y`;
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send(response);
+          }
+          return true;
+        }
+        return false;
+      }
+    );
+
+    // Intercept and consume DECSET 2026 and DECRST 2026 without xterm warning
+    const syncSetDisposable = term.parser.registerCsiHandler({ prefix: '?', final: 'h' }, (params) => {
+      const mode = typeof params[0] === 'number' ? params[0] : (Array.isArray(params[0]) ? params[0][0] : 0);
+      if (mode === 2026) return true;
+      return false;
+    });
+    const syncResetDisposable = term.parser.registerCsiHandler({ prefix: '?', final: 'l' }, (params) => {
+      const mode = typeof params[0] === 'number' ? params[0] : (Array.isArray(params[0]) ? params[0][0] : 0);
+      if (mode === 2026) return true;
+      return false;
+    });
+
     const fitAddon = new FitAddon();
     const webLinksAddon = new WebLinksAddon();
 
@@ -916,6 +975,12 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     term.open(terminalContainerRef.current);
     patchCompositionHelper(term);
     patchXtermNoopSelectionRefresh(term);
+
+    // Initialize CanvasAddon for 2D canvas offscreen double-buffered rendering.
+    // Automatically falls back to DOM renderer if CanvasAddon fails to load.
+    const canvasAddonHandle = initSafeCanvasAddon(term);
+    canvasAddonRef.current = canvasAddonHandle.canvasAddon;
+
     patchXtermTransparentScrollbar(term);
 
     const getNow = () => (typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now());
@@ -1726,6 +1791,9 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     if (typeof document !== 'undefined' && document.fonts?.ready) {
       document.fonts.ready.then(() => {
         if (isMountedRef.current) {
+          try {
+            canvasAddonRef.current?.clearTextureAtlas();
+          } catch {}
           safeFit(true);
         }
       }).catch(() => {});
@@ -2021,6 +2089,11 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       }
       bufferChangeDisposable.dispose();
       csiDisposable.dispose();
+      decrqmDisposable.dispose();
+      syncSetDisposable.dispose();
+      syncResetDisposable.dispose();
+      canvasAddonHandle.dispose();
+      canvasAddonRef.current = null;
       selectionDisposable.dispose();
       cursorMoveDisposable.dispose();
       lineFeedDisposable.dispose();

@@ -24,15 +24,20 @@ export function isSyntheticTerminalReport(data: string): boolean {
 
 /**
  * Detects whether data contains any unsolicited color or device attribute reports
- * (OSC 4/10/11/12, DA, DECRPM), mouse reports (SGR 1006, legacy X10/VT200),
+ * (OSC 4/10/11/12, DA), mouse reports (SGR 1006, legacy X10/VT200),
  * or focus reports (1004) that should never be echoed to a standard shell prompt.
+ *
+ * NOTE: DECRPM (\x1b[?...$y) responses are intentionally NOT filtered here because
+ * interactive CLI and TUI tools (such as Claude Code and agy) probe terminal capabilities
+ * (e.g. DEC Mode 2026 Synchronized Output via \x1b[?2026$p) while running in normal buffer mode.
+ * Blocking DECRPM prevents these tools from negotiating flicker-free synchronized rendering.
  */
 export function isUnsolicitedShellDeviceReport(data: string): boolean {
   if (!data || typeof data !== 'string') {
     return false;
   }
   const stripped = data.replace(
-    /\x1b(?:\[[>?=]\d+(?:;\d+)*c|\](?:4|10|11|12);[^\x1b\x07]+(?:\x1b\\|\x07)|\[\??\d+(?:;\d+)*\$y|\[<\d+;\d+;\d+[Mm]|\[M[\s\S]{3}|\[[IO])/g,
+    /\x1b(?:\[[>?=]\d+(?:;\d+)*c|\](?:4|10|11|12);[^\x1b\x07]+(?:\x1b\\|\x07)|\[<\d+;\d+;\d+[Mm]|\[M[\s\S]{3}|\[[IO])/g,
     ''
   );
   return stripped.length === 0;

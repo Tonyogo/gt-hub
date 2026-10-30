@@ -1,4 +1,4 @@
-import { isSyntheticTerminalReport } from '../frontend/src/utils/terminalFilter';
+import { isSyntheticTerminalReport, isUnsolicitedShellDeviceReport } from '../frontend/src/utils/terminalFilter';
 
 describe('isSyntheticTerminalReport', () => {
   it('should identify CPR (Cursor Position Report)', () => {
@@ -35,3 +35,15 @@ describe('isSyntheticTerminalReport', () => {
     expect(isSyntheticTerminalReport(':wq\r')).toBe(false);
   });
 });
+
+describe('isUnsolicitedShellDeviceReport - DECRPM Pass-Through', () => {
+  it('permits DECRPM responses for DEC Mode 2026 and 2004 capability negotiation', () => {
+    // Mode 2026 Synchronized Output: 1 = set, 2 = reset
+    expect(isUnsolicitedShellDeviceReport('\x1b[?2026;2$y')).toBe(false);
+    expect(isUnsolicitedShellDeviceReport('\x1b[?2026;1$y')).toBe(false);
+    // Mode 2004 Bracketed Paste
+    expect(isUnsolicitedShellDeviceReport('\x1b[?2004;1$y')).toBe(false);
+    expect(isUnsolicitedShellDeviceReport('\x1b[?2004;2$y')).toBe(false);
+  });
+});
+

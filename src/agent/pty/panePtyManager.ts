@@ -245,7 +245,7 @@ export class SecondaryPanePtyManager {
     const validCols = Math.max(10, Math.min(500, Math.floor(cols || 80)));
     const validRows = Math.max(5, Math.min(200, Math.floor(rows || 24)));
 
-    let pane = this.panes.get(paneId);
+    const pane = this.panes.get(paneId);
     if (!pane) {
       this.spawnPane(paneId, validCols, validRows);
       return;

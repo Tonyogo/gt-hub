@@ -76,28 +76,60 @@ describe('Terminal Performance Optimization', () => {
           expect(writtenBatches.length).toBe(1);
           expect(scheduler.pendingBytes()).toBe(25);
 
-          // 3. Complete first write -> schedules next slice after 8ms
+          // 3. Complete first write -> immediately wakes up next slice without 8ms cooling timer delay
           pendingDoneCallbacks.shift()!();
-          expect(scheduler.isBusy()).toBe(false);
-
-          jest.advanceTimersByTime(8);
           expect(writtenBatches.length).toBe(2);
           expect(writtenBatches[1]).toBe('0123456789'); // 10-byte slice
+          expect(scheduler.isBusy()).toBe(true);
           expect(scheduler.pendingBytes()).toBe(15);
 
-          // 4. Complete second write -> next 10-byte slice
+          // 4. Complete second write -> immediately wakes up next 10-byte slice
           pendingDoneCallbacks.shift()!();
-          jest.advanceTimersByTime(8);
           expect(writtenBatches.length).toBe(3);
           expect(writtenBatches[2]).toBe('abcdefghij');
+          expect(scheduler.isBusy()).toBe(true);
           expect(scheduler.pendingBytes()).toBe(5);
 
-          // 5. Complete third write -> final 5-byte slice
+          // 5. Complete third write -> immediately wakes up final 5-byte slice
           pendingDoneCallbacks.shift()!();
-          jest.advanceTimersByTime(8);
           expect(writtenBatches.length).toBe(4);
           expect(writtenBatches[3]).toBe('UVWXY');
+          expect(scheduler.isBusy()).toBe(true);
           expect(scheduler.pendingBytes()).toBe(0);
+
+          // 6. Complete fourth write -> buffer empty, scheduler becomes idle
+          pendingDoneCallbacks.shift()!();
+          expect(scheduler.isBusy()).toBe(false);
+        } finally {
+          jest.useRealTimers();
+        }
+      });
+
+      it('flushes synchronized output frame immediately when closing ?2026l arrives without waiting for timer', () => {
+        jest.useFakeTimers();
+        try {
+          const writtenBatches: string[] = [];
+          const scheduler = new TerminalWriteScheduler(
+            (batch, done) => {
+              writtenBatches.push(batch);
+              done();
+            },
+            8,
+            64 * 1024,
+            4096
+          );
+
+          // Sync start + erase
+          scheduler.push('\x1b[?2026h\x1b[2K');
+          expect(writtenBatches).toEqual([]);
+
+          // Middle content
+          scheduler.push('Header line\r\n');
+          expect(writtenBatches).toEqual([]);
+
+          // Sync close arrives: immediately flushes entire frame atomically with 0ms delay!
+          scheduler.push('Content\x1b[?2026l');
+          expect(writtenBatches).toEqual(['\x1b[?2026h\x1b[2KHeader line\r\nContent\x1b[?2026l']);
         } finally {
           jest.useRealTimers();
         }
@@ -250,6 +282,39 @@ describe('Terminal Performance Optimization', () => {
           jest.useRealTimers();
         }
       });
+
+      it('handles DEC Mode 2026 sequences split across chunk boundaries correctly', () => {
+        jest.useFakeTimers();
+        try {
+          const writtenBatches: string[] = [];
+          const scheduler = new TerminalWriteScheduler(
+            (batch, done) => {
+              writtenBatches.push(batch);
+              done();
+            },
+            8,
+            64 * 1024,
+            4096
+          );
+
+          // Split \x1b[?2026h across chunks: chunk 1 has '\x1b[?2026', chunk 2 has 'h\x1b[2K'
+          scheduler.push('\x1b[?2026');
+          expect(writtenBatches).toEqual([]);
+          scheduler.push('h\x1b[2KContent');
+          expect(writtenBatches).toEqual([]);
+          expect(scheduler.isSyncActive()).toBe(true);
+
+          // Split \x1b[?2026l across chunks: chunk 3 has '\x1b[?2026', chunk 4 has 'l'
+          scheduler.push('\x1b[?2026');
+          expect(writtenBatches).toEqual([]);
+          scheduler.push('l');
+          // Immediately flushes upon closing split sequence
+          expect(writtenBatches).toEqual(['\x1b[?2026h\x1b[2KContent\x1b[?2026l']);
+          expect(scheduler.isSyncActive()).toBe(false);
+        } finally {
+          jest.useRealTimers();
+        }
+      });
     });
 
     describe('TUI Frame Detection & ANSI Slicing Helpers', () => {
@@ -278,6 +343,8 @@ describe('Terminal Performance Optimization', () => {
         // Unclosed DEC 2026
         expect(hasIncompleteTuiFrame('\x1b[?2026hheader')).toBe(true);
         expect(hasIncompleteTuiFrame('\x1b[?2026hheader\x1b[?2026l')).toBe(false);
+        expect(hasIncompleteTuiFrame('\x1b[?2026hheader\x1b[?2026l\x1b[1G')).toBe(false);
+        expect(hasIncompleteTuiFrame('\x1b[?2026hheader\x1b[?2026l\x1b[10;1H')).toBe(false);
 
         // Erase / cursor sequences at tail
         expect(hasIncompleteTuiFrame('\x1b[2K\r')).toBe(true);
@@ -387,6 +454,23 @@ describe('Terminal Performance Optimization', () => {
       const daemonContent = fs.readFileSync(daemonPath, 'utf-8');
       expect(daemonContent).not.toMatch(/CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN:\s*process\.env\.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN\s*\|\|\s*['"]1['"]/);
       expect(daemonContent).toContain('delete env.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN');
+    });
+
+    it('safely loads @xterm/addon-canvas for 2D double-buffered rendering with fallback to DOM renderer', () => {
+      expect(compContent).toContain("import { CanvasAddon } from '@xterm/addon-canvas';");
+      expect(compContent).toContain('initSafeCanvasAddon(term)');
+      expect(compContent).toContain('canvasAddonRef.current = canvasAddonHandle.canvasAddon;');
+      expect(compContent).toContain('canvasAddonHandle.dispose();');
+    });
+
+    it('registers DECRQM and DEC Mode 2026 handlers to negotiate synchronized output', () => {
+      expect(compContent).toContain("prefix: '?', intermediates: '$', final: 'p'");
+      expect(compContent).toContain('mode === 2026');
+      expect(compContent).toContain('\\x1b[?2026;');
+      expect(compContent).toContain("prefix: '?', final: 'h'");
+      expect(compContent).toContain("prefix: '?', final: 'l'");
+      expect(compContent).toContain('decrqmDisposable.dispose();');
+      expect(compContent).toContain('if (isReplayingRef.current)');
     });
   });
 });

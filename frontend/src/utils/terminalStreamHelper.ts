@@ -47,6 +47,14 @@ export function hasIncompleteTuiFrame(text: string): boolean {
   if (hasTrailingIncompleteAnsi(text)) {
     return true;
   }
+  // If a DEC 2026 sync frame just closed and no new erase sequence started after it,
+  // the frame is complete and ready for immediate rendering.
+  if (decSyncEnd >= 0 && decSyncEnd >= decSyncStart) {
+    const afterSync = text.slice(decSyncEnd + 8);
+    if (!/\x1b\[\d*[JK]/.test(afterSync)) {
+      return false;
+    }
+  }
   if (text.includes('\x1b[') && INCOMPLETE_TUI_TAIL_RE.test(text)) {
     return true;
   }
@@ -73,6 +81,7 @@ export class TerminalWriteScheduler {
   private timer: any = null;
   private inFlight: boolean = false;
   private holdCount: number = 0;
+  private inDecSyncMode: boolean = false;
   private readonly maxHoldCount: number;
   private readonly maxBatchBytes: number;
   private readonly intervalMs: number;
@@ -95,18 +104,42 @@ export class TerminalWriteScheduler {
     this.maxHoldCount = Math.max(1, Math.ceil(24 / Math.max(1, this.intervalMs)));
   }
 
+  public isSyncActive(): boolean {
+    return this.inDecSyncMode;
+  }
+
+  private updateDecSyncState(chunk: string, prevTail: string = ''): void {
+    const text = prevTail ? prevTail + chunk : chunk;
+    if (!text || !text.includes('\x1b[?2026')) return;
+    const lastH = text.lastIndexOf('\x1b[?2026h');
+    const lastL = text.lastIndexOf('\x1b[?2026l');
+    if (lastH !== -1 || lastL !== -1) {
+      if (lastH > lastL) {
+        this.inDecSyncMode = true;
+      } else if (lastL > lastH) {
+        this.inDecSyncMode = false;
+      }
+    }
+  }
+
   public push(chunk: string): void {
     if (!chunk || chunk.length === 0) return;
 
+    const wasInDecSync = this.inDecSyncMode;
+    const prevTail = this.buffer.length > 0 ? this.buffer[this.buffer.length - 1].slice(-8) : '';
+    this.updateDecSyncState(chunk, prevTail);
+
     // Fast-path: when idle (no timer and no in-flight xterm write) and immediateMaxBytes > 0,
     // dispatch small interactive echo immediately with 0ms delay, and set a cooldown timer.
-    // TUI erase and sync chunks must NOT take this fast-path so they coalesce with redraw content.
+    // TUI erase and sync chunks (or any chunk while DEC sync mode is active) must NOT take this fast-path so they coalesce with redraw content.
     if (
       this.immediateMaxBytes > 0 &&
       !this.inFlight &&
       !this.timer &&
       this.buffer.length === 0 &&
       chunk.length <= this.immediateMaxBytes &&
+      !wasInDecSync &&
+      !this.inDecSyncMode &&
       !isTuiEraseOrSyncChunk(chunk)
     ) {
       this.dispatchBatch(chunk);
@@ -132,7 +165,13 @@ export class TerminalWriteScheduler {
       return;
     }
 
-    if (this.bufferedLength >= this.maxBatchBytes) {
+    // If a synchronized update just closed (\x1b[?2026l), flush immediately
+    if (wasInDecSync && !this.inDecSyncMode) {
+      this.flushNextSlice();
+      return;
+    }
+
+    if (!this.inDecSyncMode && this.bufferedLength >= this.maxBatchBytes) {
       this.flushNextSlice();
       return;
     }
@@ -155,16 +194,20 @@ export class TerminalWriteScheduler {
       return;
     }
 
-    // If buffer contains an incomplete TUI frame, hold up to 24ms for the redraw chunk to arrive
+    // If buffer contains an incomplete TUI frame or DEC sync is active, hold up to 24ms for redraw chunk to arrive
     if (this.bufferedLength < this.maxBatchBytes && this.holdCount < this.maxHoldCount) {
       const preview = this.buffer.length === 1 ? this.buffer[0] : this.buffer.join('');
-      if (hasIncompleteTuiFrame(preview)) {
+      const isIncomplete = this.inDecSyncMode || hasIncompleteTuiFrame(preview);
+      if (isIncomplete) {
         this.holdCount++;
         this.scheduleTimer();
         return;
       }
     }
 
+    if (this.holdCount >= this.maxHoldCount) {
+      this.inDecSyncMode = false;
+    }
     this.holdCount = 0;
     this.flushNextSlice();
   }
@@ -243,7 +286,23 @@ export class TerminalWriteScheduler {
       this.inFlight = false;
       this.holdCount = 0;
       if (this.buffer.length > 0) {
-        this.scheduleTimer();
+        // If buffer contains an incomplete TUI frame or DEC sync mode is active,
+        // hold up to maxHoldCount for the redraw chunk to arrive
+        if (this.bufferedLength < this.maxBatchBytes && this.holdCount < this.maxHoldCount) {
+          const preview = this.buffer.length === 1 ? this.buffer[0] : this.buffer.join('');
+          const isIncomplete = this.inDecSyncMode || hasIncompleteTuiFrame(preview);
+          if (isIncomplete) {
+            this.holdCount++;
+            this.clearScheduledTimer();
+            this.scheduleTimer();
+            return;
+          }
+        }
+
+        // Otherwise (remaining data from burst/unpacking or completed frame):
+        // Immediately wake up flushNextSlice, clearing any leftover cooldown timer
+        this.clearScheduledTimer();
+        this.flushNextSlice();
       }
     };
 
@@ -270,6 +329,7 @@ export class TerminalWriteScheduler {
     this.clearScheduledTimer();
     this.inFlight = false;
     this.holdCount = 0;
+    this.inDecSyncMode = false;
     if (this.buffer.length === 0) return;
 
     const combined = this.buffer.length === 1 ? this.buffer[0] : this.buffer.join('');
@@ -284,6 +344,7 @@ export class TerminalWriteScheduler {
     this.clearScheduledTimer();
     this.inFlight = false;
     this.holdCount = 0;
+    this.inDecSyncMode = false;
     this.buffer = [];
     this.bufferedLength = 0;
   }

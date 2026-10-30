@@ -53,6 +53,12 @@ describe('Terminal Synthetic Echo Protection (OSC 11 / DA / CPR)', () => {
       expect(isUnsolicitedShellDeviceReport('echo hello\r')).toBe(false);
       expect(isUnsolicitedShellDeviceReport('\x1b[A')).toBe(false);
     });
+
+    it('does not classify DECRPM mode capability reports as unsolicited shell device report', () => {
+      expect(isUnsolicitedShellDeviceReport('\x1b[?2026;2$y')).toBe(false);
+      expect(isUnsolicitedShellDeviceReport('\x1b[?2026;1$y')).toBe(false);
+      expect(isUnsolicitedShellDeviceReport('\x1b[?2004;1$y')).toBe(false);
+    });
   });
 
   describe('stripTerminalQuerySequences', () => {
