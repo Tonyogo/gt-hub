@@ -1,6 +1,13 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { TerminalWriteScheduler, BackgroundBufferQueue } from '../frontend/src/utils/terminalStreamHelper';
+import {
+  TerminalWriteScheduler,
+  BackgroundBufferQueue,
+  isTuiEraseOrSyncChunk,
+  hasIncompleteTuiFrame,
+  findSafeAnsiSplitIndex,
+  hasTrailingIncompleteAnsi,
+} from '../frontend/src/utils/terminalStreamHelper';
 
 describe('Terminal Performance Optimization', () => {
   describe('Terminal Stream & Batch Helpers', () => {
@@ -127,6 +134,162 @@ describe('Terminal Performance Optimization', () => {
         } finally {
           jest.useRealTimers();
         }
+      });
+
+      it('coalesces split TUI erase-and-redraw chunks instead of flushing the erase chunk on the 0ms fast-path', () => {
+        jest.useFakeTimers();
+        try {
+          const writtenBatches: string[] = [];
+          const scheduler = new TerminalWriteScheduler(
+            (batch, done) => {
+              writtenBatches.push(batch);
+              done();
+            },
+            8,
+            64 * 1024,
+            4096
+          );
+
+          // Chunk 1: Ink / Claude Code erases 3 lines and hides cursor
+          scheduler.push('\x1b[?25l\x1b[2K\x1b[1A\x1b[2K\x1b[1A\x1b[2K\r');
+          // Must NOT flush the blank erased state at 0ms
+          expect(writtenBatches).toEqual([]);
+
+          // Chunk 2 arrives 2ms later with the new rendered content and cursor restore
+          jest.advanceTimersByTime(2);
+          scheduler.push('Claude: Thinking...\r\nStatus: active\x1b[?25h');
+
+          jest.advanceTimersByTime(8);
+          expect(writtenBatches).toEqual([
+            '\x1b[?25l\x1b[2K\x1b[1A\x1b[2K\x1b[1A\x1b[2K\rClaude: Thinking...\r\nStatus: active\x1b[?25h',
+          ]);
+        } finally {
+          jest.useRealTimers();
+        }
+      });
+
+      it('holds unclosed DEC Mode 2026 synchronized output frame across timer ticks up to maxFrameHoldMs', () => {
+        jest.useFakeTimers();
+        try {
+          const writtenBatches: string[] = [];
+          const scheduler = new TerminalWriteScheduler(
+            (batch, done) => {
+              writtenBatches.push(batch);
+              done();
+            },
+            8,
+            64 * 1024,
+            4096
+          );
+
+          // Begin synchronized update + erase
+          scheduler.push('\x1b[?2026h\x1b[H\x1b[2KHeader\r\n');
+          jest.advanceTimersByTime(8);
+          // Still unclosed at 8ms -> held
+          expect(writtenBatches).toEqual([]);
+
+          // Body arrives at 12ms and closes synchronized update
+          jest.advanceTimersByTime(4);
+          scheduler.push('\x1b[2KBody line\x1b[?2026l');
+
+          jest.advanceTimersByTime(8);
+          expect(writtenBatches).toEqual([
+            '\x1b[?2026h\x1b[H\x1b[2KHeader\r\n\x1b[2KBody line\x1b[?2026l',
+          ]);
+        } finally {
+          jest.useRealTimers();
+        }
+      });
+
+      it('force-flushes unclosed TUI frame once maxFrameHoldMs (24ms) expires to prevent starvation', () => {
+        jest.useFakeTimers();
+        try {
+          const writtenBatches: string[] = [];
+          const scheduler = new TerminalWriteScheduler(
+            (batch, done) => {
+              writtenBatches.push(batch);
+              done();
+            },
+            8,
+            64 * 1024,
+            4096
+          );
+
+          scheduler.push('\x1b[?2026h\x1b[2KSpinner frame without close');
+          jest.advanceTimersByTime(8);
+          expect(writtenBatches.length).toBe(0);
+
+          jest.advanceTimersByTime(24);
+          expect(writtenBatches).toEqual(['\x1b[?2026h\x1b[2KSpinner frame without close']);
+        } finally {
+          jest.useRealTimers();
+        }
+      });
+
+      it('does not split in the middle of a trailing ANSI escape sequence when slicing maxBatchBytes', () => {
+        jest.useFakeTimers();
+        try {
+          const writtenBatches: string[] = [];
+          const scheduler = new TerminalWriteScheduler(
+            (batch, done) => {
+              writtenBatches.push(batch);
+              done();
+            },
+            8,
+            10, // maxBatchBytes = 10
+            0
+          );
+
+          // 8 chars 'ABCDEFGH' + 5-char escape '\x1b[32m' + 'Z' = 14 chars
+          // A naive 10-char cut would split '\x1b[32m' into '\x1b[' and '32mZ'
+          scheduler.push('ABCDEFGH\x1b[32mZ');
+          expect(writtenBatches[0]).toBe('ABCDEFGH');
+          jest.advanceTimersByTime(8);
+          expect(writtenBatches[1]).toBe('\x1b[32mZ');
+        } finally {
+          jest.useRealTimers();
+        }
+      });
+    });
+
+    describe('TUI Frame Detection & ANSI Slicing Helpers', () => {
+      it('isTuiEraseOrSyncChunk identifies erase, navigation, and sync sequences correctly', () => {
+        expect(isTuiEraseOrSyncChunk('')).toBe(false);
+        expect(isTuiEraseOrSyncChunk('hello world')).toBe(false);
+        expect(isTuiEraseOrSyncChunk('\x1b[32mgreen text\x1b[0m')).toBe(false);
+
+        expect(isTuiEraseOrSyncChunk('\x1b[?2026h')).toBe(true);
+        expect(isTuiEraseOrSyncChunk('\x1b[?2026l')).toBe(true);
+        expect(isTuiEraseOrSyncChunk('\x1b[?25l')).toBe(true);
+        expect(isTuiEraseOrSyncChunk('\x1b[?25h')).toBe(true);
+        expect(isTuiEraseOrSyncChunk('\x1b[2K')).toBe(true);
+        expect(isTuiEraseOrSyncChunk('\x1b[1A')).toBe(true);
+        expect(isTuiEraseOrSyncChunk('\x1b[H')).toBe(true);
+        expect(isTuiEraseOrSyncChunk('\x1b[1;1H')).toBe(true);
+        expect(isTuiEraseOrSyncChunk('\x1b[1G')).toBe(true);
+        expect(isTuiEraseOrSyncChunk('text\x1b[')).toBe(true);
+      });
+
+      it('hasIncompleteTuiFrame detects unclosed sync frames and incomplete tails', () => {
+        expect(hasIncompleteTuiFrame('')).toBe(false);
+        expect(hasIncompleteTuiFrame('normal text\r\n')).toBe(false);
+        expect(hasIncompleteTuiFrame('\x1b[32mgreen text\x1b[0m\r\n')).toBe(false);
+
+        // Unclosed DEC 2026
+        expect(hasIncompleteTuiFrame('\x1b[?2026hheader')).toBe(true);
+        expect(hasIncompleteTuiFrame('\x1b[?2026hheader\x1b[?2026l')).toBe(false);
+
+        // Erase / cursor sequences at tail
+        expect(hasIncompleteTuiFrame('\x1b[2K\r')).toBe(true);
+        expect(hasIncompleteTuiFrame('\x1b[?25l\x1b[2K\x1b[1A\x1b[2K\r')).toBe(true);
+        expect(hasIncompleteTuiFrame('\x1b[2KRedrawn text\r\n')).toBe(false);
+      });
+
+      it('findSafeAnsiSplitIndex avoids slicing through mid-sequence ANSI escapes', () => {
+        expect(findSafeAnsiSplitIndex('short', 10)).toBe(5);
+        expect(findSafeAnsiSplitIndex('ABCDEFGHIJK', 10)).toBe(10);
+        expect(findSafeAnsiSplitIndex('ABCDEFGH\x1b[32mZ', 10)).toBe(8);
+        expect(findSafeAnsiSplitIndex('12345\x1b]0;Title\x07Z', 10)).toBe(5);
       });
     });
 

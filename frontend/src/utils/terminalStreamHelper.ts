@@ -1,8 +1,79 @@
+const TUI_ERASE_OR_NAV_RE = /\x1b\[(?:\d*[JKAFGH]|\d+;\d+[Hf])/;
+const INCOMPLETE_TUI_TAIL_RE = /(?:\x1b\[(?:\?25l|\?2026h|\d*[JKAFGH]|\d+;\d+[Hf])|\r)*\x1b\[(?:\?25l|\?2026h|\d*[JKAFGH]|\d+;\d+[Hf])\r*$/;
+
+export function hasTrailingIncompleteAnsi(text: string): boolean {
+  if (!text) return false;
+  const searchStart = Math.max(0, text.length - 64);
+  const lastEsc = text.lastIndexOf('\x1b');
+  if (lastEsc === -1 || lastEsc < searchStart) return false;
+
+  const remainder = text.slice(lastEsc);
+  if (remainder === '\x1b') return true;
+
+  if (remainder[1] === '[') {
+    return /^\[[0-9;:?<>! "'*]*$/.test(remainder.slice(1));
+  }
+
+  if (remainder[1] === ']') {
+    return !remainder.includes('\x07') && !remainder.includes('\x1b\\');
+  }
+
+  return false;
+}
+
+export function isTuiEraseOrSyncChunk(chunk: string): boolean {
+  if (!chunk || !chunk.includes('\x1b')) return false;
+  if (
+    chunk.includes('\x1b[?2026h') ||
+    chunk.includes('\x1b[?2026l') ||
+    chunk.includes('\x1b[?25l') ||
+    chunk.includes('\x1b[?25h')
+  ) {
+    return true;
+  }
+  if (TUI_ERASE_OR_NAV_RE.test(chunk)) {
+    return true;
+  }
+  return hasTrailingIncompleteAnsi(chunk);
+}
+
+export function hasIncompleteTuiFrame(text: string): boolean {
+  if (!text) return false;
+  const decSyncStart = text.lastIndexOf('\x1b[?2026h');
+  const decSyncEnd = text.lastIndexOf('\x1b[?2026l');
+  if (decSyncStart > decSyncEnd) {
+    return true;
+  }
+  if (hasTrailingIncompleteAnsi(text)) {
+    return true;
+  }
+  if (text.includes('\x1b[') && INCOMPLETE_TUI_TAIL_RE.test(text)) {
+    return true;
+  }
+  return false;
+}
+
+export function findSafeAnsiSplitIndex(text: string, maxChars: number): number {
+  if (!text || text.length <= maxChars) {
+    return text ? text.length : 0;
+  }
+  const candidate = text.slice(0, maxChars);
+  if (hasTrailingIncompleteAnsi(candidate)) {
+    const lastEsc = candidate.lastIndexOf('\x1b');
+    if (lastEsc > 0) {
+      return lastEsc;
+    }
+  }
+  return maxChars;
+}
+
 export class TerminalWriteScheduler {
   private buffer: string[] = [];
   private bufferedLength: number = 0;
   private timer: any = null;
   private inFlight: boolean = false;
+  private holdCount: number = 0;
+  private readonly maxHoldCount: number;
   private readonly maxBatchBytes: number;
   private readonly intervalMs: number;
   private readonly immediateMaxBytes: number;
@@ -21,6 +92,7 @@ export class TerminalWriteScheduler {
     this.maxBatchBytes = maxBatchBytes;
     this.immediateMaxBytes = immediateMaxBytes;
     this.maxQueueBytes = Math.max(maxBatchBytes, maxQueueBytes);
+    this.maxHoldCount = Math.max(1, Math.ceil(24 / Math.max(1, this.intervalMs)));
   }
 
   public push(chunk: string): void {
@@ -28,20 +100,19 @@ export class TerminalWriteScheduler {
 
     // Fast-path: when idle (no timer and no in-flight xterm write) and immediateMaxBytes > 0,
     // dispatch small interactive echo immediately with 0ms delay, and set a cooldown timer.
+    // TUI erase and sync chunks must NOT take this fast-path so they coalesce with redraw content.
     if (
       this.immediateMaxBytes > 0 &&
       !this.inFlight &&
       !this.timer &&
       this.buffer.length === 0 &&
-      chunk.length <= this.immediateMaxBytes
+      chunk.length <= this.immediateMaxBytes &&
+      !isTuiEraseOrSyncChunk(chunk)
     ) {
       this.dispatchBatch(chunk);
       const getTimer = typeof window !== 'undefined' ? window.setTimeout : setTimeout;
       this.timer = getTimer(() => {
-        this.timer = null;
-        if (this.buffer.length > 0) {
-          this.flushNextSlice();
-        }
+        this.onTimerTick();
       }, this.intervalMs);
       return;
     }
@@ -73,9 +144,29 @@ export class TerminalWriteScheduler {
     if (this.timer || this.inFlight || this.buffer.length === 0) return;
     const getTimer = typeof window !== 'undefined' ? window.setTimeout : setTimeout;
     this.timer = getTimer(() => {
-      this.timer = null;
-      this.flushNextSlice();
+      this.onTimerTick();
     }, this.intervalMs);
+  }
+
+  private onTimerTick(): void {
+    this.timer = null;
+    if (this.buffer.length === 0) {
+      this.holdCount = 0;
+      return;
+    }
+
+    // If buffer contains an incomplete TUI frame, hold up to 24ms for the redraw chunk to arrive
+    if (this.bufferedLength < this.maxBatchBytes && this.holdCount < this.maxHoldCount) {
+      const preview = this.buffer.length === 1 ? this.buffer[0] : this.buffer.join('');
+      if (hasIncompleteTuiFrame(preview)) {
+        this.holdCount++;
+        this.scheduleTimer();
+        return;
+      }
+    }
+
+    this.holdCount = 0;
+    this.flushNextSlice();
   }
 
   private clearScheduledTimer(): void {
@@ -95,11 +186,27 @@ export class TerminalWriteScheduler {
       return all;
     }
 
+    // Inspect up to maxChars + 64 chars from the buffer to determine a safe split boundary
+    let text = '';
+    const peekTarget = Math.min(this.bufferedLength, maxChars + 64);
+    for (let i = 0; i < this.buffer.length; i++) {
+      const needed = peekTarget - text.length;
+      if (this.buffer[i].length <= needed) {
+        text += this.buffer[i];
+      } else {
+        text += this.buffer[i].slice(0, needed);
+      }
+      if (text.length >= peekTarget) break;
+    }
+
+    const safeChars = findSafeAnsiSplitIndex(text, maxChars);
+    const targetChars = safeChars > 0 ? safeChars : maxChars;
+
     const parts: string[] = [];
     let collected = 0;
-    while (this.buffer.length > 0 && collected < maxChars) {
+    while (this.buffer.length > 0 && collected < targetChars) {
       const head = this.buffer[0];
-      const remaining = maxChars - collected;
+      const remaining = targetChars - collected;
       if (head.length <= remaining) {
         parts.push(this.buffer.shift()!);
         this.bufferedLength -= head.length;
@@ -134,6 +241,7 @@ export class TerminalWriteScheduler {
       if (doneCalled) return;
       doneCalled = true;
       this.inFlight = false;
+      this.holdCount = 0;
       if (this.buffer.length > 0) {
         this.scheduleTimer();
       }
@@ -150,6 +258,7 @@ export class TerminalWriteScheduler {
     this.clearScheduledTimer();
     if (this.inFlight || this.buffer.length === 0) return;
 
+    this.holdCount = 0;
     const expectsAsyncDone = this.flushCallback.length >= 2;
     const batch = expectsAsyncDone
       ? this.dequeueSlice(this.maxBatchBytes)
@@ -160,6 +269,7 @@ export class TerminalWriteScheduler {
   public flush(): void {
     this.clearScheduledTimer();
     this.inFlight = false;
+    this.holdCount = 0;
     if (this.buffer.length === 0) return;
 
     const combined = this.buffer.length === 1 ? this.buffer[0] : this.buffer.join('');
@@ -173,6 +283,7 @@ export class TerminalWriteScheduler {
   public clear(): void {
     this.clearScheduledTimer();
     this.inFlight = false;
+    this.holdCount = 0;
     this.buffer = [];
     this.bufferedLength = 0;
   }

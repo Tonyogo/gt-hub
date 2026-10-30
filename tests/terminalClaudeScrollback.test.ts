@@ -66,4 +66,17 @@ describe('Terminal Claude Code In-Session Scrollback & Alternate Wheel Navigatio
   it('WebTerminalView provides 10000 default scrollback lines for extensive transcripts', () => {
     expect(webTerminalContent).toContain('defaultScrollback = 10000');
   });
+
+  it('WebTerminalView writeScheduler callback skips scrollToBottomSafe when viewportY is already at baseY', () => {
+    const schedulerIdx = webTerminalContent.indexOf('writeSchedulerRef.current = new TerminalWriteScheduler');
+    const schedulerBlock = webTerminalContent.slice(schedulerIdx, schedulerIdx + 700);
+    expect(schedulerBlock).toContain('t.buffer.active.viewportY < t.buffer.active.baseY');
+  });
+
+  it('WebTerminalView safeFit skips fitAddon.fit and full-screen term.refresh when dimensions are unchanged and not forced', () => {
+    const safeFitStart = webTerminalContent.indexOf('const safeFit = useCallback');
+    const safeFitEnd = webTerminalContent.indexOf('const safeFitRef =', safeFitStart);
+    const safeFitBlock = webTerminalContent.slice(safeFitStart, safeFitEnd);
+    expect(safeFitBlock).toContain('!forceResize && proposed.cols === term.cols && proposed.rows === term.rows');
+  });
 });

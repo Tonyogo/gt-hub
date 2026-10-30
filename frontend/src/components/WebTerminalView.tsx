@@ -544,6 +544,13 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           return false;
         }
       }
+      if (
+        !forceResize && proposed.cols === term.cols && proposed.rows === term.rows &&
+        lastSentColsRef.current === proposed.cols &&
+        lastSentRowsRef.current === proposed.rows
+      ) {
+        return true;
+      }
       fitAddonRef.current.fit();
       const { cols, rows } = term;
       if (cols > 2 && rows > 1) {
@@ -746,7 +753,11 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           const term = xtermRef.current;
           const wasAtBottom = isAtBottomRef.current;
           term?.write(data, () => {
-            if (!isRefittingRef.current && shouldScrollToBottom({ isReplaying: isReplayingRef.current, wasAtBottom, bufferType: term?.buffer.active.type })) {
+            if (
+              !isRefittingRef.current &&
+              shouldScrollToBottom({ isReplaying: isReplayingRef.current, wasAtBottom, bufferType: term?.buffer.active.type }) &&
+              (isReplayingRef.current || (term && term.buffer.active.viewportY < term.buffer.active.baseY))
+            ) {
               scrollToBottomSafe(term);
             }
             if (isReplayingRef.current) {
@@ -768,7 +779,11 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           const term = xtermRef.current;
           const wasAtBottom = isAtBottomRef.current;
           term?.write(new Uint8Array(data), () => {
-            if (!isRefittingRef.current && shouldScrollToBottom({ isReplaying: isReplayingRef.current, wasAtBottom, bufferType: term?.buffer.active.type })) {
+            if (
+              !isRefittingRef.current &&
+              shouldScrollToBottom({ isReplaying: isReplayingRef.current, wasAtBottom, bufferType: term?.buffer.active.type }) &&
+              (isReplayingRef.current || (term && term.buffer.active.viewportY < term.buffer.active.baseY))
+            ) {
               scrollToBottomSafe(term);
             }
             if (isReplayingRef.current) {
@@ -1010,7 +1025,11 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       const wasAtBottom = isAtBottomRef.current;
       t.write(batch, () => {
         done();
-        if (!isRefittingRef.current && shouldScrollToBottom({ isReplaying: isReplayingRef.current, wasAtBottom, bufferType: t?.buffer.active.type })) {
+        if (
+          !isRefittingRef.current &&
+          shouldScrollToBottom({ isReplaying: isReplayingRef.current, wasAtBottom, bufferType: t?.buffer.active.type }) &&
+          (isReplayingRef.current || t.buffer.active.viewportY < t.buffer.active.baseY)
+        ) {
           scrollToBottomSafe(t);
         }
         if (isReplayingRef.current) {

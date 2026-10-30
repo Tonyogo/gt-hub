@@ -82,4 +82,18 @@ describe('StreamBatcher', () => {
     batcher.push('d');
     expect(outputs).toEqual(['a', 'bc', 'd']);
   });
+
+  it('coalesces TUI erase chunk with subsequent redraw chunk instead of flushing erase on 0ms fast-path', () => {
+    const outputs: string[] = [];
+    const batcher = new StreamBatcher((data) => {
+      outputs.push(data);
+    }, 8, 64 * 1024, 4096);
+
+    batcher.push('\x1b[2K\x1b[1A\x1b[2K\r');
+    expect(outputs).toEqual([]);
+
+    batcher.push('Redrawn line\r\n');
+    jest.advanceTimersByTime(8);
+    expect(outputs).toEqual(['\x1b[2K\x1b[1A\x1b[2K\rRedrawn line\r\n']);
+  });
 });
