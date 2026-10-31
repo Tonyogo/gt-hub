@@ -6,7 +6,17 @@ export default {
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
-    extend: {},
+    extend: {
+      colors: {
+        canvas: 'var(--bg-canvas)',
+        surface: 'var(--bg-surface)',
+        'surface-sub': 'var(--bg-surface-sub)',
+        elevated: 'var(--bg-elevated)',
+        terminal: 'var(--bg-terminal)',
+        control: 'var(--bg-control)',
+        'control-hover': 'var(--bg-control-hover)',
+      },
+    },
   },
   plugins: [],
 }

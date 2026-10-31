@@ -7,34 +7,48 @@
     --bg-canvas: #F8FAFC;
     --bg-surface: #FFFFFF;
     --bg-surface-sub: #F1F5F9;
-    --bg-surface-hover: rgba(0, 0, 0, 0.04);
-    --border-subtle: rgba(0, 0, 0, 0.08);
-    --border-hover: rgba(0, 0, 0, 0.16);
+    --bg-elevated: #FFFFFF;
+    --bg-terminal: #FFFFFF;
+    --bg-control: rgba(15, 23, 42, 0.04);
+    --bg-control-hover: rgba(15, 23, 42, 0.08);
+    --bg-surface-hover: rgba(15, 23, 42, 0.04);
+    --bg-overlay: rgba(15, 23, 42, 0.45);
     --text-primary: #0F172A;
     --text-secondary: #475569;
-    --text-muted: #94A3B8;
+    --text-muted: #64748B;
+    --border-subtle: #E2E8F0;
+    --border-default: #CBD5E1;
+    --border-hover: #94A3B8;
+    --border-focus: #4F46E5;
     --code-bg: #F1F5F9;
     --code-text: #0F172A;
-    --scrollbar-thumb: rgba(0, 0, 0, 0.15);
-    --scrollbar-thumb-hover: rgba(0, 0, 0, 0.28);
+    --scrollbar-thumb: rgba(15, 23, 42, 0.18);
+    --scrollbar-thumb-hover: rgba(15, 23, 42, 0.32);
     color-scheme: light;
   }
 
   :root.dark,
   :root[data-theme="dark"] {
-    --bg-canvas: #090A0F;
-    --bg-surface: #0C0E14;
-    --bg-surface-sub: #10121A;
-    --bg-surface-hover: rgba(255, 255, 255, 0.04);
-    --border-subtle: rgba(255, 255, 255, 0.08);
-    --border-hover: rgba(255, 255, 255, 0.16);
+    --bg-canvas: #090D16;
+    --bg-surface: #0F1523;
+    --bg-surface-sub: #151D2E;
+    --bg-elevated: #182235;
+    --bg-terminal: #090D16;
+    --bg-control: rgba(255, 255, 255, 0.05);
+    --bg-control-hover: rgba(255, 255, 255, 0.10);
+    --bg-surface-hover: rgba(255, 255, 255, 0.05);
+    --bg-overlay: rgba(2, 6, 23, 0.72);
     --text-primary: #F8FAFC;
     --text-secondary: #94A3B8;
     --text-muted: #64748B;
-    --code-bg: #020617;
+    --border-subtle: rgba(255, 255, 255, 0.08);
+    --border-default: rgba(255, 255, 255, 0.14);
+    --border-hover: rgba(255, 255, 255, 0.22);
+    --border-focus: #6366F1;
+    --code-bg: #090D16;
     --code-text: #E2E8F0;
-    --scrollbar-thumb: rgba(255, 255, 255, 0.12);
-    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.24);
+    --scrollbar-thumb: rgba(255, 255, 255, 0.14);
+    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.28);
     color-scheme: dark;
   }
 
@@ -78,22 +92,35 @@
   }
 }
 
-:root:not(.dark) {
-  .text-slate-100, .text-slate-200 {
-    color: var(--text-primary);
-  }
-  .text-slate-300 {
-    color: #334155;
-  }
-  .text-slate-400 {
-    color: var(--text-secondary);
-  }
-  .text-slate-500 {
-    color: #94A3B8;
-  }
-  .border-white\/\[0\.08\], .border-white\/\[0\.06\], .border-white\/\[0\.1\] {
-    border-color: var(--border-subtle);
-  }
+/* Light mode high-contrast ANSI log overrides for TaskLogModal and CronLogModal */
+:root:not(.dark) .ansi-log-container {
+  color: #0F172A;
+}
+:root:not(.dark) .ansi-log-container .text-emerald-400 {
+  color: #047857;
+}
+:root:not(.dark) .ansi-log-container .text-rose-400 {
+  color: #BE123C;
+}
+:root:not(.dark) .ansi-log-container .text-amber-400 {
+  color: #B45309;
+}
+:root:not(.dark) .ansi-log-container .text-indigo-400 {
+  color: #4338CA;
+}
+:root:not(.dark) .ansi-log-container .text-cyan-400 {
+  color: #0E7490;
+}
+:root:not(.dark) .ansi-log-container .text-purple-400 {
+  color: #6D28D9;
+}
+:root:not(.dark) .ansi-log-container .text-slate-100,
+:root:not(.dark) .ansi-log-container .text-slate-200,
+:root:not(.dark) .ansi-log-container .text-white {
+  color: #0F172A;
+}
+:root:not(.dark) .ansi-log-container .text-slate-400 {
+  color: #475569;
 }
 
 @keyframes pulse-slow {
@@ -142,39 +169,50 @@
 @layer components {
   /* 主卡片面板 */
   .ui-card {
-    @apply bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-primary)] rounded-2xl shadow-sm dark:shadow-2xl backdrop-blur-md;
+    @apply bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-primary)] rounded-2xl shadow-sm dark:shadow-none;
   }
 
   /* 内嵌子卡片 / 表格行 */
   .ui-card-sub {
-    @apply bg-[var(--bg-surface-sub)] border border-[var(--border-subtle)] text-[var(--text-primary)] rounded-xl shadow-sm;
+    @apply bg-[var(--bg-surface-sub)] border border-[var(--border-subtle)] text-[var(--text-primary)] rounded-xl;
+  }
+
+  /* 高阶浮层面板 / 弹窗外壳 */
+  .ui-elevated {
+    @apply bg-[var(--bg-elevated)] border border-[var(--border-default)] text-[var(--text-primary)] rounded-2xl shadow-xl dark:shadow-2xl;
   }
 
   /* 胶囊 Tab 切换容器与按键 */
   .ui-tab-container {
-    @apply flex items-center p-1 bg-[var(--bg-surface-sub)] rounded-xl border border-[var(--border-subtle)] shadow-sm;
+    @apply flex items-center p-1 bg-[var(--bg-surface-sub)] rounded-xl border border-[var(--border-subtle)];
   }
   .ui-tab-pill {
-    @apply px-3 py-1.5 rounded-lg text-xs font-medium transition-all text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface-hover)];
+    @apply px-3 py-1.5 rounded-lg text-xs font-medium transition-all text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)];
   }
   .ui-tab-pill-active,
   .ui-tab-pill-active:hover,
   .ui-tab-pill-active:focus,
   .ui-tab-pill-active:active {
-    @apply !bg-indigo-600 !text-white shadow-[0_0_12px_rgba(99,102,241,0.35)];
+    @apply !bg-indigo-600 !text-white shadow-xs;
   }
 
-  /* 统一按钮系统 */
+  /* 统一主按钮（纯色 Indigo，去除紫渐变） */
   .ui-btn-primary {
-    @apply bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-xl font-medium text-xs shadow-[0_0_15px_rgba(99,102,241,0.25)] transition-all active:scale-[0.98];
+    @apply bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white rounded-xl font-medium text-xs shadow-xs transition-all active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none;
   }
+  /* 统一次级按钮 */
   .ui-btn-secondary {
-    @apply bg-black/[0.03] dark:bg-white/[0.04] hover:bg-black/[0.06] dark:hover:bg-white/[0.08] border border-[var(--border-subtle)] hover:border-[var(--border-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded-xl text-xs font-medium transition-all active:scale-[0.98];
+    @apply bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] border border-[var(--border-subtle)] hover:border-[var(--border-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded-xl text-xs font-medium transition-all active:scale-[0.98];
+  }
+
+  /* 图标操作按钮 */
+  .ui-icon-btn {
+    @apply p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all active:scale-95;
   }
 
   /* 统一输入框与下拉框 */
   .ui-input {
-    @apply bg-[var(--bg-surface-sub)] border border-[var(--border-subtle)] hover:border-[var(--border-hover)] focus:border-indigo-500/80 rounded-xl px-3 py-2 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-indigo-500/40 font-mono transition-all;
+    @apply bg-[var(--bg-surface-sub)] border border-[var(--border-default)] hover:border-[var(--border-hover)] focus:border-indigo-500 rounded-xl px-3 py-2 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-indigo-500/30 font-mono transition-all;
   }
 }
 
