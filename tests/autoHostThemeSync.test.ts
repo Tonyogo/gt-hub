@@ -161,4 +161,34 @@ describe('Auto System & Embedded Host Theme Sync Engine', () => {
     };
     expect(resolveAutoTheme(crossOriginWinWithLightMedia)).toBe('light');
   });
+
+  test('ThemeContext wires MutationObserver, matchMedia, and postMessage listeners', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const contextCode = fs.readFileSync(
+      path.resolve(__dirname, '../frontend/src/theme/ThemeContext.tsx'),
+      'utf-8'
+    );
+    expect(contextCode).toContain('MutationObserver');
+    expect(contextCode).toContain('prefers-color-scheme: dark');
+    expect(contextCode).toContain("addEventListener('message'");
+  });
+
+  test('LoginView and UnifiedTerminalView wire toggleTheme and keep Sun/Moon icons intact', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const loginCode = fs.readFileSync(
+      path.resolve(__dirname, '../frontend/src/components/LoginView.tsx'),
+      'utf-8'
+    );
+    const unifiedCode = fs.readFileSync(
+      path.resolve(__dirname, '../frontend/src/components/UnifiedTerminalView.tsx'),
+      'utf-8'
+    );
+
+    expect(loginCode).toContain('toggleTheme');
+    expect(loginCode).toMatch(/<Sun\b|<Moon\b/);
+    expect(unifiedCode).toContain('toggleTheme');
+    expect(unifiedCode).toMatch(/<Sun\b|<Moon\b/);
+  });
 });

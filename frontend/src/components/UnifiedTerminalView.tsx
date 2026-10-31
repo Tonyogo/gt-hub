@@ -59,7 +59,7 @@ export default function UnifiedTerminalView({
   onLogout,
 }: UnifiedTerminalViewProps) {
   const { t, language, setLanguage } = useTranslation();
-  const { setTheme, resolvedTheme } = useTheme();
+  const { theme, resolvedTheme, setTheme, toggleTheme } = useTheme();
   const [adminKey, setAdminKey] = useState<string>(() => {
     return propAdminKey || getStoredAdminKey() || (typeof localStorage !== 'undefined' ? localStorage.getItem('admin_secret_key') || '' : '');
   });
@@ -889,7 +889,7 @@ export default function UnifiedTerminalView({
                   <button
                     type="button"
                     onClick={() => {
-                      setTheme(resolvedTheme === 'dark' ? 'light' : 'dark');
+                      toggleTheme();
                       setIsMoreMenuOpen(false);
                     }}
                     className="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-[var(--bg-control-hover)] text-left transition-colors"
@@ -956,9 +956,9 @@ export default function UnifiedTerminalView({
           {/* Theme Switcher */}
           <button
             type="button"
-            onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+            onClick={toggleTheme}
             className="hidden sm:inline-flex p-1 sm:p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all"
-            title="Toggle Theme"
+            title={`Toggle Theme (${theme}: ${resolvedTheme})`}
           >
             {resolvedTheme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
           </button>

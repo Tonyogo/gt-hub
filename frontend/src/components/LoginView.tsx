@@ -7,7 +7,7 @@ import { KeyRound, Lock, Eye, EyeOff, Languages, Sun, Moon, ArrowRight, Loader2,
 export default function LoginView() {
   const { login, error, setError } = useAuth();
   const { t, language, setLanguage } = useTranslation();
-  const { setTheme, resolvedTheme } = useTheme();
+  const { theme, resolvedTheme, setTheme, toggleTheme } = useTheme();
 
   const [keyInput, setKeyInput] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -48,9 +48,9 @@ export default function LoginView() {
         </button>
         <button
           type="button"
-          onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
+          onClick={toggleTheme}
           className="p-2 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-colors shadow-xs"
-          title="Toggle Theme"
+          title={`Toggle Theme (${theme}: ${resolvedTheme})`}
         >
           {resolvedTheme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
         </button>
