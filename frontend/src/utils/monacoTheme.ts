@@ -10,10 +10,10 @@ export const defineGeminiProxyTheme = (monaco: any) => {
       { token: 'null', foreground: '64748b', fontStyle: 'italic' }         // Slate 500
     ],
     colors: {
-      'editor.background': '#020617',                                      // Slate 950
-      'editor.lineHighlightBackground': '#0f172a80',                       // Slate 900
-      'editorLineNumber.foreground': '#475569',                            // Slate 600
-      'editorLineNumber.activeForeground': '#94a3b8'                        // Slate 400
+      'editor.background': '#090D16',
+      'editor.lineHighlightBackground': '#151D2E80',
+      'editorLineNumber.foreground': '#475569',
+      'editorLineNumber.activeForeground': '#94A3B8'
     }
   });
 

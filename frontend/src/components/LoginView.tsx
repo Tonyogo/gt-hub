@@ -33,7 +33,7 @@ export default function LoginView() {
           href="https://github.com/Tonyogo/gt-hub"
           target="_blank"
           rel="noopener noreferrer"
-          className="p-2 rounded-lg bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-colors shadow-xs flex items-center justify-center"
+          className="p-2 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-colors shadow-xs flex items-center justify-center"
           title={t('nav.github', 'GitHub 仓库')}
         >
           <Github className="w-4 h-4" />
@@ -41,7 +41,7 @@ export default function LoginView() {
         <button
           type="button"
           onClick={() => setLanguage(language === 'zh' ? 'en' : 'zh')}
-          className="p-2 rounded-lg bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-colors shadow-xs"
+          className="p-2 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-colors shadow-xs"
           title="Toggle Language"
         >
           <Languages className="w-4 h-4" />
@@ -49,7 +49,7 @@ export default function LoginView() {
         <button
           type="button"
           onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
-          className="p-2 rounded-lg bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-colors shadow-xs"
+          className="p-2 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-colors shadow-xs"
           title="Toggle Theme"
         >
           {resolvedTheme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
@@ -61,7 +61,7 @@ export default function LoginView() {
         <div className="w-full max-w-sm rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] p-6 sm:p-8 shadow-2xl relative">
           {/* Logo & Header */}
           <div className="flex flex-col items-center text-center mb-6">
-            <div className="w-12 h-12 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 flex items-center justify-center font-mono font-bold text-lg mb-3 shadow-inner">
+            <div className="w-12 h-12 rounded-xl bg-indigo-500/10 border border-indigo-500/25 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-mono font-bold text-lg mb-3 shadow-inner">
               gt
             </div>
             <h1 className="text-xl font-bold tracking-tight">gt-hub</h1>
@@ -90,7 +90,7 @@ export default function LoginView() {
                   placeholder={t('nav.adminKeyPlaceholder', '管理员密钥')}
                   autoFocus
                   required
-                  className="w-full pl-9 pr-10 py-2.5 rounded-xl bg-[var(--bg-canvas)] border border-[var(--border-subtle)] focus:border-emerald-500/60 focus:ring-1 focus:ring-emerald-500/50 text-sm font-mono transition-all outline-hidden text-[var(--text-primary)]"
+                  className="w-full pl-9 pr-10 py-2.5 rounded-xl bg-[var(--bg-surface-sub)] border border-[var(--border-default)] focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 text-sm font-mono transition-all outline-hidden text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
                 />
                 <button
                   type="button"
@@ -105,7 +105,7 @@ export default function LoginView() {
 
             {/* Error Message */}
             {error && (
-              <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-start space-x-1.5 animate-fadeIn">
+              <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs flex items-start space-x-1.5 animate-fadeIn">
                 <KeyRound className="w-4 h-4 shrink-0 mt-0.5" />
                 <span>{error}</span>
               </div>
@@ -115,7 +115,7 @@ export default function LoginView() {
             <button
               type="submit"
               disabled={isSubmitting || !keyInput.trim()}
-              className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-medium text-sm flex items-center justify-center space-x-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md shadow-emerald-950/20"
+              className="w-full py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-medium text-sm flex items-center justify-center space-x-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
             >
               {isSubmitting ? (
                 <>

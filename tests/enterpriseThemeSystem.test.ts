@@ -48,4 +48,26 @@ describe('Enterprise Light & Dark Theme System Architecture', () => {
     expect(config).toContain('var(--bg-elevated)');
     expect(config).toContain('var(--bg-terminal)');
   });
+
+  test('App.tsx and LoginView.tsx use Indigo as primary brand accent instead of Emerald', () => {
+    const appContent = fs.readFileSync(path.resolve(__dirname, '../frontend/src/App.tsx'), 'utf-8');
+    const loginContent = fs.readFileSync(path.resolve(__dirname, '../frontend/src/components/LoginView.tsx'), 'utf-8');
+
+    expect(appContent).toContain('text-indigo-500');
+    expect(loginContent).toContain('bg-indigo-600');
+    expect(loginContent).not.toContain('bg-emerald-600');
+  });
+
+  test('monacoTheme.ts aligns dark editor background with #090D16 and light editor background with #FFFFFF', () => {
+    const monacoContent = fs.readFileSync(path.resolve(__dirname, '../frontend/src/utils/monacoTheme.ts'), 'utf-8');
+    expect(monacoContent).toContain('#090D16');
+    expect(monacoContent).toContain('#FFFFFF');
+  });
+
+  test('markdownRenderer.ts uses semantic CSS variables instead of hardcoded dark slate classes', () => {
+    const mdContent = fs.readFileSync(path.resolve(__dirname, '../frontend/src/utils/markdownRenderer.ts'), 'utf-8');
+    expect(mdContent).toContain('var(--text-primary)');
+    expect(mdContent).toContain('var(--code-bg)');
+    expect(mdContent).not.toContain('bg-black/20');
+  });
 });

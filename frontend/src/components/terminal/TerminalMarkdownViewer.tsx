@@ -52,8 +52,8 @@ export const TerminalMarkdownViewer: React.FC<TerminalMarkdownViewerProps> = ({
   if (isEmpty) {
     return (
       <div className="h-full flex flex-col items-center justify-center p-6 text-center select-none">
-        <FileText className="w-12 h-12 text-slate-500 mb-3" />
-        <p className="text-xs sm:text-sm max-w-md mb-4 text-slate-400">
+        <FileText className="w-12 h-12 text-[var(--text-muted)] mb-3" />
+        <p className="text-xs sm:text-sm max-w-md mb-4 text-[var(--text-secondary)]">
           {t('files.emptyMarkdown', '文档内容为空，点击右上角「编辑」开始编写')}
         </p>
         {onRequestEdit && (
@@ -72,7 +72,7 @@ export const TerminalMarkdownViewer: React.FC<TerminalMarkdownViewerProps> = ({
 
   return (
     <div
-      className="terminal-markdown-viewer h-full overflow-y-auto p-4 sm:p-6 select-text text-slate-200"
+      className="terminal-markdown-viewer h-full overflow-y-auto p-4 sm:p-6 select-text text-[var(--text-primary)]"
       onClick={handleContainerClick}
       dangerouslySetInnerHTML={{ __html: html }}
     />

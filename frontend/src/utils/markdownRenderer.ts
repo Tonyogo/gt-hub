@@ -88,7 +88,7 @@ function renderInline(str: string): string {
   let text = str.replace(/`([^`\n]+)`/g, (_, code) => {
     const idx = inlineCodes.length;
     inlineCodes.push(
-      `<code class="px-1.5 py-0.5 mx-0.5 rounded text-xs font-mono bg-[var(--bg-surface-sub)] text-amber-300 border border-[var(--border-subtle)]">${escapeHtml(code)}</code>`
+      `<code class="px-1.5 py-0.5 mx-0.5 rounded text-xs font-mono bg-[var(--code-bg)] text-indigo-600 dark:text-amber-300 border border-[var(--border-subtle)]">${escapeHtml(code)}</code>`
     );
     return `@@INLINECODE${idx}@@`;
   });
@@ -105,7 +105,7 @@ function renderInline(str: string): string {
   text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, linkText, url) => {
     const idx = links.length;
     const safeUrl = sanitizeUrl(url);
-    links.push(`<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer" class="text-indigo-400 hover:text-indigo-300 underline underline-offset-2">${linkText}</a>`);
+    links.push(`<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer" class="text-indigo-600 dark:text-indigo-400 hover:underline underline-offset-2">${linkText}</a>`);
     return `@@LINK${idx}@@`;
   });
 
@@ -153,13 +153,13 @@ export function renderMarkdownToHtml(
 
     const blockHtml =
       `<div class="markdown-code-block rounded-lg overflow-hidden my-3 border border-[var(--border-subtle)] bg-[var(--bg-surface-sub)]">` +
-      `<div class="flex items-center justify-between px-3 py-1.5 bg-black/20 text-xs font-mono text-slate-400 border-b border-[var(--border-subtle)]">` +
-      `<span class="font-medium text-slate-300 uppercase">${escapeHtml(language)}</span>` +
-      `<button type="button" class="markdown-copy-btn flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] bg-slate-700/50 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors" data-copy-code="${encoded}">` +
+      `<div class="flex items-center justify-between px-3 py-1.5 bg-[var(--bg-surface-sub)] text-xs font-mono text-[var(--text-secondary)] border-b border-[var(--border-subtle)]">` +
+      `<span class="font-medium text-[var(--text-primary)] uppercase">${escapeHtml(language)}</span>` +
+      `<button type="button" class="markdown-copy-btn flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-colors" data-copy-code="${encoded}">` +
       `<span>${copyLabel}</span>` +
       `</button>` +
       `</div>` +
-      `<pre class="p-3 overflow-x-auto text-xs font-mono text-slate-200"><code>${escapedCode}</code></pre>` +
+      `<pre class="p-3 overflow-x-auto text-xs font-mono bg-[var(--code-bg)] text-[var(--code-text)]"><code>${escapedCode}</code></pre>` +
       `</div>`;
 
     codeBlocks.push(blockHtml);
@@ -193,12 +193,12 @@ export function renderMarkdownToHtml(
       const level = headingMatch[1].length;
       const text = renderInline(headingMatch[2]);
       const headingClasses: Record<number, string> = {
-        1: 'text-2xl font-bold text-slate-100 my-4 border-b border-[var(--border-subtle)] pb-2',
-        2: 'text-xl font-semibold text-slate-200 my-3 border-b border-[var(--border-subtle)] pb-1.5',
-        3: 'text-lg font-semibold text-slate-200 my-2.5',
-        4: 'text-base font-semibold text-slate-300 my-2',
-        5: 'text-sm font-semibold text-slate-300 my-1.5',
-        6: 'text-xs font-semibold text-slate-400 my-1 uppercase tracking-wide',
+        1: 'text-2xl font-bold text-[var(--text-primary)] my-4 border-b border-[var(--border-subtle)] pb-2',
+        2: 'text-xl font-semibold text-[var(--text-primary)] my-3 border-b border-[var(--border-subtle)] pb-1.5',
+        3: 'text-lg font-semibold text-[var(--text-primary)] my-2.5',
+        4: 'text-base font-semibold text-[var(--text-primary)] my-2',
+        5: 'text-sm font-semibold text-[var(--text-secondary)] my-1.5',
+        6: 'text-xs font-semibold text-[var(--text-secondary)] my-1 uppercase tracking-wide',
       };
       output.push(`<h${level} class="${headingClasses[level]}">${text}</h${level}>`);
       i++;
@@ -221,7 +221,7 @@ export function renderMarkdownToHtml(
       }
       const quoteHtml = quoteLines.map(ql => renderInline(ql)).join('<br />');
       output.push(
-        `<blockquote class="border-l-4 border-indigo-500 pl-4 py-1.5 my-3 text-slate-400 italic bg-slate-800/20 rounded-r">${quoteHtml}</blockquote>`
+        `<blockquote class="border-l-4 border-indigo-500 pl-4 py-1.5 my-3 text-[var(--text-secondary)] italic bg-[var(--bg-surface-sub)] rounded-r">${quoteHtml}</blockquote>`
       );
       continue;
     }
@@ -257,7 +257,7 @@ export function renderMarkdownToHtml(
         };
 
         const thead =
-          `<thead class="bg-[var(--bg-surface-sub)] text-slate-300 font-semibold border-b border-[var(--border-subtle)]">` +
+          `<thead class="bg-[var(--bg-surface-sub)] text-[var(--text-primary)] font-semibold border-b border-[var(--border-subtle)]">` +
           `<tr>` +
           headerParts
             .map(
@@ -274,7 +274,7 @@ export function renderMarkdownToHtml(
           bodyRows
             .map(
               row =>
-                `<tr class="hover:bg-white/5">` +
+                `<tr class="hover:bg-[var(--bg-control-hover)]">` +
                 row
                   .map(
                     (cell, idx) =>
@@ -319,7 +319,7 @@ export function renderMarkdownToHtml(
           listItems.push(
             `<li class="flex items-center space-x-2 my-1"><input type="checkbox" ${
               checked ? 'checked ' : ''
-            }disabled class="rounded border-slate-600 text-indigo-600 focus:ring-0 cursor-default" /><span>${text}</span></li>`
+            }disabled class="rounded border-[var(--border-default)] text-indigo-600 focus:ring-0 cursor-default" /><span>${text}</span></li>`
           );
           i++;
         } else if (curUnordered && !isOrdered) {
@@ -336,11 +336,11 @@ export function renderMarkdownToHtml(
       }
 
       if (isTask) {
-        output.push(`<ul class="list-none my-2 space-y-1 text-slate-300 text-xs sm:text-sm">${listItems.join('')}</ul>`);
+        output.push(`<ul class="list-none my-2 space-y-1 text-[var(--text-primary)] text-xs sm:text-sm">${listItems.join('')}</ul>`);
       } else if (isOrdered) {
-        output.push(`<ol class="list-decimal list-inside my-2 space-y-1 text-slate-300 text-xs sm:text-sm">${listItems.join('')}</ol>`);
+        output.push(`<ol class="list-decimal list-inside my-2 space-y-1 text-[var(--text-primary)] text-xs sm:text-sm">${listItems.join('')}</ol>`);
       } else {
-        output.push(`<ul class="list-disc list-inside my-2 space-y-1 text-slate-300 text-xs sm:text-sm">${listItems.join('')}</ul>`);
+        output.push(`<ul class="list-disc list-inside my-2 space-y-1 text-[var(--text-primary)] text-xs sm:text-sm">${listItems.join('')}</ul>`);
       }
       continue;
     }
@@ -367,7 +367,7 @@ export function renderMarkdownToHtml(
     }
 
     if (paragraphLines.length > 0) {
-      output.push(`<p class="my-2 leading-relaxed text-slate-300 text-xs sm:text-sm">${paragraphLines.join(' ')}</p>`);
+      output.push(`<p class="my-2 leading-relaxed text-[var(--text-primary)] text-xs sm:text-sm">${paragraphLines.join(' ')}</p>`);
     }
   }
 
