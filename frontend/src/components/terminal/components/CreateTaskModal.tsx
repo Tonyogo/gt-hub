@@ -65,21 +65,21 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 bg-[var(--bg-overlay)] backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto animate-in fade-in duration-150">
       <div
-        className="bg-[#18181b] border-t sm:border border-white/10 rounded-t-2xl sm:rounded-2xl rounded-b-none sm:rounded-b-2xl shadow-2xl max-w-lg w-full overflow-hidden text-slate-200 my-0 sm:my-auto flex flex-col max-h-[90vh] sm:max-h-[85vh] pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-0"
+        className="bg-[var(--bg-elevated)] border-t sm:border border-[var(--border-default)] rounded-t-2xl sm:rounded-2xl rounded-b-none sm:rounded-b-2xl shadow-2xl max-w-lg w-full overflow-hidden text-[var(--text-primary)] my-0 sm:my-auto flex flex-col max-h-[90vh] sm:max-h-[85vh] pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-0"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Mobile Pull Handle */}
-        <div className="sm:hidden w-10 h-1 bg-white/20 rounded-full mx-auto my-2 shrink-0" />
+        <div className="sm:hidden w-10 h-1 bg-[var(--border-default)] rounded-full mx-auto my-2 shrink-0" />
         {/* Header */}
-        <div className="px-5 py-4 border-b border-white/[0.08] flex items-center justify-between bg-white/[0.02]">
+        <div className="px-5 py-4 border-b border-[var(--border-subtle)] flex items-center justify-between bg-[var(--bg-surface-sub)]">
           <div className="flex items-center space-x-3">
-            <div className="p-2 rounded-xl bg-slate-800/80 border border-white/10 text-slate-300">
-              <Terminal className="w-5 h-5 text-indigo-400" />
+            <div className="p-2 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-secondary)]">
+              <Terminal className="w-5 h-5 text-indigo-500" />
             </div>
             <div>
-              <h3 className="text-base font-semibold text-white">
+              <h3 className="text-base font-semibold text-[var(--text-primary)]">
                 {t('tasks.createModal.title', '新建后台任务')}
               </h3>
             </div>
@@ -88,7 +88,7 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
             type="button"
             onClick={onClose}
             disabled={isLoading}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.06] transition-all disabled:opacity-50"
+            className="p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] transition-all disabled:opacity-50"
           >
             <X className="w-4 h-4" />
           </button>
@@ -97,7 +97,7 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           {errorMessage && (
-            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center space-x-2">
+            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-300 text-xs flex items-center space-x-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{errorMessage}</span>
             </div>
@@ -105,9 +105,9 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
 
           {/* Command input */}
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1.5">
+            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">
               {t('tasks.createModal.commandLabel', 'Shell 命令')}{' '}
-              <span className="text-rose-400">*</span>
+              <span className="text-rose-500 dark:text-rose-400">*</span>
             </label>
             <textarea
               value={command}
@@ -118,13 +118,13 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
               )}
               rows={4}
               required
-              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs font-mono text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all resize-y"
+              className="w-full px-3 py-2 bg-[var(--bg-surface-sub)] border border-[var(--border-default)] rounded-xl text-xs font-mono text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all resize-y"
             />
           </div>
 
           {/* CWD input */}
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1.5">
+            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">
               {t('tasks.createModal.cwdLabel', '工作目录 (CWD，可选)')}
             </label>
             <input
@@ -135,13 +135,13 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
                 'tasks.createModal.cwdPlaceholder',
                 '留空默认为 Agent 运行主目录'
               )}
-              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs font-mono text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+              className="w-full px-3 py-2 bg-[var(--bg-surface-sub)] border border-[var(--border-default)] rounded-xl text-xs font-mono text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
             />
           </div>
 
           {/* Timeout input */}
           <div>
-            <label className="block text-xs font-medium text-slate-300 mb-1.5">
+            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">
               {t('tasks.createModal.timeoutLabel', '超时时间 (秒，可选)')}
             </label>
             <input
@@ -150,7 +150,7 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
               value={timeoutSeconds}
               onChange={(e) => setTimeoutSeconds(e.target.value)}
               placeholder={t('tasks.createModal.timeoutPlaceholder', '留空表示无限制')}
-              className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs font-mono text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+              className="w-full px-3 py-2 bg-[var(--bg-surface-sub)] border border-[var(--border-default)] rounded-xl text-xs font-mono text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
             />
           </div>
 
@@ -160,7 +160,7 @@ export const CreateTaskModal: React.FC<CreateTaskModalProps> = ({
               type="button"
               onClick={onClose}
               disabled={isLoading}
-              className="px-4 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] text-slate-300 text-xs font-medium transition-all disabled:opacity-50"
+              className="px-4 py-2 rounded-xl bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] text-xs font-medium transition-all disabled:opacity-50"
             >
               {t('tasks.createModal.cancel', '取消')}
             </button>

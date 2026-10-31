@@ -68,7 +68,7 @@ describe('Frontend Cron Modals Standards and Functionality', () => {
     });
 
     it('renders terminal window with dark styling and exitCode badge', () => {
-      expect(cronLogModalContent).toMatch(/bg-(slate|zinc|gray|neutral)-(900|950)/);
+      expect(cronLogModalContent).toMatch(/bg-\[var\(--bg-terminal\)\]/);
       expect(cronLogModalContent).toContain('exitCode');
     });
   });

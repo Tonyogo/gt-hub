@@ -238,29 +238,29 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 bg-[var(--bg-overlay)] backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto animate-in fade-in duration-150">
       <div
-        className="bg-[#18181b] border-t sm:border border-white/10 rounded-t-2xl sm:rounded-2xl rounded-b-none sm:rounded-b-2xl shadow-2xl max-w-4xl w-full overflow-hidden text-slate-200 my-0 sm:my-auto flex flex-col max-h-[90vh] sm:max-h-[85vh] pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-0"
+        className="bg-[var(--bg-elevated)] border-t sm:border border-[var(--border-default)] rounded-t-2xl sm:rounded-2xl rounded-b-none sm:rounded-b-2xl shadow-2xl max-w-4xl w-full overflow-hidden text-[var(--text-primary)] my-0 sm:my-auto flex flex-col max-h-[90vh] sm:max-h-[85vh] pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-0"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Mobile Pull Handle */}
-        <div className="sm:hidden w-10 h-1 bg-white/20 rounded-full mx-auto my-2 shrink-0" />
+        <div className="sm:hidden w-10 h-1 bg-[var(--border-default)] rounded-full mx-auto my-2 shrink-0" />
         {/* Header */}
-        <div className="px-5 py-4 border-b border-white/[0.08] flex items-center justify-between bg-white/[0.02]">
+        <div className="px-5 py-4 border-b border-[var(--border-subtle)] flex items-center justify-between bg-[var(--bg-surface-sub)]">
           <div className="flex items-center space-x-3 min-w-0">
-            <div className="p-2 rounded-xl bg-slate-800/80 border border-white/10 text-slate-300 shrink-0">
-              <Terminal className="w-5 h-5 text-indigo-400" />
+            <div className="p-2 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-secondary)] shrink-0">
+              <Terminal className="w-5 h-5 text-indigo-500" />
             </div>
             <div className="min-w-0">
               <div className="flex items-center space-x-2">
-                <h3 className="text-base font-semibold text-white truncate">
+                <h3 className="text-base font-semibold text-[var(--text-primary)] truncate">
                   {t('tasks.logsModal.title', '任务执行日志')}
                 </h3>
-                <span className="font-mono text-xs px-2 py-0.5 rounded-md bg-white/[0.06] text-slate-300 shrink-0 select-all">
+                <span className="font-mono text-xs px-2 py-0.5 rounded-md bg-[var(--bg-control)] text-[var(--text-secondary)] border border-[var(--border-subtle)] shrink-0 select-all">
                   {task.taskId}
                 </span>
               </div>
-              <p className="text-xs text-slate-400 mt-0.5 truncate font-mono">
+              <p className="text-xs text-[var(--text-secondary)] mt-0.5 truncate font-mono">
                 $ {task.command}
               </p>
             </div>
@@ -271,15 +271,15 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
               type="button"
               onClick={() => fetchLogChunk(true)}
               disabled={isLoading}
-              className="p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border border-white/[0.06] transition-all disabled:opacity-50"
+              className="p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all disabled:opacity-50"
               title={t('tasks.refresh', '刷新')}
             >
-              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-indigo-400' : ''}`} />
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-indigo-500' : ''}`} />
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.06] transition-all"
+              className="p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] transition-all"
             >
               <X className="w-4 h-4" />
             </button>
@@ -287,37 +287,37 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
         </div>
 
         {/* Metadata & Controls Bar */}
-        <div className="px-5 py-2.5 bg-black/40 border-b border-white/[0.06] flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div className="px-5 py-2.5 bg-[var(--bg-surface-sub)] border-b border-[var(--border-subtle)] flex flex-wrap items-center justify-between gap-3 text-xs">
           <div className="flex flex-wrap items-center gap-2 sm:gap-4">
             {/* Status Badge */}
             <div className="flex items-center space-x-1.5">
-              <span className="text-slate-400">{t('tasks.colStatus', '状态')}:</span>
+              <span className="text-[var(--text-secondary)]">{t('tasks.colStatus', '状态')}:</span>
               {currentStatus === 'completed' && (
-                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
                   <CheckCircle2 className="w-3 h-3" />
                   <span>{t('tasks.filterCompleted', '已完成')}</span>
                 </span>
               )}
               {currentStatus === 'running' && (
-                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20">
                   <PlayCircle className="w-3 h-3 animate-pulse" />
                   <span>{t('tasks.filterRunning', '运行中')}</span>
                 </span>
               )}
               {currentStatus === 'failed' && (
-                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/20">
                   <XCircle className="w-3 h-3" />
                   <span>{t('tasks.filterFailed', '失败')}</span>
                 </span>
               )}
               {currentStatus === 'timeout' && (
-                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/20">
                   <AlertTriangle className="w-3 h-3" />
                   <span>超时</span>
                 </span>
               )}
               {currentStatus === 'killed' && (
-                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-800 text-slate-400 border border-white/10">
+                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-[var(--bg-control)] text-[var(--text-secondary)] border border-[var(--border-subtle)]">
                   <Square className="w-3 h-3" />
                   <span>{t('tasks.filterKilled', '已终止')}</span>
                 </span>
@@ -326,34 +326,34 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
 
             {/* Exit Code */}
             <div className="flex items-center space-x-1.5">
-              <span className="text-slate-400">{t('tasks.colExitCode', '退出码')}:</span>
+              <span className="text-[var(--text-secondary)]">{t('tasks.colExitCode', '退出码')}:</span>
               {currentExitCode !== null && currentExitCode !== undefined ? (
                 <span
                   className={`font-mono px-2 py-0.5 rounded-md text-[11px] font-medium border ${
                     currentExitCode === 0
-                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                      : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                      ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20'
+                      : 'bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20'
                   }`}
                 >
                   {currentExitCode}
                 </span>
               ) : (
-                <span className="text-slate-500">-</span>
+                <span className="text-[var(--text-muted)]">-</span>
               )}
             </div>
 
             {/* Duration */}
             <div className="flex items-center space-x-1.5">
-              <span className="text-slate-400">{t('tasks.colDuration', '耗时')}:</span>
-              <span className="font-mono text-slate-300">
+              <span className="text-[var(--text-secondary)]">{t('tasks.colDuration', '耗时')}:</span>
+              <span className="font-mono text-[var(--text-secondary)]">
                 {formatDuration(task.startTime, task.endTime)}
               </span>
             </div>
 
             {/* Start Time */}
             <div className="hidden sm:flex items-center space-x-1.5">
-              <Clock className="w-3 h-3 text-slate-500" />
-              <span className="text-slate-400">{formatTime(task.startTime)}</span>
+              <Clock className="w-3 h-3 text-[var(--text-muted)]" />
+              <span className="text-[var(--text-secondary)]">{formatTime(task.startTime)}</span>
             </div>
           </div>
 
@@ -364,12 +364,12 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
               onClick={() => setAutoScroll((prev) => !prev)}
               className={`min-h-[36px] px-2.5 py-1 rounded-lg text-xs font-medium border transition-all flex items-center space-x-1.5 ${
                 autoScroll
-                  ? 'bg-indigo-600/20 text-indigo-300 border-indigo-500/30'
-                  : 'bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-slate-200 border-white/[0.06]'
+                  ? 'bg-indigo-600/15 text-indigo-600 dark:text-indigo-400 border-indigo-500/30'
+                  : 'bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-subtle)]'
               }`}
               title={t('tasks.logsModal.autoScroll', '自动滚屏')}
             >
-              <ArrowDown className={`w-3.5 h-3.5 ${autoScroll ? 'text-indigo-400' : ''}`} />
+              <ArrowDown className={`w-3.5 h-3.5 ${autoScroll ? 'text-indigo-500' : ''}`} />
               <span className="hidden sm:inline">{t('tasks.logsModal.autoScroll', '自动滚屏')}</span>
             </button>
 
@@ -380,11 +380,11 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
                 onClick={handleCopy}
                 className={`min-h-[36px] px-2.5 py-1 rounded-lg text-xs font-medium border transition-all flex items-center space-x-1.5 ${
                   isCopied
-                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
-                    : 'bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border-white/[0.06]'
+                    ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+                    : 'bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-subtle)]'
                 }`}
               >
-                {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
                 <span>{isCopied ? t('tasks.copySuccess', '已复制') : t('tasks.logsModal.copy', '复制日志')}</span>
               </button>
             )}
@@ -395,7 +395,7 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
                 type="button"
                 onClick={handleKill}
                 disabled={isKilling}
-                className="min-h-[36px] px-2.5 py-1 rounded-lg text-xs font-medium bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 transition-all flex items-center space-x-1.5 disabled:opacity-50"
+                className="min-h-[36px] px-2.5 py-1 rounded-lg text-xs font-medium bg-rose-500/15 hover:bg-rose-500/25 active:bg-rose-500/25 text-rose-600 dark:text-rose-300 border border-rose-500/30 transition-all flex items-center space-x-1.5 disabled:opacity-50"
               >
                 {isKilling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5" />}
                 <span>{t('tasks.killTask', '终止任务')}</span>
@@ -405,25 +405,25 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
         </div>
 
         {/* Log Viewer Viewport */}
-        <div className="p-4 flex-1 min-h-[300px] flex flex-col bg-[#0c1017]">
+        <div className="p-4 flex-1 min-h-[300px] flex flex-col bg-[var(--bg-terminal)]">
           {isLoading && !logText ? (
-            <div className="flex-1 flex flex-col items-center justify-center space-y-2 text-slate-400">
-              <Loader2 className="w-6 h-6 animate-spin text-indigo-400" />
+            <div className="flex-1 flex flex-col items-center justify-center space-y-2 text-[var(--text-secondary)]">
+              <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
               <span className="text-xs">加载日志中...</span>
             </div>
           ) : errorMessage && !logText ? (
-            <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs">
+            <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-300 text-xs">
               {errorMessage}
             </div>
           ) : !logText ? (
-            <div className="flex-1 flex flex-col items-center justify-center p-6 text-center space-y-2 text-slate-500">
+            <div className="flex-1 flex flex-col items-center justify-center p-6 text-center space-y-2 text-[var(--text-muted)]">
               <Terminal className="w-8 h-8 opacity-40" />
               <p className="text-xs">{t('tasks.emptyDesc', '暂无日志输出')}</p>
             </div>
           ) : (
             <div
               ref={logContainerRef}
-              className="flex-1 bg-slate-950 font-mono text-xs text-slate-200 border border-slate-800 rounded-xl p-4 max-h-[50vh] sm:max-h-[520px] overflow-y-auto whitespace-pre-wrap break-all select-text shadow-inner"
+              className="flex-1 bg-[var(--bg-terminal)] font-mono text-xs text-[var(--text-primary)] border border-[var(--border-default)] rounded-xl p-4 max-h-[50vh] sm:max-h-[520px] overflow-y-auto whitespace-pre-wrap break-all select-text shadow-inner ansi-log-container"
             >
               {logSegments.map((seg, idx) => (
                 <span
@@ -438,14 +438,14 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
         </div>
 
         {/* Modal Footer */}
-        <div className="px-5 py-3 border-t border-white/[0.08] flex items-center justify-between bg-white/[0.02]">
-          <span className="text-[11px] text-slate-500 font-mono truncate max-w-sm">
+        <div className="px-5 py-3 border-t border-[var(--border-subtle)] flex items-center justify-between bg-[var(--bg-surface-sub)]">
+          <span className="text-[11px] text-[var(--text-muted)] font-mono truncate max-w-sm">
             Host: {activeHostId} {task.cwd ? `• CWD: ${task.cwd}` : ''}
           </span>
           <button
             type="button"
             onClick={onClose}
-            className="min-h-[36px] px-4 py-1.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] text-slate-300 text-xs font-medium transition-all"
+            className="min-h-[36px] px-4 py-1.5 rounded-xl bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] text-xs font-medium transition-all"
           >
             {t('tasks.logsModal.close', '关闭')}
           </button>

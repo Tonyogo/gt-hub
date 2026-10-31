@@ -333,21 +333,21 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
     });
 
     return (
-      <div className="flex-1 flex flex-col h-full bg-[#121316] text-slate-200 overflow-hidden relative">
+      <div className="flex-1 flex flex-col h-full bg-[var(--bg-canvas)] text-[var(--text-primary)] overflow-hidden relative">
         {/* Top Toolbar */}
-        <div className="px-4 py-3 border-b border-white/[0.08] bg-black/20 flex flex-wrap items-center justify-between gap-3 shrink-0">
+        <div className="px-4 py-3 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div className="flex items-center space-x-3">
             <div className="flex items-center space-x-2">
-              <Clock className="w-5 h-5 text-indigo-400" />
-              <h2 className="text-sm font-semibold text-white tracking-wide">
+              <Clock className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+              <h2 className="text-sm font-semibold text-[var(--text-primary)] tracking-wide">
                 {t('cron.title', '定时任务')}
               </h2>
             </div>
             {activeHostId && (
-              <div className="hidden sm:flex items-center space-x-2 px-2.5 py-0.5 rounded-full bg-white/[0.04] border border-white/[0.06] text-xs">
-                <span className="text-slate-400 font-mono text-[11px]">{activeHostId}</span>
-                <span className="text-slate-500">•</span>
-                <span className="text-indigo-300 font-mono text-[11px]">
+              <div className="hidden sm:flex items-center space-x-2 px-2.5 py-0.5 rounded-full bg-[var(--bg-surface-sub)] border border-[var(--border-subtle)] text-xs">
+                <span className="text-[var(--text-secondary)] font-mono text-[11px]">{activeHostId}</span>
+                <span className="text-[var(--text-muted)]">•</span>
+                <span className="text-indigo-600 dark:text-indigo-300 font-mono text-[11px]">
                   {jobs.length} {isZh ? '个任务' : 'jobs'}
                 </span>
               </div>
@@ -358,13 +358,13 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
             {/* Search Input */}
             {jobs.length > 0 && (
               <div className="relative">
-                <Search className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <Search className="w-3.5 h-3.5 text-[var(--text-muted)] absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder={isZh ? '过滤任务...' : 'Filter jobs...'}
-                  className="pl-8 pr-3 py-1.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-xs text-white placeholder-slate-500 focus:outline-hidden focus:border-indigo-500 w-24 focus:w-36 sm:w-48 transition-all"
+                  className="pl-8 pr-3 py-1.5 rounded-xl bg-[var(--bg-surface-sub)] border border-[var(--border-default)] text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-hidden focus:border-indigo-500 w-24 focus:w-36 sm:w-48 transition-all"
                 />
               </div>
             )}
@@ -374,10 +374,10 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
               type="button"
               onClick={() => fetchJobs(false)}
               disabled={isLoading || !activeHostId}
-              className="p-1.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border border-white/[0.06] transition-all disabled:opacity-40"
+              className="p-1.5 rounded-xl bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all disabled:opacity-40"
               title={t('cron.refresh', '刷新')}
             >
-              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-indigo-400' : ''}`} />
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-indigo-500' : ''}`} />
             </button>
 
             {/* Add Job Button */}
@@ -414,13 +414,13 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
           {/* No Node Selected State */}
           {!activeHostId ? (
             <div className="h-full flex flex-col items-center justify-center text-center p-8 max-w-md mx-auto">
-              <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06] text-slate-400 mb-4">
+              <div className="p-4 rounded-2xl bg-[var(--bg-surface-sub)] border border-[var(--border-subtle)] text-[var(--text-secondary)] mb-4">
                 <Server className="w-10 h-10 opacity-60" />
               </div>
-              <h3 className="text-base font-semibold text-white mb-1">
+              <h3 className="text-base font-semibold text-[var(--text-primary)] mb-1">
                 {t('cron.noNode', '请先选择需要管理定时任务的节点')}
               </h3>
-              <p className="text-xs text-slate-400 mb-6 leading-relaxed">
+              <p className="text-xs text-[var(--text-secondary)] mb-6 leading-relaxed">
                 {isZh
                   ? '定时任务由目标主机节点上的 Agent 守护进程就地执行与管理。请在顶部节点选择栏中指定节点。'
                   : 'Cron jobs are executed locally by the agent daemon. Please select a host from the top dropdown.'}
@@ -437,20 +437,20 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
             </div>
           ) : isLoading && jobs.length === 0 ? (
             /* Loading State */
-            <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-3">
-              <Loader2 className="w-8 h-8 animate-spin text-indigo-400" />
+            <div className="h-full flex flex-col items-center justify-center text-[var(--text-secondary)] space-y-3">
+              <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
               <span className="text-xs">{isZh ? '加载定时任务中...' : 'Loading cron jobs...'}</span>
             </div>
           ) : jobs.length === 0 ? (
             /* Empty Jobs State */
             <div className="h-full flex flex-col items-center justify-center text-center p-8 max-w-md mx-auto">
-              <div className="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 mb-4">
+              <div className="p-4 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 mb-4">
                 <Clock className="w-10 h-10" />
               </div>
-              <h3 className="text-base font-semibold text-white mb-1">
+              <h3 className="text-base font-semibold text-[var(--text-primary)] mb-1">
                 {t('cron.emptyTitle', '暂无定时任务')}
               </h3>
-              <p className="text-xs text-slate-400 mb-6 leading-relaxed">
+              <p className="text-xs text-[var(--text-secondary)] mb-6 leading-relaxed">
                 {t('cron.emptyDesc', '当前节点尚未配置任何定时任务，点击下方按钮开始创建。')}
               </p>
               <button
@@ -470,7 +470,7 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
             /* Job List Table / Cards */
             <div className="space-y-3">
               {filteredJobs.length === 0 ? (
-                <div className="p-8 text-center text-slate-400 text-xs bg-white/[0.02] border border-white/[0.06] rounded-2xl">
+                <div className="p-8 text-center text-[var(--text-secondary)] text-xs bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-2xl">
                   {isZh ? '未找到匹配的任务' : 'No matching jobs found'}
                 </div>
               ) : (
@@ -485,7 +485,7 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
                       return (
                         <div
                           key={job.id}
-                          className="p-3.5 rounded-2xl bg-white/[0.02] border border-white/[0.06] space-y-3 hover:bg-white/[0.04] transition-colors"
+                          className="p-3.5 rounded-2xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] space-y-3 hover:bg-[var(--bg-control-hover)] transition-colors"
                         >
                           {/* Card Header: breathing dot + name + status badge */}
                           <div className="flex items-start justify-between gap-2">
@@ -499,56 +499,56 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
                                     : 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.5)]'
                                 }`}
                               />
-                              <span className="font-semibold text-white text-sm truncate">
+                              <span className="font-semibold text-[var(--text-primary)] text-sm truncate">
                                 {job.name}
                               </span>
                             </div>
 
                             <div className="shrink-0">
                               {isPaused ? (
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-surface-sub)] text-[var(--text-secondary)] border border-[var(--border-subtle)]">
                                   {t('cron.statusPaused', '已暂停')}
                                 </span>
                               ) : !lastExec ? (
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.04] text-slate-400 border border-white/[0.06]">
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-control)] text-[var(--text-secondary)] border border-[var(--border-subtle)]">
                                   {t('cron.statusActive', '运行中')}
                                 </span>
                               ) : lastExec.status === 'completed' ? (
-                                <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
                                   <CheckCircle2 className="w-2.5 h-2.5" />
                                   <span>{t('cron.statusCompleted', '成功')}</span>
                                 </span>
                               ) : lastExec.status === 'failed' ? (
-                                <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                                <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/20">
                                   <XCircle className="w-2.5 h-2.5" />
                                   <span>{t('cron.statusFailed', '失败')}</span>
                                 </span>
                               ) : lastExec.status === 'skipped' ? (
-                                <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20">
                                   <AlertTriangle className="w-2.5 h-2.5" />
                                   <span>{t('cron.statusSkipped', '跳过')}</span>
                                 </span>
                               ) : lastExec.status === 'running' ? (
-                                <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                                <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border border-indigo-500/20">
                                   <Loader2 className="w-2.5 h-2.5 animate-spin" />
                                   <span>{t('cron.statusRunning', '运行中')}</span>
                                 </span>
                               ) : (
-                                <span className="text-slate-400 text-[10px]">{lastExec.status}</span>
+                                <span className="text-[var(--text-secondary)] text-[10px]">{lastExec.status}</span>
                               )}
                             </div>
                           </div>
 
                           {/* Card Source / Command */}
-                          <div className="text-xs text-slate-400 font-mono bg-black/30 rounded-xl px-2.5 py-2 border border-white/[0.04]">
+                          <div className="text-xs text-[var(--text-secondary)] font-mono bg-[var(--bg-surface-sub)] rounded-xl px-2.5 py-2 border border-[var(--border-subtle)]">
                             {job.source === 'hub' ? (
-                              <div className="flex items-center space-x-1.5 text-indigo-300">
-                                <FileCode className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                              <div className="flex items-center space-x-1.5 text-indigo-600 dark:text-indigo-300">
+                                <FileCode className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                                 <span className="truncate">hub:{job.scriptName}</span>
                               </div>
                             ) : (
-                              <div className="flex items-center space-x-1.5 text-slate-300">
-                                <Terminal className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                              <div className="flex items-center space-x-1.5 text-[var(--text-secondary)]">
+                                <Terminal className="w-3.5 h-3.5 text-[var(--text-muted)] shrink-0" />
                                 <span className="truncate">{job.command}</span>
                               </div>
                             )}
@@ -557,23 +557,23 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
                           {/* Card Meta: Cron + Next Run + Duration */}
                           <div className="grid grid-cols-2 gap-2 text-xs">
                             <div className="flex flex-col space-y-0.5">
-                              <span className="text-[10px] text-slate-500">{t('cron.modal.cronLabel', 'Cron 表达式')}</span>
-                              <span className="font-mono text-indigo-300 bg-black/40 px-1.5 py-0.5 rounded border border-white/[0.04] text-[11px] inline-block w-fit">
+                              <span className="text-[10px] text-[var(--text-muted)]">{t('cron.modal.cronLabel', 'Cron 表达式')}</span>
+                              <span className="font-mono text-indigo-600 dark:text-indigo-300 bg-[var(--bg-surface-sub)] px-1.5 py-0.5 rounded border border-[var(--border-subtle)] text-[11px] inline-block w-fit">
                                 {job.cron}
                               </span>
                             </div>
 
                             <div className="flex flex-col space-y-0.5">
-                              <span className="text-[10px] text-slate-500">{t('cron.nextRun', '下次运行')}</span>
-                              <span className={`text-[11px] truncate ${isPaused ? 'text-slate-500' : 'text-slate-300'}`}>
+                              <span className="text-[10px] text-[var(--text-muted)]">{t('cron.nextRun', '下次运行')}</span>
+                              <span className={`text-[11px] truncate ${isPaused ? 'text-[var(--text-muted)]' : 'text-[var(--text-primary)]'}`}>
                                 {isPaused ? (isZh ? '已挂起' : 'Paused') : formatNextRun(job.nextRunTime)}
                               </span>
                             </div>
 
                             {lastExec?.durationMs !== undefined && (
                               <div className="flex flex-col space-y-0.5 col-span-2">
-                                <span className="text-[10px] text-slate-500">{t('cron.duration', '耗时')}</span>
-                                <span className="font-mono text-slate-400 text-[11px]">
+                                <span className="text-[10px] text-[var(--text-muted)]">{t('cron.duration', '耗时')}</span>
+                                <span className="font-mono text-[var(--text-secondary)] text-[11px]">
                                   {formatDuration(lastExec.durationMs)}
                                 </span>
                               </div>
@@ -581,18 +581,18 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
                           </div>
 
                           {/* Card Actions: min-h-[36px] touch targets */}
-                          <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between gap-1">
+                          <div className="pt-2 border-t border-[var(--border-subtle)] flex items-center justify-between gap-1">
                             <div className="flex items-center space-x-1.5">
                               {/* Run Now */}
                               <button
                                 type="button"
                                 onClick={() => handleRunNow(job)}
                                 disabled={isRunning || !isConnected}
-                                className="min-h-[36px] min-w-[36px] p-2 rounded-xl bg-white/[0.04] active:bg-emerald-500/20 text-slate-400 active:text-emerald-300 border border-white/[0.06] flex items-center justify-center transition-all disabled:opacity-40"
+                                className="min-h-[36px] min-w-[36px] p-2 rounded-xl bg-[var(--bg-control)] hover:bg-emerald-500/20 active:bg-emerald-500/20 text-[var(--text-secondary)] hover:text-emerald-600 dark:hover:text-emerald-300 border border-[var(--border-subtle)] hover:border-emerald-500/30 flex items-center justify-center transition-all disabled:opacity-40"
                                 title={t('cron.runNow', '立即运行')}
                               >
                                 {isRunning ? (
-                                  <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+                                  <Loader2 className="w-4 h-4 animate-spin text-emerald-500" />
                                 ) : (
                                   <Play className="w-4 h-4" />
                                 )}
@@ -604,8 +604,8 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
                                 onClick={() => handleToggleStatus(job)}
                                 className={`min-h-[36px] min-w-[36px] p-2 rounded-xl border flex items-center justify-center transition-all ${
                                   isPaused
-                                    ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                                    : 'bg-white/[0.04] text-slate-400 border-white/[0.06]'
+                                    ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30'
+                                    : 'bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-subtle)]'
                                 }`}
                                 title={isPaused ? t('cron.resume', '恢复') : t('cron.pause', '暂停')}
                               >
@@ -616,7 +616,7 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
                               <button
                                 type="button"
                                 onClick={() => setSelectedJobForLogs(job)}
-                                className="min-h-[36px] min-w-[36px] p-2 rounded-xl bg-white/[0.04] active:bg-indigo-500/20 text-slate-400 active:text-indigo-300 border border-white/[0.06] flex items-center justify-center transition-all"
+                                className="min-h-[36px] min-w-[36px] p-2 rounded-xl bg-[var(--bg-control)] hover:bg-indigo-500/20 active:bg-indigo-500/20 text-[var(--text-secondary)] hover:text-indigo-600 dark:hover:text-indigo-300 border border-[var(--border-subtle)] hover:border-indigo-500/30 flex items-center justify-center transition-all"
                                 title={t('cron.logs', '查看日志')}
                               >
                                 <FileText className="w-4 h-4" />
@@ -629,7 +629,7 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
                                   setEditingJob(job);
                                   setIsJobModalOpen(true);
                                 }}
-                                className="min-h-[36px] min-w-[36px] p-2 rounded-xl bg-white/[0.04] active:bg-white/[0.08] text-slate-400 active:text-white border border-white/[0.06] flex items-center justify-center transition-all"
+                                className="min-h-[36px] min-w-[36px] p-2 rounded-xl bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] flex items-center justify-center transition-all"
                                 title={t('cron.editJob', '编辑任务')}
                               >
                                 <Edit2 className="w-4 h-4" />
@@ -650,7 +650,7 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
                                   <button
                                     type="button"
                                     onClick={() => setDeleteConfirmJobId(null)}
-                                    className="min-h-[36px] min-w-[36px] p-2 rounded-xl bg-white/[0.06] text-slate-400 transition-all flex items-center justify-center"
+                                    className="min-h-[36px] min-w-[36px] p-2 rounded-xl bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all flex items-center justify-center"
                                   >
                                     <X className="w-3.5 h-3.5" />
                                   </button>
@@ -659,7 +659,7 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
                                 <button
                                   type="button"
                                   onClick={() => setDeleteConfirmJobId(job.id)}
-                                  className="min-h-[36px] min-w-[36px] p-2 rounded-xl bg-white/[0.04] active:bg-rose-500/20 text-slate-400 active:text-rose-300 border border-white/[0.06] flex items-center justify-center transition-all"
+                                  className="min-h-[36px] min-w-[36px] p-2 rounded-xl bg-[var(--bg-control)] hover:bg-rose-500/20 active:bg-rose-500/20 text-[var(--text-secondary)] hover:text-rose-600 dark:hover:text-rose-300 border border-[var(--border-subtle)] hover:border-rose-500/30 flex items-center justify-center transition-all"
                                   title={t('cron.deleteJob', '删除任务')}
                                 >
                                   <Trash2 className="w-4 h-4" />
@@ -673,9 +673,9 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
                   </div>
 
                   {/* Desktop Table (hidden sm:block) */}
-                  <div className="hidden sm:block overflow-x-auto rounded-2xl border border-white/[0.06] bg-black/20">
-                  <table className="w-full text-left text-xs text-slate-300">
-                    <thead className="bg-white/[0.02] border-b border-white/[0.06] text-slate-400 font-medium text-[11px] uppercase tracking-wider">
+                  <div className="hidden sm:block overflow-x-auto rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)]">
+                  <table className="w-full text-left text-xs text-[var(--text-secondary)]">
+                    <thead className="bg-[var(--bg-surface-sub)] border-b border-[var(--border-subtle)] text-[var(--text-secondary)] font-medium text-[11px] uppercase tracking-wider">
                       <tr>
                         <th className="py-3 px-4">{isZh ? '任务' : 'Job'}</th>
                         <th className="py-3 px-4">{t('cron.modal.cronLabel', 'Cron 表达式')}</th>
@@ -685,7 +685,7 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
                         <th className="py-3 px-4 text-right">{isZh ? '操作' : 'Actions'}</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-white/[0.04]">
+                    <tbody className="divide-y divide-[var(--border-subtle)]">
                       {filteredJobs.map((job) => {
                         const isRunning = runningJobIds.has(job.id);
                         const isPaused = job.status === 'paused';
@@ -694,7 +694,7 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
                         return (
                           <tr
                             key={job.id}
-                            className="hover:bg-white/[0.02] transition-colors group"
+                            className="hover:bg-[var(--bg-control-hover)] transition-colors group"
                           >
                             {/* Job Name & Source Details */}
                             <td className="py-3.5 px-4 align-top">
@@ -717,25 +717,25 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
                                 />
                                 <div className="space-y-1">
                                   <div className="flex items-center space-x-2">
-                                    <span className="font-semibold text-white group-hover:text-indigo-300 transition-colors">
+                                    <span className="font-semibold text-[var(--text-primary)] group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors">
                                       {job.name}
                                     </span>
                                     {isPaused && (
-                                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 border border-slate-700">
+                                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-[var(--bg-surface-sub)] text-[var(--text-secondary)] border border-[var(--border-subtle)]">
                                         {t('cron.statusPaused', '已暂停')}
                                       </span>
                                     )}
                                   </div>
 
-                                  <div className="flex items-center space-x-2 text-[11px] text-slate-400">
+                                  <div className="flex items-center space-x-2 text-[11px] text-[var(--text-secondary)]">
                                     {job.source === 'hub' ? (
-                                      <span className="inline-flex items-center space-x-1 text-indigo-300 font-mono">
-                                        <FileCode className="w-3 h-3 text-indigo-400" />
+                                      <span className="inline-flex items-center space-x-1 text-indigo-600 dark:text-indigo-300 font-mono">
+                                        <FileCode className="w-3 h-3 text-indigo-500" />
                                         <span>hub:{job.scriptName}</span>
                                       </span>
                                     ) : (
-                                      <span className="inline-flex items-center space-x-1 text-slate-400 font-mono truncate max-w-xs">
-                                        <Terminal className="w-3 h-3 text-slate-500 shrink-0" />
+                                      <span className="inline-flex items-center space-x-1 text-[var(--text-secondary)] font-mono truncate max-w-xs">
+                                        <Terminal className="w-3 h-3 text-[var(--text-muted)] shrink-0" />
                                         <span className="truncate">{job.command}</span>
                                       </span>
                                     )}
@@ -747,7 +747,7 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
                             {/* Cron Expression */}
                             <td className="py-3.5 px-4 align-top">
                               <div className="flex flex-wrap items-center gap-1.5">
-                                <span className="font-mono text-xs px-2 py-0.5 rounded-md bg-black/40 text-indigo-300 border border-white/[0.04]">
+                                <span className="font-mono text-xs px-2 py-0.5 rounded-md bg-[var(--bg-surface-sub)] text-indigo-600 dark:text-indigo-300 border border-[var(--border-subtle)]">
                                   {job.cron}
                                 </span>
                               </div>
@@ -757,7 +757,7 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
                             <td className="py-3.5 px-4 align-top">
                               <span
                                 className={`text-xs ${
-                                  isPaused ? 'text-slate-500' : 'text-slate-300'
+                                  isPaused ? 'text-[var(--text-muted)]' : 'text-[var(--text-primary)]'
                                 }`}
                               >
                                 {isPaused ? (isZh ? '已挂起' : 'Paused') : formatNextRun(job.nextRunTime)}
@@ -767,35 +767,35 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
                             {/* Last Execution Status */}
                             <td className="py-3.5 px-4 align-top">
                               {!lastExec ? (
-                                <span className="text-slate-500 text-[11px]">-</span>
+                                <span className="text-[var(--text-muted)] text-[11px]">-</span>
                               ) : lastExec.status === 'completed' ? (
-                                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
                                   <CheckCircle2 className="w-3 h-3" />
                                   <span>{t('cron.statusCompleted', '成功')}</span>
                                 </span>
                               ) : lastExec.status === 'failed' ? (
-                                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/20">
                                   <XCircle className="w-3 h-3" />
                                   <span>{t('cron.statusFailed', '失败')}</span>
                                 </span>
                               ) : lastExec.status === 'skipped' ? (
-                                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20">
                                   <AlertTriangle className="w-3 h-3" />
                                   <span>{t('cron.statusSkipped', '跳过')}</span>
                                 </span>
                               ) : lastExec.status === 'running' ? (
-                                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                                <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-indigo-500/10 text-indigo-700 dark:text-indigo-400 border border-indigo-500/20">
                                   <Loader2 className="w-3 h-3 animate-spin" />
                                   <span>{t('cron.statusRunning', '运行中')}</span>
                                 </span>
                               ) : (
-                                <span className="text-slate-400 text-[11px]">{lastExec.status}</span>
+                                <span className="text-[var(--text-secondary)] text-[11px]">{lastExec.status}</span>
                               )}
                             </td>
 
                             {/* Duration */}
                             <td className="py-3.5 px-4 align-top">
-                              <span className="font-mono text-slate-400 text-xs">
+                              <span className="font-mono text-[var(--text-secondary)] text-xs">
                                 {formatDuration(lastExec?.durationMs)}
                               </span>
                             </td>
@@ -808,11 +808,11 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
                                   type="button"
                                   onClick={() => handleRunNow(job)}
                                   disabled={isRunning || !isConnected}
-                                  className="p-1.5 rounded-lg bg-white/[0.04] hover:bg-emerald-500/20 text-slate-400 hover:text-emerald-300 border border-white/[0.06] hover:border-emerald-500/30 transition-all disabled:opacity-40"
+                                  className="p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-emerald-500/20 active:bg-emerald-500/20 text-[var(--text-secondary)] hover:text-emerald-600 dark:hover:text-emerald-300 border border-[var(--border-subtle)] hover:border-emerald-500/30 transition-all disabled:opacity-40"
                                   title={t('cron.runNow', '立即运行')}
                                 >
                                   {isRunning ? (
-                                    <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-500" />
                                   ) : (
                                     <Play className="w-3.5 h-3.5" />
                                   )}
@@ -824,8 +824,8 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
                                   onClick={() => handleToggleStatus(job)}
                                   className={`p-1.5 rounded-lg border transition-all ${
                                     isPaused
-                                      ? 'bg-amber-500/10 text-amber-400 border-amber-500/30 hover:bg-amber-500/20'
-                                      : 'bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border-white/[0.06]'
+                                      ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20'
+                                      : 'bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-subtle)]'
                                   }`}
                                   title={isPaused ? t('cron.resume', '恢复') : t('cron.pause', '暂停')}
                                 >
@@ -836,7 +836,7 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
                                 <button
                                   type="button"
                                   onClick={() => setSelectedJobForLogs(job)}
-                                  className="p-1.5 rounded-lg bg-white/[0.04] hover:bg-indigo-500/20 text-slate-400 hover:text-indigo-300 border border-white/[0.06] hover:border-indigo-500/30 transition-all"
+                                  className="p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-indigo-500/20 active:bg-indigo-500/20 text-[var(--text-secondary)] hover:text-indigo-600 dark:hover:text-indigo-300 border border-[var(--border-subtle)] hover:border-indigo-500/30 transition-all"
                                   title={t('cron.logs', '查看日志')}
                                 >
                                   <FileText className="w-3.5 h-3.5" />
@@ -849,7 +849,7 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
                                     setEditingJob(job);
                                     setIsJobModalOpen(true);
                                   }}
-                                  className="p-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-white border border-white/[0.06] transition-all"
+                                  className="p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all"
                                   title={t('cron.editJob', '编辑任务')}
                                 >
                                   <Edit2 className="w-3.5 h-3.5" />
@@ -868,7 +868,7 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
                                     <button
                                       type="button"
                                       onClick={() => setDeleteConfirmJobId(null)}
-                                      className="p-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] text-slate-400 hover:text-white transition-all"
+                                      className="p-1 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all"
                                     >
                                       <X className="w-3 h-3" />
                                     </button>
@@ -877,7 +877,7 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
                                   <button
                                     type="button"
                                     onClick={() => setDeleteConfirmJobId(job.id)}
-                                    className="p-1.5 rounded-lg bg-white/[0.04] hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 border border-white/[0.06] hover:border-rose-500/30 transition-all"
+                                    className="p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-rose-500/20 active:bg-rose-500/20 text-[var(--text-secondary)] hover:text-rose-600 dark:hover:text-rose-300 border border-[var(--border-subtle)] hover:border-rose-500/30 transition-all"
                                     title={t('cron.deleteJob', '删除任务')}
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
@@ -929,17 +929,17 @@ export const TerminalCronView = React.forwardRef<TerminalCronHandle, TerminalCro
                   ? 'bg-rose-950/90 border-rose-500/30 text-rose-200'
                   : toast.type === 'success'
                   ? 'bg-emerald-950/90 border-emerald-500/30 text-emerald-200'
-                  : 'bg-slate-900/90 border-white/10 text-slate-200'
+                  : 'bg-[var(--bg-elevated)]/95 border-[var(--border-default)] text-[var(--text-primary)]'
               }`}
             >
               {toast.type === 'error' && <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />}
               {toast.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />}
-              {toast.type === 'info' && <Info className="w-4 h-4 text-indigo-400 shrink-0" />}
+              {toast.type === 'info' && <Info className="w-4 h-4 text-indigo-500 shrink-0" />}
               <span>{toast.message}</span>
               <button
                 type="button"
                 onClick={() => removeToast(toast.id)}
-                className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-all ml-1"
+                className="p-1 rounded hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all ml-1"
               >
                 <X className="w-3 h-3" />
               </button>

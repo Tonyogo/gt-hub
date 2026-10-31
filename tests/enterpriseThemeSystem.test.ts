@@ -81,4 +81,21 @@ describe('Enterprise Light & Dark Theme System Architecture', () => {
     expect(unifiedContent).not.toContain('bg-[#18181b]');
     expect(unifiedContent).not.toContain('border-[#27272a]');
   });
+
+  test('Cron, Task views, Modals, and ScriptDrawer contain no hardcoded dark hex backgrounds (#121316, #18181b, #0c1017, #090d16, #121214)', () => {
+    const filesToCheck = [
+      '../frontend/src/components/terminal/TerminalCronView.tsx',
+      '../frontend/src/components/terminal/TerminalTaskView.tsx',
+      '../frontend/src/components/terminal/components/CronJobModal.tsx',
+      '../frontend/src/components/terminal/components/CronLogModal.tsx',
+      '../frontend/src/components/terminal/components/CreateTaskModal.tsx',
+      '../frontend/src/components/terminal/components/TaskLogModal.tsx',
+      '../frontend/src/components/terminal/TerminalScriptDrawer.tsx',
+    ];
+
+    for (const relPath of filesToCheck) {
+      const content = fs.readFileSync(path.resolve(__dirname, relPath), 'utf-8');
+      expect(content).not.toMatch(/#(121316|18181b|0c1017|090d16|121214)/i);
+    }
+  });
 });

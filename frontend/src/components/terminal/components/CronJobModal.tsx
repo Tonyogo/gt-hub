@@ -196,24 +196,24 @@ export const CronJobModal: React.FC<CronJobModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 bg-[var(--bg-overlay)] backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto animate-in fade-in duration-150">
       <div
-        className="bg-[#18181b] border-t sm:border border-white/10 rounded-t-2xl sm:rounded-2xl rounded-b-none sm:rounded-b-2xl shadow-2xl max-w-xl w-full overflow-hidden text-slate-200 my-0 sm:my-auto flex flex-col max-h-[90vh] sm:max-h-[85vh] pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-0"
+        className="bg-[var(--bg-elevated)] border-t sm:border border-[var(--border-default)] rounded-t-2xl sm:rounded-2xl rounded-b-none sm:rounded-b-2xl shadow-2xl max-w-xl w-full overflow-hidden text-[var(--text-primary)] my-0 sm:my-auto flex flex-col max-h-[90vh] sm:max-h-[85vh] pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-0"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Mobile Pull Handle */}
-        <div className="sm:hidden w-10 h-1 bg-white/20 rounded-full mx-auto my-2 shrink-0" />
+        <div className="sm:hidden w-10 h-1 bg-[var(--border-default)] rounded-full mx-auto my-2 shrink-0" />
         {/* Modal Header */}
-        <div className="px-5 py-4 border-b border-white/[0.08] flex items-center justify-between bg-white/[0.02]">
+        <div className="px-5 py-4 border-b border-[var(--border-subtle)] flex items-center justify-between bg-[var(--bg-surface-sub)]">
           <div className="flex items-center space-x-2.5">
-            <div className="p-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400">
+            <div className="p-2 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400">
               <Clock className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-semibold text-white">
+              <h3 className="text-base font-semibold text-[var(--text-primary)]">
                 {initialData ? t('cron.editJob', '编辑任务') : t('cron.addJob', '新建任务')}
               </h3>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-[var(--text-secondary)]">
                 {initialData ? `ID: ${initialData.id}` : t('cron.tabName', '定时任务')}
               </p>
             </div>
@@ -221,7 +221,7 @@ export const CronJobModal: React.FC<CronJobModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.06] transition-all"
+            className="p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] transition-all"
           >
             <X className="w-4 h-4" />
           </button>
@@ -230,7 +230,7 @@ export const CronJobModal: React.FC<CronJobModalProps> = ({
         {/* Modal Body / Form */}
         <form onSubmit={handleSubmit} className="p-5 overflow-y-auto space-y-4 text-sm flex-1">
           {errorMessage && (
-            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-start space-x-2">
+            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-300 text-xs flex items-start space-x-2">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               <span>{errorMessage}</span>
             </div>
@@ -238,8 +238,8 @@ export const CronJobModal: React.FC<CronJobModalProps> = ({
 
           {/* Job Name */}
           <div className="space-y-1.5">
-            <label className="block text-xs font-medium text-slate-300">
-              {t('cron.modal.nameLabel', '任务名称')} <span className="text-rose-400">*</span>
+            <label className="block text-xs font-medium text-[var(--text-secondary)]">
+              {t('cron.modal.nameLabel', '任务名称')} <span className="text-rose-500 dark:text-rose-400">*</span>
             </label>
             <input
               type="text"
@@ -247,17 +247,17 @@ export const CronJobModal: React.FC<CronJobModalProps> = ({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. daily-db-backup"
-              className="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder-slate-500 focus:outline-hidden focus:border-indigo-500 transition-all text-xs"
+              className="w-full px-3 py-2 rounded-xl bg-[var(--bg-surface-sub)] border border-[var(--border-default)] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-hidden focus:border-indigo-500 transition-all text-xs"
             />
           </div>
 
           {/* Cron Expression & Presets */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <label className="block text-xs font-medium text-slate-300">
-                {t('cron.modal.cronLabel', 'Cron 表达式')} <span className="text-rose-400">*</span>
+              <label className="block text-xs font-medium text-[var(--text-secondary)]">
+                {t('cron.modal.cronLabel', 'Cron 表达式')} <span className="text-rose-500 dark:text-rose-400">*</span>
               </label>
-              <span className="text-[11px] text-slate-400 font-mono">
+              <span className="text-[11px] text-[var(--text-muted)] font-mono">
                 minute hour day month weekday
               </span>
             </div>
@@ -267,12 +267,12 @@ export const CronJobModal: React.FC<CronJobModalProps> = ({
               value={cron}
               onChange={(e) => setCron(e.target.value)}
               placeholder="*/5 * * * *"
-              className="w-full px-3 py-2 rounded-xl bg-black/40 border border-white/[0.08] text-indigo-300 font-mono text-xs focus:outline-hidden focus:border-indigo-500 transition-all"
+              className="w-full px-3 py-2 rounded-xl bg-[var(--bg-terminal)] border border-[var(--border-default)] text-indigo-600 dark:text-indigo-300 font-mono text-xs focus:outline-hidden focus:border-indigo-500 transition-all"
             />
 
             {/* Presets Capsules */}
             <div className="space-y-1">
-              <div className="text-[11px] text-slate-400 font-medium">
+              <div className="text-[11px] text-[var(--text-secondary)] font-medium">
                 {t('cron.modal.presetLabel', '快捷预设')}
               </div>
               <div className="flex flex-wrap gap-1.5 overflow-x-auto scrollbar-none">
@@ -286,7 +286,7 @@ export const CronJobModal: React.FC<CronJobModalProps> = ({
                       className={`px-2 py-1 rounded-lg text-xs font-mono transition-all flex items-center space-x-1 border ${
                         isActive
                           ? 'bg-indigo-600 text-white border-indigo-500 shadow-xs'
-                          : 'bg-white/[0.03] text-slate-300 border-white/[0.06] hover:bg-white/[0.08] hover:text-white'
+                          : 'bg-[var(--bg-control)] text-[var(--text-secondary)] border-[var(--border-subtle)] hover:bg-[var(--bg-control-hover)] hover:text-[var(--text-primary)]'
                       }`}
                     >
                       {isActive && <Check className="w-3 h-3 text-indigo-200" />}
@@ -301,17 +301,17 @@ export const CronJobModal: React.FC<CronJobModalProps> = ({
 
           {/* Execution Source Tabs */}
           <div className="space-y-2 pt-1">
-            <label className="block text-xs font-medium text-slate-300">
+            <label className="block text-xs font-medium text-[var(--text-secondary)]">
               {t('cron.modal.sourceLabel', '执行来源')}
             </label>
-            <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-black/30 border border-white/[0.06]">
+            <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-[var(--bg-surface-sub)] border border-[var(--border-subtle)]">
               <button
                 type="button"
                 onClick={() => setSource('command')}
                 className={`py-1.5 px-3 rounded-lg text-xs font-medium transition-all flex items-center justify-center space-x-1.5 ${
                   source === 'command'
                     ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'text-slate-400 hover:text-slate-200'
+                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 }`}
               >
                 <Terminal className="w-3.5 h-3.5" />
@@ -323,7 +323,7 @@ export const CronJobModal: React.FC<CronJobModalProps> = ({
                 className={`py-1.5 px-3 rounded-lg text-xs font-medium transition-all flex items-center justify-center space-x-1.5 ${
                   source === 'hub'
                     ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'text-slate-400 hover:text-slate-200'
+                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 }`}
               >
                 <FileCode className="w-3.5 h-3.5" />
@@ -335,8 +335,8 @@ export const CronJobModal: React.FC<CronJobModalProps> = ({
           {/* Direct Command Content */}
           {source === 'command' && (
             <div className="space-y-1.5 animate-in fade-in duration-100">
-              <label className="block text-xs font-medium text-slate-300">
-                {t('cron.modal.commandLabel', 'Shell 命令')} <span className="text-rose-400">*</span>
+              <label className="block text-xs font-medium text-[var(--text-secondary)]">
+                {t('cron.modal.commandLabel', 'Shell 命令')} <span className="text-rose-500 dark:text-rose-400">*</span>
               </label>
               <textarea
                 required
@@ -344,7 +344,7 @@ export const CronJobModal: React.FC<CronJobModalProps> = ({
                 value={command}
                 onChange={(e) => setCommand(e.target.value)}
                 placeholder="e.g. echo 'Running backup...' &amp;&amp; tar -czf /tmp/backup.tar.gz /var/data"
-                className="w-full px-3 py-2 rounded-xl bg-black/50 border border-white/[0.08] text-emerald-400 font-mono text-xs placeholder-slate-600 focus:outline-hidden focus:border-indigo-500 transition-all resize-y"
+                className="w-full px-3 py-2 rounded-xl bg-[var(--bg-terminal)] border border-[var(--border-default)] text-emerald-600 dark:text-emerald-400 font-mono text-xs placeholder-[var(--text-muted)] focus:outline-hidden focus:border-indigo-500 transition-all resize-y"
               />
             </div>
           )}
@@ -353,19 +353,19 @@ export const CronJobModal: React.FC<CronJobModalProps> = ({
           {source === 'hub' && (
             <div className="space-y-3 animate-in fade-in duration-100">
               <div className="space-y-1.5">
-                <label className="block text-xs font-medium text-slate-300">
-                  {t('cron.modal.scriptSelectLabel', '选择托管脚本')} <span className="text-rose-400">*</span>
+                <label className="block text-xs font-medium text-[var(--text-secondary)]">
+                  {t('cron.modal.scriptSelectLabel', '选择托管脚本')} <span className="text-rose-500 dark:text-rose-400">*</span>
                 </label>
                 {isLoadingScripts ? (
-                  <div className="flex items-center space-x-2 py-2 text-xs text-slate-400">
-                    <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
+                  <div className="flex items-center space-x-2 py-2 text-xs text-[var(--text-secondary)]">
+                    <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
                     <span>加载脚本列表中...</span>
                   </div>
                 ) : scripts.length > 0 ? (
                   <select
                     value={scriptName}
                     onChange={(e) => setScriptName(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-black/50 border border-white/[0.08] text-white text-xs focus:outline-hidden focus:border-indigo-500 transition-all"
+                    className="w-full px-3 py-2 rounded-xl bg-[var(--bg-surface-sub)] border border-[var(--border-default)] text-[var(--text-primary)] text-xs focus:outline-hidden focus:border-indigo-500 transition-all"
                   >
                     <option value="" disabled>-- 请选择脚本 --</option>
                     {scripts.map((s) => (
@@ -375,14 +375,14 @@ export const CronJobModal: React.FC<CronJobModalProps> = ({
                     ))}
                   </select>
                 ) : (
-                  <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs">
+                  <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-300 text-xs">
                     {t('cron.modal.noScripts', 'Hub 中暂无可用脚本，请选择“直接命令”或先前往脚本库创建')}
                   </div>
                 )}
               </div>
 
               <div className="space-y-1.5">
-                <label className="block text-xs font-medium text-slate-300">
+                <label className="block text-xs font-medium text-[var(--text-secondary)]">
                   {t('cron.modal.scriptArgsLabel', '脚本参数 (可选)')}
                 </label>
                 <input
@@ -390,37 +390,37 @@ export const CronJobModal: React.FC<CronJobModalProps> = ({
                   value={scriptArgsStr}
                   onChange={(e) => setScriptArgsStr(e.target.value)}
                   placeholder="--env production --verbose"
-                  className="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white placeholder-slate-500 text-xs focus:outline-hidden focus:border-indigo-500 transition-all font-mono"
+                  className="w-full px-3 py-2 rounded-xl bg-[var(--bg-surface-sub)] border border-[var(--border-default)] text-[var(--text-primary)] placeholder-[var(--text-muted)] text-xs focus:outline-hidden focus:border-indigo-500 transition-all font-mono"
                 />
               </div>
             </div>
           )}
 
           {/* Advanced Options Accordion */}
-          <div className="border border-white/[0.06] rounded-xl overflow-hidden bg-black/20">
+          <div className="border border-[var(--border-subtle)] rounded-xl overflow-hidden bg-[var(--bg-surface)]">
             <button
               type="button"
               onClick={() => setShowAdvanced((prev) => !prev)}
-              className="w-full px-4 py-2.5 flex items-center justify-between text-xs font-medium text-slate-300 hover:text-white hover:bg-white/[0.02] transition-colors"
+              className="w-full px-4 py-2.5 flex items-center justify-between text-xs font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] transition-colors"
             >
               <div className="flex items-center space-x-2">
-                <Settings className="w-3.5 h-3.5 text-indigo-400" />
+                <Settings className="w-3.5 h-3.5 text-indigo-500" />
                 <span>高级选项 (并发策略、超时、工作目录)</span>
               </div>
               {showAdvanced ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
             </button>
 
             {showAdvanced && (
-              <div className="p-4 border-t border-white/[0.06] space-y-3 bg-white/[0.01]">
+              <div className="p-4 border-t border-[var(--border-subtle)] space-y-3 bg-[var(--bg-surface-sub)]">
                 {/* Concurrency Policy */}
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-slate-300">
+                  <label className="block text-xs font-medium text-[var(--text-secondary)]">
                     {t('cron.modal.concurrencyLabel', '并发重叠策略')}
                   </label>
                   <select
                     value={concurrency}
                     onChange={(e) => setConcurrency(e.target.value as CronConcurrencyPolicy)}
-                    className="w-full px-3 py-2 rounded-xl bg-black/40 border border-white/[0.08] text-white text-xs focus:outline-hidden focus:border-indigo-500 transition-all"
+                    className="w-full px-3 py-2 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] text-xs focus:outline-hidden focus:border-indigo-500 transition-all"
                   >
                     <option value="forbid">
                       {t('cron.modal.concurrencyForbid', '禁止重叠 (forbid - 上次未跑完则跳过本次)')}
@@ -433,7 +433,7 @@ export const CronJobModal: React.FC<CronJobModalProps> = ({
 
                 {/* Timeout */}
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-slate-300">
+                  <label className="block text-xs font-medium text-[var(--text-secondary)]">
                     {t('cron.modal.timeoutLabel', '超时时间 (秒)')}
                   </label>
                   <input
@@ -443,13 +443,13 @@ export const CronJobModal: React.FC<CronJobModalProps> = ({
                     value={timeoutSeconds}
                     onChange={(e) => setTimeoutSeconds(e.target.value)}
                     placeholder="默认不超时 (如: 300)"
-                    className="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white text-xs placeholder-slate-500 focus:outline-hidden focus:border-indigo-500 transition-all"
+                    className="w-full px-3 py-2 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] text-xs placeholder-[var(--text-muted)] focus:outline-hidden focus:border-indigo-500 transition-all"
                   />
                 </div>
 
                 {/* Working Directory (CWD) */}
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-slate-300">
+                  <label className="block text-xs font-medium text-[var(--text-secondary)]">
                     {t('cron.modal.cwdLabel', '工作目录 (CWD)')}
                   </label>
                   <input
@@ -457,7 +457,7 @@ export const CronJobModal: React.FC<CronJobModalProps> = ({
                     value={cwd}
                     onChange={(e) => setCwd(e.target.value)}
                     placeholder="默认节点根工作目录 (例如: /var/www/app)"
-                    className="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white text-xs placeholder-slate-500 focus:outline-hidden focus:border-indigo-500 transition-all font-mono"
+                    className="w-full px-3 py-2 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-default)] text-[var(--text-primary)] text-xs placeholder-[var(--text-muted)] focus:outline-hidden focus:border-indigo-500 transition-all font-mono"
                   />
                 </div>
               </div>
@@ -465,12 +465,12 @@ export const CronJobModal: React.FC<CronJobModalProps> = ({
           </div>
 
           {/* Action Buttons */}
-          <div className="flex items-center justify-end space-x-2.5 pt-3 border-t border-white/[0.06]">
+          <div className="flex items-center justify-end space-x-2.5 pt-3 border-t border-[var(--border-subtle)]">
             <button
               type="button"
               onClick={onClose}
               disabled={isSubmitting}
-              className="px-4 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 text-xs font-medium transition-all"
+              className="px-4 py-2 rounded-xl bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] text-xs font-medium transition-all"
             >
               {t('cron.modal.cancel', '取消')}
             </button>
