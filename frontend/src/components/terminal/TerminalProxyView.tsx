@@ -566,11 +566,11 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
     }
 
     return (
-      <div className="flex-1 min-h-0 flex flex-col bg-[var(--bg-canvas)] text-slate-200 overflow-y-auto lg:overflow-hidden relative">
+      <div className="flex-1 min-h-0 flex flex-col bg-[var(--bg-canvas)] text-[var(--text-primary)] overflow-y-auto lg:overflow-hidden relative">
         {/* Toast Notification */}
         {toastMessage && (
-          <div className="fixed sm:absolute top-3 right-3 sm:right-4 z-50 flex items-center space-x-2 px-3 py-1.5 rounded-lg text-xs shadow-lg border bg-slate-900/95 border-white/[0.12] animate-in fade-in slide-in-from-top-2 max-w-[90vw]">
-            <span className={toastMessage.type === 'error' ? 'text-rose-400 shrink-0' : 'text-emerald-400 shrink-0'}>
+          <div className="fixed sm:absolute top-3 right-3 sm:right-4 z-50 flex items-center space-x-2 px-3 py-1.5 rounded-lg text-xs shadow-lg border bg-[var(--bg-elevated)]/95 border-[var(--border-default)] text-[var(--text-primary)] animate-in fade-in slide-in-from-top-2 max-w-[90vw]">
+            <span className={toastMessage.type === 'error' ? 'text-rose-500 shrink-0' : 'text-emerald-500 shrink-0'}>
               {toastMessage.type === 'error' ? '●' : '✓'}
             </span>
             <span className="truncate font-mono">{toastMessage.text}</span>
@@ -578,24 +578,24 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
         )}
 
         {/* Top Compact Bar: Discovered Listening Ports & CLI Command Shortcuts */}
-        <div className="px-3 sm:px-4 py-2.5 border-b border-white/[0.08] bg-black/25 shrink-0 space-y-2">
+        <div className="px-3 sm:px-4 py-2.5 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] shrink-0 space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center space-x-2 min-w-0">
-              <Server className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-              <span className="text-xs font-medium text-slate-200 truncate">
+              <Server className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+              <span className="text-xs font-medium text-[var(--text-primary)] truncate">
                 {t('proxy.listeningPorts', '监听端口 (点击复制 gt forward)')}
               </span>
-              <span className="px-1.5 py-0.5 bg-white/[0.06] rounded text-[10px] text-slate-400 font-mono shrink-0">
+              <span className="px-1.5 py-0.5 bg-[var(--bg-surface-sub)] rounded text-[10px] text-[var(--text-secondary)] font-mono shrink-0 border border-[var(--border-subtle)]">
                 {listeningPorts.length}
               </span>
               <button
                 type="button"
                 onClick={() => fetchListeningPorts(false)}
                 disabled={isLoadingPorts}
-                className="p-1 rounded hover:bg-white/[0.06] text-slate-400 hover:text-white transition-all disabled:opacity-50"
+                className="p-1 rounded hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all disabled:opacity-50"
                 title={t('proxy.refresh', '刷新')}
               >
-                <RefreshCw className={`w-3 h-3 ${isLoadingPorts ? 'animate-spin text-indigo-400' : ''}`} />
+                <RefreshCw className={`w-3 h-3 ${isLoadingPorts ? 'animate-spin text-indigo-500' : ''}`} />
               </button>
             </div>
 
@@ -605,13 +605,13 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
                 type="button"
                 data-testid="proxy-copy-forward-btn"
                 onClick={() => handleCopyForward(8000, '127.0.0.1')}
-                className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 text-[11px] border border-white/[0.08] transition-all cursor-pointer"
+                className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-[11px] border border-[var(--border-subtle)] transition-all cursor-pointer"
                 title={`gt forward ${activeHostId} 8000:8000`}
               >
                 {copiedCli === 'forward' || copiedCli === 'port-8000' ? (
-                  <Check className="w-3 h-3 text-emerald-400" />
+                  <Check className="w-3 h-3 text-emerald-500" />
                 ) : (
-                  <Copy className="w-3 h-3 text-indigo-400" />
+                  <Copy className="w-3 h-3 text-indigo-500" />
                 )}
                 <span className="font-mono">{t('proxy.copyCliForward', '复制 gt forward')}</span>
               </button>
@@ -620,10 +620,10 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
                 type="button"
                 data-testid="proxy-copy-proxy-btn"
                 onClick={handleCopyProxy}
-                className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 text-[11px] border border-white/[0.08] transition-all cursor-pointer"
+                className="flex items-center space-x-1 px-2 py-1 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-[11px] border border-[var(--border-subtle)] transition-all cursor-pointer"
                 title={`gt proxy ${activeHostId} -p 1080`}
               >
-                {copiedCli === 'proxy' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3 text-indigo-400" />}
+                {copiedCli === 'proxy' ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3 text-indigo-500" />}
                 <span className="font-mono">{t('proxy.copyCliProxy', '复制 gt proxy')}</span>
               </button>
             </div>
@@ -631,7 +631,7 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
 
           {/* Horizontal scrollable port pills on mobile, wrap on desktop */}
           {listeningPorts.length === 0 ? (
-            <div className="text-[11px] text-slate-500 font-mono py-0.5">
+            <div className="text-[11px] text-[var(--text-muted)] font-mono py-0.5">
               {isLoadingPorts
                 ? isZh
                   ? '正在扫描节点监听端口...'
@@ -651,17 +651,17 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
                     title={isZh ? `点击复制 gt forward 并填入调试地址` : `Click to copy gt forward & fill debugger URL`}
                     className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg text-xs font-mono border transition-all cursor-pointer shrink-0 ${
                       isCopied
-                        ? 'bg-emerald-500/20 text-emerald-200 border-emerald-500/40'
-                        : 'bg-white/[0.03] text-slate-300 border-white/[0.06] hover:bg-indigo-600/20 hover:border-indigo-500/40'
+                        ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-200 border-emerald-500/40'
+                        : 'bg-[var(--bg-control)] text-[var(--text-secondary)] border-[var(--border-subtle)] hover:bg-indigo-600/15 hover:border-indigo-500/40 hover:text-indigo-600 dark:hover:text-indigo-300'
                     }`}
                   >
                     {isCopied ? (
-                      <Check className="w-3 h-3 text-emerald-400 shrink-0" />
+                      <Check className="w-3 h-3 text-emerald-500 shrink-0" />
                     ) : (
-                      <Copy className="w-3 h-3 text-indigo-400/80 shrink-0" />
+                      <Copy className="w-3 h-3 text-indigo-500/80 shrink-0" />
                     )}
-                    <span className="font-semibold text-indigo-300">:{p.port}</span>
-                    {p.process && <span className="text-slate-400 text-[10px]">({p.process})</span>}
+                    <span className="font-semibold text-indigo-600 dark:text-indigo-300">:{p.port}</span>
+                    {p.process && <span className="text-[var(--text-muted)] text-[10px]">({p.process})</span>}
                   </button>
                 );
               })}
@@ -670,7 +670,7 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
         </div>
 
         {/* Mobile-only Section Switcher (Hidden on Desktop lg+) */}
-        <div className="lg:hidden px-3 py-2 border-b border-white/[0.06] bg-black/15 flex items-center gap-2 shrink-0">
+        <div className="lg:hidden px-3 py-2 border-b border-[var(--border-subtle)] bg-[var(--bg-surface-sub)] flex items-center gap-2 shrink-0">
           <button
             type="button"
             data-testid="mobile-tab-speedtest"
@@ -678,7 +678,7 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
             className={`flex-1 flex items-center justify-center space-x-1.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
               mobileSection === 'speedtest'
                 ? 'bg-indigo-600 text-white shadow-xs'
-                : 'bg-white/[0.04] text-slate-400 hover:text-slate-200'
+                : 'bg-[var(--bg-control)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             }`}
           >
             <Gauge className="w-3.5 h-3.5" />
@@ -691,7 +691,7 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
             className={`flex-1 flex items-center justify-center space-x-1.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
               mobileSection === 'request'
                 ? 'bg-indigo-600 text-white shadow-xs'
-                : 'bg-white/[0.04] text-slate-400 hover:text-slate-200'
+                : 'bg-[var(--bg-control)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             }`}
           >
             <Zap className="w-3.5 h-3.5" />
@@ -708,32 +708,32 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
             }`}
           >
             {/* Speedtest Header & Controls */}
-            <div className="p-3 rounded-xl bg-black/20 border border-white/[0.06] flex flex-col space-y-2.5">
+            <div className="p-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] flex flex-col space-y-2.5">
               <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center space-x-1.5 text-xs font-medium text-slate-200">
-                  <Gauge className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                <div className="flex items-center space-x-1.5 text-xs font-medium text-[var(--text-primary)]">
+                  <Gauge className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                   <span>{t('proxy.speedtestMode', '隧道延迟与带宽测速')}</span>
                 </div>
                 <button
                   type="button"
                   onClick={handleCopySpeedtest}
-                  className="flex items-center space-x-1 px-2 py-0.5 rounded bg-white/[0.04] hover:bg-white/[0.08] text-slate-400 hover:text-slate-200 text-[10px] border border-white/[0.06] font-mono transition-all cursor-pointer"
+                  className="flex items-center space-x-1 px-2 py-0.5 rounded bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-[10px] border border-[var(--border-subtle)] font-mono transition-all cursor-pointer"
                   title="Copy gt speedtest CLI command"
                 >
-                  {copiedCli === 'speedtest' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                  {copiedCli === 'speedtest' ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
                   <span>gt speedtest</span>
                 </button>
               </div>
 
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center space-x-2">
-                  <span className="text-[11px] text-slate-400">{t('proxy.payloadSize', '数据量')}:</span>
+                  <span className="text-[11px] text-[var(--text-secondary)]">{t('proxy.payloadSize', '数据量')}:</span>
                   <select
                     data-testid="speedtest-size-select"
                     value={speedtestSizeMb}
                     onChange={(e) => setSpeedtestSizeMb(parseInt(e.target.value, 10))}
                     disabled={isRunningSpeedtest}
-                    className="bg-black/40 border border-white/[0.08] rounded-lg px-2 py-1 text-xs text-slate-200 font-mono focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+                    className="bg-[var(--bg-surface-sub)] border border-[var(--border-default)] rounded-lg px-2 py-1 text-xs text-[var(--text-primary)] font-mono focus:outline-none focus:border-indigo-500 disabled:opacity-50"
                   >
                     <option value={1}>1 MB</option>
                     <option value={4}>4 MB</option>
@@ -771,16 +771,16 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
             {/* 2x2 Compact Metric Cards (Works cleanly on both mobile & desktop) */}
             <div className="grid grid-cols-2 gap-2.5">
               {/* Card 1: Total RTT */}
-              <div className="p-2.5 sm:p-3 rounded-xl bg-black/20 border border-white/[0.06] flex flex-col justify-between space-y-1.5">
-                <div className="flex items-center justify-between text-slate-400 text-[11px]">
+              <div className="p-2.5 sm:p-3 rounded-xl bg-[var(--bg-surface-sub)] border border-[var(--border-subtle)] flex flex-col justify-between space-y-1.5">
+                <div className="flex items-center justify-between text-[var(--text-secondary)] text-[11px]">
                   <span className="font-medium truncate">{t('proxy.totalRtt', '总往返延迟')}</span>
-                  <Activity className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                  <Activity className="w-3.5 h-3.5 text-sky-500 shrink-0" />
                 </div>
                 <div>
-                  <div className="text-lg sm:text-xl font-bold font-mono text-slate-100">
+                  <div className="text-lg sm:text-xl font-bold font-mono text-[var(--text-primary)]">
                     {latencyMetrics ? `${latencyMetrics.avgTotalRttMs} ms` : '--'}
                   </div>
-                  <div className="text-[10px] text-slate-400 font-mono mt-0.5 leading-tight">
+                  <div className="text-[10px] text-[var(--text-muted)] font-mono mt-0.5 leading-tight">
                     {latencyMetrics ? (
                       <>
                         <div>Browser↔Hub: {latencyMetrics.avgClientHubRttMs}ms</div>
@@ -794,16 +794,16 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
               </div>
 
               {/* Card 2: Jitter */}
-              <div className="p-2.5 sm:p-3 rounded-xl bg-black/20 border border-white/[0.06] flex flex-col justify-between space-y-1.5">
-                <div className="flex items-center justify-between text-slate-400 text-[11px]">
+              <div className="p-2.5 sm:p-3 rounded-xl bg-[var(--bg-surface-sub)] border border-[var(--border-subtle)] flex flex-col justify-between space-y-1.5">
+                <div className="flex items-center justify-between text-[var(--text-secondary)] text-[11px]">
                   <span className="font-medium truncate">{t('proxy.jitter', '网络抖动')}</span>
-                  <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <Zap className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                 </div>
                 <div>
-                  <div className="text-lg sm:text-xl font-bold font-mono text-slate-100">
+                  <div className="text-lg sm:text-xl font-bold font-mono text-[var(--text-primary)]">
                     {latencyMetrics ? `±${latencyMetrics.jitterMs} ms` : '--'}
                   </div>
-                  <div className="text-[10px] text-slate-400 font-mono mt-0.5 leading-tight">
+                  <div className="text-[10px] text-[var(--text-muted)] font-mono mt-0.5 leading-tight">
                     {latencyMetrics ? (
                       <>
                         <div>Min: {latencyMetrics.minRttMs}ms</div>
@@ -817,46 +817,46 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
               </div>
 
               {/* Card 3: Download Speed */}
-              <div className="p-2.5 sm:p-3 rounded-xl bg-black/20 border border-white/[0.06] flex flex-col justify-between space-y-1.5">
-                <div className="flex items-center justify-between text-slate-400 text-[11px]">
+              <div className="p-2.5 sm:p-3 rounded-xl bg-[var(--bg-surface-sub)] border border-[var(--border-subtle)] flex flex-col justify-between space-y-1.5">
+                <div className="flex items-center justify-between text-[var(--text-secondary)] text-[11px]">
                   <span className="font-medium truncate">{t('proxy.downloadSpeed', '下行带宽')}</span>
-                  <ArrowDown className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <ArrowDown className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                 </div>
                 <div>
-                  <div className="text-lg sm:text-xl font-bold font-mono text-emerald-400">
+                  <div className="text-lg sm:text-xl font-bold font-mono text-emerald-600 dark:text-emerald-400">
                     {downloadMetrics
                       ? `${downloadMetrics.mbps} Mbps`
                       : dlCurrentMbps > 0
                       ? `${dlCurrentMbps} Mbps`
                       : '--'}
                   </div>
-                  <div className="text-[10px] text-slate-400 font-mono mt-0.5 truncate">
+                  <div className="text-[10px] text-[var(--text-muted)] font-mono mt-0.5 truncate">
                     {downloadMetrics ? `${downloadMetrics.mbPerSec} MB/s` : '-- MB/s'}
                   </div>
-                  <div className="w-full bg-white/[0.05] h-1 rounded-full overflow-hidden mt-1.5">
+                  <div className="w-full bg-[var(--bg-surface)] h-1 rounded-full overflow-hidden mt-1.5">
                     <div className="bg-emerald-500 h-full transition-all duration-150" style={{ width: `${dlProgress}%` }} />
                   </div>
                 </div>
               </div>
 
               {/* Card 4: Upload Speed */}
-              <div className="p-2.5 sm:p-3 rounded-xl bg-black/20 border border-white/[0.06] flex flex-col justify-between space-y-1.5">
-                <div className="flex items-center justify-between text-slate-400 text-[11px]">
+              <div className="p-2.5 sm:p-3 rounded-xl bg-[var(--bg-surface-sub)] border border-[var(--border-subtle)] flex flex-col justify-between space-y-1.5">
+                <div className="flex items-center justify-between text-[var(--text-secondary)] text-[11px]">
                   <span className="font-medium truncate">{t('proxy.uploadSpeed', '上行带宽')}</span>
-                  <ArrowUp className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                  <ArrowUp className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                 </div>
                 <div>
-                  <div className="text-lg sm:text-xl font-bold font-mono text-indigo-400">
+                  <div className="text-lg sm:text-xl font-bold font-mono text-indigo-600 dark:text-indigo-400">
                     {uploadMetrics
                       ? `${uploadMetrics.mbps} Mbps`
                       : ulCurrentMbps > 0
                       ? `${ulCurrentMbps} Mbps`
                       : '--'}
                   </div>
-                  <div className="text-[10px] text-slate-400 font-mono mt-0.5 truncate">
+                  <div className="text-[10px] text-[var(--text-muted)] font-mono mt-0.5 truncate">
                     {uploadMetrics ? `${uploadMetrics.mbPerSec} MB/s` : '-- MB/s'}
                   </div>
-                  <div className="w-full bg-white/[0.05] h-1 rounded-full overflow-hidden mt-1.5">
+                  <div className="w-full bg-[var(--bg-surface)] h-1 rounded-full overflow-hidden mt-1.5">
                     <div className="bg-indigo-500 h-full transition-all duration-150" style={{ width: `${ulProgress}%` }} />
                   </div>
                 </div>
@@ -864,10 +864,10 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
             </div>
 
             {/* Outbound Target Connectivity Probes */}
-            <div className="p-3 rounded-xl bg-black/20 border border-white/[0.06] flex flex-col space-y-2.5">
+            <div className="p-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] flex flex-col space-y-2.5">
               <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center space-x-1.5 text-xs font-medium text-slate-200">
-                  <Globe className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                <div className="flex items-center space-x-1.5 text-xs font-medium text-[var(--text-primary)]">
+                  <Globe className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                   <span className="truncate">{t('proxy.outboundProbe', 'Agent 出网连通性探测')}</span>
                 </div>
                 <button
@@ -875,9 +875,9 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
                   data-testid="speedtest-probe-btn"
                   onClick={() => handleProbeTargets()}
                   disabled={isProbing}
-                  className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-white/[0.05] hover:bg-white/[0.08] text-slate-200 text-[11px] font-medium border border-white/[0.08] transition-all disabled:opacity-50 cursor-pointer shrink-0"
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-[11px] font-medium border border-[var(--border-subtle)] transition-all disabled:opacity-50 cursor-pointer shrink-0"
                 >
-                  {isProbing ? <Loader2 className="w-3 h-3 animate-spin text-indigo-400" /> : <RefreshCw className="w-3 h-3" />}
+                  {isProbing ? <Loader2 className="w-3 h-3 animate-spin text-indigo-500" /> : <RefreshCw className="w-3 h-3" />}
                   <span>{isProbing ? t('proxy.probing', '探测中...') : t('proxy.probeNow', '探测默认目标')}</span>
                 </button>
               </div>
@@ -894,7 +894,7 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
                     }
                   }}
                   placeholder={t('proxy.customTargetPlaceholder', '自定义探测 URL (https://...)')}
-                  className="flex-1 min-w-0 bg-black/40 border border-white/[0.08] rounded-lg px-2.5 py-1 text-xs text-slate-200 font-mono focus:outline-none focus:border-indigo-500"
+                  className="flex-1 min-w-0 bg-[var(--bg-surface-sub)] border border-[var(--border-default)] rounded-lg px-2.5 py-1 text-xs text-[var(--text-primary)] font-mono focus:outline-none focus:border-indigo-500"
                 />
                 <button
                   type="button"
@@ -908,7 +908,7 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
 
               <div className="space-y-1.5">
                 {probeResults.length === 0 ? (
-                  <div className="text-[11px] text-slate-500 py-2 text-center font-mono">
+                  <div className="text-[11px] text-[var(--text-muted)] py-2 text-center font-mono">
                     {isProbing
                       ? isZh
                         ? '正在从 Agent 节点探测目标...'
@@ -921,28 +921,28 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
                   probeResults.map((probe) => (
                     <div
                       key={probe.url}
-                      className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white/[0.02] border border-white/[0.04] text-xs font-mono"
+                      className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[var(--bg-surface-sub)] border border-[var(--border-subtle)] text-xs font-mono"
                     >
                       <div className="flex items-center space-x-2 truncate pr-2">
                         {probe.ok ? (
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                         ) : (
-                          <XCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          <XCircle className="w-3.5 h-3.5 text-rose-500 shrink-0" />
                         )}
-                        <span className="text-slate-300 truncate text-[11px]">{probe.url}</span>
+                        <span className="text-[var(--text-secondary)] truncate text-[11px]">{probe.url}</span>
                       </div>
 
                       <div className="flex items-center space-x-2 shrink-0">
                         <span
                           className={`px-1.5 py-0.2 rounded text-[10px] font-semibold ${
                             probe.ok
-                              ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                              : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                              ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
+                              : 'bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/30'
                           }`}
                         >
                           {probe.ok ? `${probe.statusCode || 200}` : probe.error || 'ERR'}
                         </span>
-                        <span className="text-slate-400 text-[11px] w-14 text-right">{probe.latencyMs} ms</span>
+                        <span className="text-[var(--text-muted)] text-[11px] w-14 text-right">{probe.latencyMs} ms</span>
                       </div>
                     </div>
                   ))
@@ -958,16 +958,16 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
             }`}
           >
             {/* Request Builder Card */}
-            <div className="p-3 rounded-xl bg-black/20 border border-white/[0.06] flex flex-col space-y-2.5 shrink-0">
+            <div className="p-3 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] flex flex-col space-y-2.5 shrink-0">
               <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-1.5 text-xs font-medium text-slate-200">
-                  <Zap className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                <div className="flex items-center space-x-1.5 text-xs font-medium text-[var(--text-primary)]">
+                  <Zap className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                   <span>{t('proxy.requestMode', 'HTTP 请求调试器 (由 Agent 节点发出)')}</span>
                 </div>
                 <button
                   type="button"
                   onClick={() => setShowAdvancedRequest((v) => !v)}
-                  className="flex items-center space-x-1 text-[11px] text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+                  className="flex items-center space-x-1 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
                 >
                   <span>{isZh ? 'Headers / Body / 证书' : 'Headers / Body / TLS'}</span>
                   {showAdvancedRequest ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
@@ -985,7 +985,7 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
                         setShowAdvancedRequest(true);
                       }
                     }}
-                    className="bg-black/40 border border-white/[0.08] rounded-lg px-2 py-1.5 text-xs font-mono font-semibold text-indigo-300 focus:outline-none focus:border-indigo-500 shrink-0"
+                    className="bg-[var(--bg-surface-sub)] border border-[var(--border-default)] rounded-lg px-2 py-1.5 text-xs font-mono font-semibold text-indigo-600 dark:text-indigo-300 focus:outline-none focus:border-indigo-500 shrink-0"
                   >
                     <option value="GET">GET</option>
                     <option value="POST">POST</option>
@@ -1007,7 +1007,7 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
                       }
                     }}
                     placeholder="http://127.0.0.1:3000/ or https://api.github.com"
-                    className="flex-1 min-w-0 bg-black/40 border border-white/[0.08] rounded-lg px-2.5 py-1.5 text-xs text-slate-200 font-mono focus:outline-none focus:border-indigo-500"
+                    className="flex-1 min-w-0 bg-[var(--bg-surface-sub)] border border-[var(--border-default)] rounded-lg px-2.5 py-1.5 text-xs text-[var(--text-primary)] font-mono focus:outline-none focus:border-indigo-500"
                   />
                 </div>
 
@@ -1025,14 +1025,14 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
 
               {/* Collapsible Headers, Body & Insecure TLS */}
               {showAdvancedRequest && (
-                <div className="pt-2 border-t border-white/[0.06] space-y-2.5 animate-in fade-in duration-150">
-                  <div className="flex items-center space-x-2 text-xs text-slate-400">
+                <div className="pt-2 border-t border-[var(--border-subtle)] space-y-2.5 animate-in fade-in duration-150">
+                  <div className="flex items-center space-x-2 text-xs text-[var(--text-secondary)]">
                     <label className="flex items-center space-x-1.5 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={insecure}
                         onChange={(e) => setInsecure(e.target.checked)}
-                        className="rounded bg-black/40 border-white/[0.1] text-indigo-600 focus:ring-0"
+                        className="rounded bg-[var(--bg-surface-sub)] border-[var(--border-default)] text-indigo-600 focus:ring-0"
                       />
                       <span>{t('proxy.insecure', '忽略自签名 TLS 证书错误 (insecure)')}</span>
                     </label>
@@ -1040,7 +1040,7 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <div className="flex flex-col space-y-1">
-                      <label className="text-[10px] text-slate-400 font-medium uppercase tracking-wider">
+                      <label className="text-[10px] text-[var(--text-secondary)] font-medium uppercase tracking-wider">
                         {t('proxy.headers', '请求头 (JSON 或 Key: Value)')}
                       </label>
                       <textarea
@@ -1048,13 +1048,13 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
                         onChange={(e) => setCustomHeaders(e.target.value)}
                         placeholder={`Content-Type: application/json\nAuthorization: Bearer token`}
                         rows={3}
-                        className="w-full bg-black/40 border border-white/[0.08] rounded-lg p-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-indigo-500 resize-none"
+                        className="w-full bg-[var(--bg-surface-sub)] border border-[var(--border-default)] rounded-lg p-2 text-xs text-[var(--text-primary)] font-mono focus:outline-none focus:border-indigo-500 resize-none"
                       />
                     </div>
 
                     {method !== 'GET' && method !== 'HEAD' && (
                       <div className="flex flex-col space-y-1">
-                        <label className="text-[10px] text-slate-400 font-medium uppercase tracking-wider">
+                        <label className="text-[10px] text-[var(--text-secondary)] font-medium uppercase tracking-wider">
                           {t('proxy.body', '请求体 (Request Body)')}
                         </label>
                         <textarea
@@ -1062,7 +1062,7 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
                           onChange={(e) => setRequestBody(e.target.value)}
                           placeholder={`{\n  "key": "value"\n}`}
                           rows={3}
-                          className="w-full bg-black/40 border border-white/[0.08] rounded-lg p-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-indigo-500 resize-none"
+                          className="w-full bg-[var(--bg-surface-sub)] border border-[var(--border-default)] rounded-lg p-2 text-xs text-[var(--text-primary)] font-mono focus:outline-none focus:border-indigo-500 resize-none"
                         />
                       </div>
                     )}
@@ -1072,36 +1072,36 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
             </div>
 
             {/* Response Inspector Card */}
-            <div className="flex-1 min-h-[260px] rounded-xl bg-black/30 border border-white/[0.08] flex flex-col overflow-hidden">
-              <div className="px-3 py-2 bg-black/40 border-b border-white/[0.08] flex flex-wrap items-center justify-between gap-2 text-xs shrink-0">
+            <div className="flex-1 min-h-[260px] rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] flex flex-col overflow-hidden">
+              <div className="px-3 py-2 bg-[var(--bg-surface-sub)] border-b border-[var(--border-subtle)] flex flex-wrap items-center justify-between gap-2 text-xs shrink-0">
                 <div className="flex items-center space-x-2">
-                  <span className="font-medium text-slate-300">Response</span>
+                  <span className="font-medium text-[var(--text-primary)]">Response</span>
                   {responseData && (
                     <div className="flex items-center space-x-2">
                       <span
                         className={`px-2 py-0.5 rounded text-[11px] font-mono font-semibold ${
                           responseData.status >= 200 && responseData.status < 300
-                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                            ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
                             : responseData.status >= 300 && responseData.status < 400
-                            ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
+                            ? 'bg-sky-500/20 text-sky-700 dark:text-sky-300 border border-sky-500/30'
                             : responseData.status >= 400 && responseData.status < 500
-                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                            : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                            ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30'
+                            : 'bg-rose-500/20 text-rose-700 dark:text-rose-300 border border-rose-500/30'
                         }`}
                       >
                         {responseData.status} {responseData.statusText}
                       </span>
-                      <span className="text-slate-400 font-mono text-[11px]">{responseData.latency} ms</span>
+                      <span className="text-[var(--text-muted)] font-mono text-[11px]">{responseData.latency} ms</span>
                     </div>
                   )}
                 </div>
 
-                <div className="flex items-center space-x-1 bg-black/40 p-0.5 rounded border border-white/[0.06]">
+                <div className="flex items-center space-x-1 bg-[var(--bg-surface)] p-0.5 rounded border border-[var(--border-subtle)]">
                   <button
                     type="button"
                     onClick={() => setResponseTab('body')}
                     className={`px-2.5 py-0.5 rounded text-[11px] font-medium transition-all ${
-                      responseTab === 'body' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                      responseTab === 'body' ? 'bg-indigo-600 text-white' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                     }`}
                   >
                     {t('proxy.responseBody', '响应体')}
@@ -1110,7 +1110,7 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
                     type="button"
                     onClick={() => setResponseTab('headers')}
                     className={`px-2.5 py-0.5 rounded text-[11px] font-medium transition-all ${
-                      responseTab === 'headers' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                      responseTab === 'headers' ? 'bg-indigo-600 text-white' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                     }`}
                   >
                     {t('proxy.responseHeaders', '响应头')}
@@ -1118,9 +1118,9 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
                 </div>
               </div>
 
-              <div className="flex-1 p-3 overflow-auto font-mono text-xs text-slate-300">
+              <div className="flex-1 p-3 overflow-auto font-mono text-xs text-[var(--text-primary)] bg-[var(--bg-terminal)]">
                 {!responseData ? (
-                  <div className="h-full flex items-center justify-center text-slate-500 text-center px-4">
+                  <div className="h-full flex items-center justify-center text-[var(--text-muted)] text-center px-4">
                     {isSending
                       ? isZh
                         ? '正在通过 Agent 代理发送请求...'
@@ -1135,8 +1135,8 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
                   <div className="space-y-1">
                     {Object.entries(responseData.headers).map(([k, v]) => (
                       <div key={k} className="flex space-x-2">
-                        <span className="text-indigo-400 font-medium shrink-0">{k}:</span>
-                        <span className="text-slate-300 break-all">{v}</span>
+                        <span className="text-indigo-600 dark:text-indigo-400 font-medium shrink-0">{k}:</span>
+                        <span className="text-[var(--text-primary)] break-all">{v}</span>
                       </div>
                     ))}
                   </div>

@@ -54,7 +54,7 @@ export const TerminalPdfPreviewModal: React.FC<TerminalPdfPreviewModalProps> = (
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-2 sm:p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)] backdrop-blur-xs p-2 sm:p-4"
       onClick={(e) => {
         if (e.target === e.currentTarget) {
           onClose();
@@ -62,18 +62,18 @@ export const TerminalPdfPreviewModal: React.FC<TerminalPdfPreviewModalProps> = (
       }}
     >
       <div
-        className={`ui-card flex flex-col border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-2xl overflow-hidden transition-all duration-200 ${
+        className={`ui-card flex flex-col border border-[var(--border-default)] bg-[var(--bg-elevated)] shadow-2xl overflow-hidden text-[var(--text-primary)] transition-all duration-200 ${
           isMaximized ? 'w-full h-full rounded-none' : 'w-full max-w-6xl h-[90vh] rounded-xl'
         }`}
       >
         {/* Header Bar */}
         <div className="p-3 border-b border-[var(--border-subtle)] flex items-center justify-between shrink-0 bg-[var(--bg-surface-sub)] select-none">
           <div className="flex items-center space-x-2 min-w-0">
-            <FileText className="w-4 h-4 text-rose-400 shrink-0" />
-            <span className="font-semibold text-xs sm:text-sm text-slate-200 truncate" title={file.path}>
+            <FileText className="w-4 h-4 text-rose-500 dark:text-rose-400 shrink-0" />
+            <span className="font-semibold text-xs sm:text-sm text-[var(--text-primary)] truncate" title={file.path}>
               {file.name}
             </span>
-            <span className="text-[10px] text-slate-400 font-mono px-1.5 py-0.5 rounded bg-black/30 hidden sm:inline">
+            <span className="text-[10px] text-[var(--text-secondary)] font-mono px-1.5 py-0.5 rounded bg-[var(--bg-surface)] border border-[var(--border-subtle)] hidden sm:inline">
               {formatFileSize(file.size)}
             </span>
           </div>
@@ -89,7 +89,7 @@ export const TerminalPdfPreviewModal: React.FC<TerminalPdfPreviewModalProps> = (
                 }
               }}
               title={t('files.openInNewTab', '新窗口打开')}
-              className="flex items-center space-x-1 px-2 py-1 rounded border border-[var(--border-subtle)] text-slate-300 hover:text-white text-xs disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="flex items-center space-x-1 px-2 py-1 rounded border border-[var(--border-subtle)] bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               <ExternalLink className="w-3.5 h-3.5" />
               <span className="hidden md:inline">{t('files.openInNewTab', '新窗口打开')}</span>
@@ -100,7 +100,7 @@ export const TerminalPdfPreviewModal: React.FC<TerminalPdfPreviewModalProps> = (
               type="button"
               onClick={() => setIsMaximized((prev) => !prev)}
               title={isMaximized ? t('files.restore', '还原') : t('files.maximize', '最大化')}
-              className="p-1 rounded border border-[var(--border-subtle)] text-slate-300 hover:text-white text-xs transition-colors"
+              className="p-1 rounded border border-[var(--border-subtle)] bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs transition-colors"
             >
               {isMaximized ? (
                 <Minimize2 className="w-3.5 h-3.5" />
@@ -114,7 +114,7 @@ export const TerminalPdfPreviewModal: React.FC<TerminalPdfPreviewModalProps> = (
               type="button"
               onClick={() => onDownload(file)}
               title={t('files.download', '下载')}
-              className="flex items-center space-x-1 px-2 py-1 rounded border border-[var(--border-subtle)] text-slate-300 hover:text-white text-xs transition-colors"
+              className="flex items-center space-x-1 px-2 py-1 rounded border border-[var(--border-subtle)] bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs transition-colors"
             >
               <Download className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">{t('files.download', '下载')}</span>
@@ -125,7 +125,7 @@ export const TerminalPdfPreviewModal: React.FC<TerminalPdfPreviewModalProps> = (
               type="button"
               onClick={onClose}
               title={t('files.close', '关闭')}
-              className="p-1 rounded hover:bg-slate-700/50 text-slate-400 hover:text-white transition-colors"
+              className="p-1 rounded hover:bg-rose-500/20 text-[var(--text-secondary)] hover:text-rose-600 dark:hover:text-rose-300 transition-colors"
             >
               <X className="w-4 h-4" />
             </button>
@@ -133,7 +133,7 @@ export const TerminalPdfPreviewModal: React.FC<TerminalPdfPreviewModalProps> = (
         </div>
 
         {/* Content Area */}
-        <div className="flex-1 min-h-0 relative bg-slate-900">
+        <div className="flex-1 min-h-0 relative bg-[var(--bg-terminal)]">
           {loading ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400">
               <Loader2 className="w-8 h-8 animate-spin text-rose-500 mb-2" />

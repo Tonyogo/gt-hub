@@ -276,7 +276,7 @@ export function TerminalImagePreviewModal({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className={`ui-card flex flex-col border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-2xl overflow-hidden transition-all duration-200 ${
+        className={`ui-card flex flex-col border border-[var(--border-default)] bg-[var(--bg-elevated)] shadow-2xl overflow-hidden text-[var(--text-primary)] transition-all duration-200 ${
           isMaximized
             ? 'w-full h-full rounded-none border-none'
             : 'w-full max-w-5xl h-[88vh] max-h-[88vh] rounded-xl'
@@ -286,25 +286,25 @@ export function TerminalImagePreviewModal({
         <div className="px-3 py-2 sm:px-4 sm:py-2.5 border-b border-[var(--border-subtle)] flex items-center justify-between shrink-0 bg-[var(--bg-surface-sub)] gap-2 select-none">
           {/* File Info */}
           <div className="flex items-center space-x-2 min-w-0">
-            <ImageIcon className="w-4 h-4 text-emerald-400 shrink-0" />
+            <ImageIcon className="w-4 h-4 text-indigo-500 shrink-0" />
             <span
-              className="font-semibold text-xs sm:text-sm text-slate-200 truncate max-w-[110px] sm:max-w-xs md:max-w-md"
+              className="font-semibold text-xs sm:text-sm text-[var(--text-primary)] truncate max-w-[110px] sm:max-w-xs md:max-w-md"
               title={file.name}
             >
               {file.name}
             </span>
-            <span className="text-[10px] text-slate-400 font-mono shrink-0 hidden sm:inline">
+            <span className="text-[10px] text-[var(--text-muted)] font-mono shrink-0 hidden sm:inline">
               ({formatBytes(file.size)}
               {naturalDimensions ? ` · ${naturalDimensions.width}×${naturalDimensions.height}` : ''})
             </span>
           </div>
 
           {/* Zoom & Transform Controls */}
-          <div className="flex items-center space-x-0.5 sm:space-x-1 bg-black/40 rounded-lg p-0.5 border border-[var(--border-subtle)]">
+          <div className="flex items-center space-x-0.5 sm:space-x-1 bg-[var(--bg-surface)] rounded-lg p-0.5 border border-[var(--border-subtle)]">
             <button
               onClick={handleZoomOut}
               title="缩小 (快捷键 -)"
-              className="p-1 sm:px-1.5 sm:py-1 rounded text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors"
+              className="p-1 sm:px-1.5 sm:py-1 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] transition-colors"
             >
               <ZoomOut className="w-3.5 h-3.5" />
             </button>
@@ -312,7 +312,7 @@ export function TerminalImagePreviewModal({
             <button
               onClick={handleReset}
               title="复位自适应 (快捷键 0)"
-              className="text-[10px] sm:text-[11px] font-mono px-1 sm:px-1.5 py-0.5 min-w-[38px] sm:min-w-[44px] text-center text-slate-300 hover:text-white hover:bg-slate-700/50 rounded transition-colors"
+              className="text-[10px] sm:text-[11px] font-mono px-1 sm:px-1.5 py-0.5 min-w-[38px] sm:min-w-[44px] text-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] rounded transition-colors"
             >
               {Math.round(scale * 100)}%
             </button>
@@ -320,7 +320,7 @@ export function TerminalImagePreviewModal({
             <button
               onClick={handleZoomIn}
               title="放大 (快捷键 +)"
-              className="p-1 sm:px-1.5 sm:py-1 rounded text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors"
+              className="p-1 sm:px-1.5 sm:py-1 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] transition-colors"
             >
               <ZoomIn className="w-3.5 h-3.5" />
             </button>
@@ -330,7 +330,7 @@ export function TerminalImagePreviewModal({
             <button
               onClick={handleReset}
               title="自适应窗口 (快捷键 0)"
-              className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] sm:text-[11px] font-medium text-slate-400 hover:text-white hover:bg-slate-700/50 rounded transition-colors"
+              className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] sm:text-[11px] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] rounded transition-colors"
             >
               Fit
             </button>
@@ -338,7 +338,7 @@ export function TerminalImagePreviewModal({
             <button
               onClick={handleActualSize}
               title="1:1 实际尺寸 (快捷键 1)"
-              className="px-1.5 py-0.5 text-[10px] sm:text-[11px] font-medium text-slate-400 hover:text-white hover:bg-slate-700/50 rounded transition-colors"
+              className="px-1.5 py-0.5 text-[10px] sm:text-[11px] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] rounded transition-colors"
             >
               1:1
             </button>
@@ -346,7 +346,7 @@ export function TerminalImagePreviewModal({
             <button
               onClick={handleRotate}
               title="顺时针旋转 90° (快捷键 R)"
-              className="p-1 sm:px-1.5 sm:py-1 rounded text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors"
+              className="p-1 sm:px-1.5 sm:py-1 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] transition-colors"
             >
               <RotateCw className="w-3.5 h-3.5" />
             </button>
@@ -357,7 +357,7 @@ export function TerminalImagePreviewModal({
             <button
               onClick={() => setIsMaximized((prev) => !prev)}
               title={isMaximized ? '还原窗口' : '最大化全屏'}
-              className="p-1.5 rounded border border-[var(--border-subtle)] text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors"
+              className="p-1.5 rounded border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] transition-colors"
             >
               {isMaximized ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
             </button>
@@ -365,7 +365,7 @@ export function TerminalImagePreviewModal({
             <button
               onClick={() => onDownload(file)}
               title={t('files.download', '下载')}
-              className="flex items-center space-x-1 px-2 sm:px-2.5 py-1 rounded border border-[var(--border-subtle)] text-slate-300 hover:text-white text-xs bg-slate-800/40 hover:bg-slate-700/60 transition-colors"
+              className="flex items-center space-x-1 px-2 sm:px-2.5 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] transition-colors"
             >
               <Download className="w-3.5 h-3.5" />
               <span className="hidden md:inline">{t('files.download', '下载')}</span>
@@ -374,7 +374,7 @@ export function TerminalImagePreviewModal({
             <button
               onClick={onClose}
               title="关闭 (Esc)"
-              className="p-1.5 rounded hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 transition-colors ml-0.5"
+              className="p-1.5 rounded hover:bg-rose-500/20 text-[var(--text-secondary)] hover:text-rose-600 dark:hover:text-rose-300 transition-colors ml-0.5"
             >
               <X className="w-4 h-4" />
             </button>

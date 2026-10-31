@@ -98,4 +98,29 @@ describe('Enterprise Light & Dark Theme System Architecture', () => {
       expect(content).not.toMatch(/#(121316|18181b|0c1017|090d16|121214)/i);
     }
   });
+
+  test('FileManager, Image/PDF Preview Modals, and ProxyView use semantic surface/elevated tokens instead of hardcoded bg-slate-900/bg-zinc-900 modal shells', () => {
+    const fileManagerContent = fs.readFileSync(
+      path.resolve(__dirname, '../frontend/src/components/terminal/TerminalFileManagerView.tsx'),
+      'utf-8'
+    );
+    const imageModalContent = fs.readFileSync(
+      path.resolve(__dirname, '../frontend/src/components/terminal/TerminalImagePreviewModal.tsx'),
+      'utf-8'
+    );
+    const pdfModalContent = fs.readFileSync(
+      path.resolve(__dirname, '../frontend/src/components/terminal/TerminalPdfPreviewModal.tsx'),
+      'utf-8'
+    );
+    const proxyContent = fs.readFileSync(
+      path.resolve(__dirname, '../frontend/src/components/terminal/TerminalProxyView.tsx'),
+      'utf-8'
+    );
+
+    expect(fileManagerContent).toContain('var(--bg-surface)');
+    expect(imageModalContent).toContain('var(--bg-elevated)');
+    expect(pdfModalContent).toContain('var(--bg-elevated)');
+    expect(proxyContent).toContain('var(--bg-surface)');
+    expect(proxyContent).not.toContain('bg-slate-950');
+  });
 });

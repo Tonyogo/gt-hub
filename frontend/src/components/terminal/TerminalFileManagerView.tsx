@@ -737,7 +737,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
     if (['txt', 'log', 'conf', 'env'].includes(ext)) {
       return <FileText className="w-4 h-4 text-sky-400 shrink-0" />;
     }
-    return <File className="w-4 h-4 text-slate-400 shrink-0" />;
+    return <File className="w-4 h-4 text-[var(--text-muted)] shrink-0" />;
   };
 
   return (
@@ -777,7 +777,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
       {/* Empty State Guard */}
       {!activeHostId ? (
         <div className="flex-1 flex flex-col items-center justify-center p-6 text-center select-none bg-[var(--bg-canvas)]">
-          <div className="w-12 h-12 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center text-slate-400 mb-3">
+          <div className="w-12 h-12 rounded-xl bg-[var(--bg-surface-sub)] border border-[var(--border-subtle)] flex items-center justify-center text-[var(--text-muted)] mb-3">
             <Folder className="w-6 h-6" />
           </div>
           <p className="text-sm font-medium text-[var(--text-secondary)] font-sans">
@@ -807,7 +807,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
             <button
               onClick={() => loadFiles(parentPath)}
               title={t('files.parentDir', '返回上级')}
-              className="p-1 rounded-md hover:bg-[var(--bg-surface-hover)] text-slate-400 hover:text-[var(--text-primary)] transition-colors shrink-0"
+              className="p-1 rounded-md hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors shrink-0"
             >
               <ArrowUp className="w-4 h-4" />
             </button>
@@ -835,10 +835,10 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
             <div className="flex items-center flex-nowrap gap-1 overflow-x-auto py-0.5 no-scrollbar min-w-0">
               {breadcrumbs.map((crumb, idx) => (
                 <React.Fragment key={crumb.fullPath}>
-                  {idx > 0 && <ChevronRight className="w-3.5 h-3.5 text-slate-500 shrink-0" />}
+                  {idx > 0 && <ChevronRight className="w-3.5 h-3.5 text-[var(--text-muted)] shrink-0" />}
                   <button
                     onClick={() => loadFiles(crumb.fullPath)}
-                    className="hover:underline text-slate-300 hover:text-indigo-400 truncate max-w-[100px] sm:max-w-[140px] font-medium shrink-0"
+                    className="hover:underline text-[var(--text-primary)] hover:text-[var(--accent-primary)] truncate max-w-[100px] sm:max-w-[140px] font-medium shrink-0"
                     title={crumb.fullPath}
                   >
                     {crumb.name}
@@ -848,7 +848,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
               <button
                 onClick={() => setIsEditingPath(true)}
                 title="Edit path manually"
-                className="p-1 text-slate-400 hover:text-slate-200 shrink-0"
+                className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] shrink-0"
               >
                 <Edit2 className="w-3 h-3" />
               </button>
@@ -858,7 +858,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
           <button
             onClick={handleCopyPath}
             title={t('files.copyPath', '复制路径')}
-            className="p-1 rounded hover:bg-[var(--bg-surface-hover)] text-slate-400 hover:text-slate-200 transition-colors shrink-0 ml-1"
+            className="p-1 rounded hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors shrink-0 ml-1"
           >
             {copiedPath ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
           </button>
@@ -867,7 +867,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
         {/* Right: Search, Refresh, Upload, New Folder */}
         <div className="flex items-center space-x-1 sm:space-x-1.5 shrink-0">
           <div className="relative">
-            <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
             <input
               type="text"
               value={searchQuery}
@@ -881,7 +881,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
             onClick={() => loadFiles(currentPath)}
             disabled={loading}
             title={t('files.refresh', '刷新')}
-            className="p-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-sub)] hover:bg-[var(--bg-surface-hover)] text-slate-300 hover:text-white transition-colors shrink-0"
+            className="p-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-sub)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors shrink-0"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           </button>
@@ -893,7 +893,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
             className={`p-1.5 rounded-lg border transition-colors shrink-0 ${
               showHiddenFiles
                 ? 'border-indigo-500/40 bg-indigo-500/15 text-indigo-400 hover:bg-indigo-500/25'
-                : 'border-[var(--border-subtle)] bg-[var(--bg-surface-sub)] hover:bg-[var(--bg-surface-hover)] text-slate-400 hover:text-slate-200'
+                : 'border-[var(--border-subtle)] bg-[var(--bg-surface-sub)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             }`}
           >
             {showHiddenFiles ? (
@@ -906,7 +906,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
           <button
             onClick={() => setNewFolderOpen(true)}
             title={t('files.newFolder', '新建文件夹')}
-            className="flex items-center space-x-1 px-2 sm:px-2.5 py-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-sub)] hover:bg-[var(--bg-surface-hover)] text-xs text-slate-200 hover:text-white transition-colors shrink-0 whitespace-nowrap"
+            className="flex items-center space-x-1 px-2 sm:px-2.5 py-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-sub)] hover:bg-[var(--bg-surface-hover)] text-xs text-[var(--text-primary)] transition-colors shrink-0 whitespace-nowrap"
           >
             <FolderPlus className="w-3.5 h-3.5 text-amber-400 shrink-0" />
             <span className="hidden md:inline">{t('files.newFolder', '新建文件夹')}</span>
@@ -930,9 +930,9 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
 
       {/* Drag & Drop Visual Overlay */}
       {isDragging && (
-        <div className="absolute inset-0 z-50 bg-indigo-950/60 backdrop-blur-xs border-2 border-dashed border-indigo-400 flex flex-col items-center justify-center pointer-events-none rounded-xl">
-          <Upload className="w-12 h-12 text-indigo-300 animate-bounce mb-2" />
-          <p className="text-white text-base font-semibold">
+        <div className="absolute inset-0 z-50 bg-[var(--bg-surface)]/80 backdrop-blur-xs border-2 border-dashed border-[var(--accent-primary)] flex flex-col items-center justify-center pointer-events-none rounded-xl">
+          <Upload className="w-12 h-12 text-[var(--accent-primary)] animate-bounce mb-2" />
+          <p className="text-[var(--text-primary)] text-base font-semibold">
             {t('files.dropToUpload', '释放鼠标以上传文件到此目录')}
           </p>
         </div>
@@ -941,7 +941,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
       {/* Main File Table View */}
       <div className="ui-card flex-1 min-h-0 flex flex-col overflow-hidden border border-[var(--border-subtle)] rounded-xl relative">
         {loading && files.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-slate-400">
+          <div className="flex-1 flex flex-col items-center justify-center text-[var(--text-muted)]">
             <Loader2 className="w-8 h-8 animate-spin text-indigo-500 mb-2" />
             <span className="text-xs">{t('files.loading', '加载中...')}</span>
           </div>
@@ -959,7 +959,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
         ) : (
           <div className="flex-1 overflow-auto">
             <table className="w-full text-left text-xs border-collapse">
-              <thead className="sticky top-0 bg-[var(--bg-surface-sub)] border-b border-[var(--border-subtle)] text-slate-400 font-medium z-10">
+              <thead className="sticky top-0 bg-[var(--bg-surface-sub)] border-b border-[var(--border-subtle)] text-[var(--text-muted)] font-medium z-10">
                 <tr>
                   <th className="py-2.5 px-3">{t('files.name', '名称')}</th>
                   <th className="py-2.5 px-3 w-28 text-right hidden sm:table-cell">{t('files.size', '大小')}</th>
@@ -974,7 +974,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
                     onClick={() => loadFiles(parentPath)}
                     className="hover:bg-[var(--bg-surface-hover)] cursor-pointer transition-colors"
                   >
-                    <td className="py-2 px-3 flex items-center space-x-2 text-slate-400 font-medium">
+                    <td className="py-2 px-3 flex items-center space-x-2 text-[var(--text-secondary)] font-medium">
                       <Folder className="w-4 h-4 text-amber-500/80" />
                       <span>.. ({t('files.parentDir', '返回上级')})</span>
                     </td>
@@ -986,7 +986,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
 
                 {filteredFiles.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="py-12 text-center text-slate-500">
+                    <td colSpan={4} className="py-12 text-center text-[var(--text-muted)]">
                       {t('files.emptyDir', '当前目录下没有文件。')}
                     </td>
                   </tr>
@@ -1019,8 +1019,8 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
                               }
                             }}
                             className={`${
-                              isHidden ? 'text-slate-400' : 'text-slate-200'
-                            } hover:text-indigo-400 truncate text-left font-medium transition-colors`}
+                              isHidden ? 'text-[var(--text-muted)]' : 'text-[var(--text-primary)]'
+                            } hover:text-[var(--accent-primary)] truncate text-left font-medium transition-colors`}
                             title={item.name}
                           >
                             {item.name}
@@ -1028,11 +1028,11 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
                         </div>
                       </td>
 
-                      <td className="py-2 px-3 text-right text-slate-400 font-mono hidden sm:table-cell">
+                      <td className="py-2 px-3 text-right text-[var(--text-muted)] font-mono hidden sm:table-cell">
                         {item.isDirectory ? '-' : formatFileSize(item.size)}
                       </td>
 
-                      <td className="py-2 px-3 text-slate-400 font-mono hidden md:table-cell">
+                      <td className="py-2 px-3 text-[var(--text-muted)] font-mono hidden md:table-cell">
                         {formatDate(item.updatedAt)}
                       </td>
 
@@ -1043,14 +1043,14 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
                               <button
                                 onClick={() => handleOpenFile(item)}
                                 title={t('files.preview', '查看 / 编辑')}
-                                className="p-1 rounded hover:bg-slate-700/50 text-slate-400 hover:text-indigo-300"
+                                className="p-1 rounded hover:bg-[var(--bg-control-hover)] text-[var(--text-muted)] hover:text-[var(--accent-primary)]"
                               >
                                 <Eye className="w-3.5 h-3.5" />
                               </button>
                               <button
                                 onClick={() => handleDownload(item)}
                                 title={t('files.download', '下载')}
-                                className="p-1 rounded hover:bg-slate-700/50 text-slate-400 hover:text-emerald-300"
+                                className="p-1 rounded hover:bg-[var(--bg-control-hover)] text-[var(--text-muted)] hover:text-emerald-400"
                               >
                                 <Download className="w-3.5 h-3.5" />
                               </button>
@@ -1063,7 +1063,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
                               setRenameInput(item.name);
                             }}
                             title={t('files.rename', '重命名')}
-                            className="p-1 rounded hover:bg-slate-700/50 text-slate-400 hover:text-amber-300"
+                            className="p-1 rounded hover:bg-[var(--bg-control-hover)] text-[var(--text-muted)] hover:text-amber-400"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
@@ -1071,7 +1071,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
                           <button
                             onClick={() => setDeleteTarget(item)}
                             title={t('files.delete', '删除')}
-                            className="p-1 rounded hover:bg-slate-700/50 text-slate-400 hover:text-rose-400"
+                            className="p-1 rounded hover:bg-[var(--bg-control-hover)] text-[var(--text-muted)] hover:text-rose-400"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -1093,9 +1093,9 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
           <form
             onSubmit={handleCreateFolder}
-            className="ui-card w-full max-w-sm p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-2xl"
+            className="ui-card w-full max-w-sm p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] shadow-2xl"
           >
-            <h3 className="text-sm font-semibold mb-3 flex items-center space-x-2">
+            <h3 className="text-sm font-semibold mb-3 flex items-center space-x-2 text-[var(--text-primary)]">
               <FolderPlus className="w-4 h-4 text-amber-400" />
               <span>{t('files.createFolderTitle', '新建文件夹')}</span>
             </h3>
@@ -1114,7 +1114,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
                   setNewFolderOpen(false);
                   setNewFolderName('');
                 }}
-                className="px-3 py-1 rounded-lg border border-[var(--border-subtle)] text-xs text-slate-400 hover:text-white"
+                className="px-3 py-1 rounded-lg border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] transition-colors"
               >
                 {t('files.cancel', '取消')}
               </button>
@@ -1135,9 +1135,9 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
           <form
             onSubmit={handleRename}
-            className="ui-card w-full max-w-sm p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-2xl"
+            className="ui-card w-full max-w-sm p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] shadow-2xl"
           >
-            <h3 className="text-sm font-semibold mb-3 flex items-center space-x-2">
+            <h3 className="text-sm font-semibold mb-3 flex items-center space-x-2 text-[var(--text-primary)]">
               <Edit2 className="w-4 h-4 text-amber-400" />
               <span>{t('files.renameTitle', '重命名')}</span>
             </h3>
@@ -1156,7 +1156,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
                   setRenameTarget(null);
                   setRenameInput('');
                 }}
-                className="px-3 py-1 rounded-lg border border-[var(--border-subtle)] text-xs text-slate-400 hover:text-white"
+                className="px-3 py-1 rounded-lg border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] transition-colors"
               >
                 {t('files.cancel', '取消')}
               </button>
@@ -1175,12 +1175,12 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
       {/* Modal: Delete Confirmation */}
       {deleteTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="ui-card w-full max-w-sm p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-2xl">
+          <div className="ui-card w-full max-w-sm p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] shadow-2xl">
             <h3 className="text-sm font-semibold mb-2 text-rose-400 flex items-center space-x-2">
               <AlertTriangle className="w-4 h-4" />
               <span>{t('files.delete', '删除')}</span>
             </h3>
-            <p className="text-xs text-slate-300 mb-4">
+            <p className="text-xs text-[var(--text-secondary)] mb-4">
               {t('files.deleteConfirm', '确定要删除 "{name}" 吗？此操作不可逆！').replace('{name}', deleteTarget.name)}
             </p>
             <div className="flex justify-end space-x-2">
@@ -1188,7 +1188,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
                 type="button"
                 onClick={() => setDeleteTarget(null)}
                 disabled={deleting}
-                className="px-3 py-1 rounded-lg border border-[var(--border-subtle)] text-xs text-slate-400 hover:text-white"
+                className="px-3 py-1 rounded-lg border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] transition-colors"
               >
                 {t('files.cancel', '取消')}
               </button>
@@ -1209,15 +1209,15 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
       {/* Modal: Text/Code Editor */}
       {editorTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-2 sm:p-4">
-          <div className="ui-card w-full max-w-5xl h-[90vh] flex flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-2xl overflow-hidden">
+          <div className="ui-card w-full max-w-5xl h-[90vh] flex flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] shadow-2xl overflow-hidden">
             {/* Header */}
             <div className="p-3 border-b border-[var(--border-subtle)] flex items-center justify-between shrink-0 bg-[var(--bg-surface-sub)]">
               <div className="flex items-center space-x-2 min-w-0">
                 {renderItemIcon(editorTarget.file)}
-                <span className="font-semibold text-xs sm:text-sm text-slate-200 truncate" title={editorTarget.file.path}>
+                <span className="font-semibold text-xs sm:text-sm text-[var(--text-primary)] truncate" title={editorTarget.file.path}>
                   {editorTarget.file.name}
                 </span>
-                <span className="text-[10px] text-slate-400 font-mono px-1.5 py-0.5 rounded bg-black/30 hidden sm:inline">
+                <span className="text-[10px] text-[var(--text-muted)] font-mono px-1.5 py-0.5 rounded bg-[var(--bg-control)] hidden sm:inline">
                   {formatFileSize(editorTarget.file.size)}
                 </span>
                 {editorTarget.savedAlert && (
@@ -1237,7 +1237,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
                       className={`flex items-center space-x-1 px-2.5 py-1 rounded-md transition-colors ${
                         editorTarget.viewMode === 'preview'
                           ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'text-slate-400 hover:text-slate-200'
+                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                       }`}
                     >
                       <Eye className="w-3.5 h-3.5" />
@@ -1249,7 +1249,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
                       className={`flex items-center space-x-1 px-2.5 py-1 rounded-md transition-colors ${
                         editorTarget.viewMode === 'edit'
                           ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'text-slate-400 hover:text-slate-200'
+                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                       }`}
                     >
                       <Edit2 className="w-3.5 h-3.5" />
@@ -1261,7 +1261,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
                 <button
                   onClick={() => handleDownload(editorTarget.file)}
                   title={t('files.download', '下载')}
-                  className="flex items-center space-x-1 px-2 py-1 rounded border border-[var(--border-subtle)] text-slate-300 hover:text-white text-xs"
+                  className="flex items-center space-x-1 px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] text-xs transition-colors"
                 >
                   <Download className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">{t('files.download', '下载')}</span>
@@ -1284,7 +1284,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
 
                 <button
                   onClick={() => setEditorTarget(null)}
-                  className="p-1 rounded hover:bg-slate-700/50 text-slate-400 hover:text-white"
+                  className="p-1 rounded hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -1294,7 +1294,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
             {/* Editor Content Area */}
             <div className="flex-1 min-h-0 relative">
               {editorTarget.loading ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400">
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-[var(--text-muted)]">
                   <Loader2 className="w-8 h-8 animate-spin text-indigo-500 mb-2" />
                   <span className="text-xs">{t('files.loading', '加载中...')}</span>
                 </div>
@@ -1304,9 +1304,9 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
                   <span className="text-sm font-medium">{editorTarget.error}</span>
                 </div>
               ) : editorTarget.isBinary ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center text-slate-400">
-                  <File className="w-12 h-12 text-slate-500 mb-3" />
-                  <p className="text-xs sm:text-sm max-w-md mb-4 text-slate-300">
+                <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center text-[var(--text-muted)]">
+                  <File className="w-12 h-12 text-[var(--text-muted)] mb-3" />
+                  <p className="text-xs sm:text-sm max-w-md mb-4 text-[var(--text-secondary)]">
                     {t('files.unsupportedPreview', '此文件为二进制格式，暂不支持在线预览。您可以直接下载查看。')}
                   </p>
                   <button
@@ -1380,10 +1380,10 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
               key={toast.id}
               className={`pointer-events-auto flex items-center justify-between p-3.5 rounded-lg shadow-lg text-sm transition-all duration-200 ${
                 toast.type === 'error'
-                  ? 'bg-red-600 text-white dark:bg-red-700'
+                  ? 'bg-red-600 text-white'
                   : toast.type === 'success'
-                  ? 'bg-emerald-600 text-white dark:bg-emerald-700'
-                  : 'bg-zinc-800 text-white dark:bg-zinc-700'
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-subtle)]'
               }`}
             >
               <div className="flex items-center gap-2.5 flex-1 min-w-0">

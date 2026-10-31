@@ -43,7 +43,7 @@ describe('Terminal File Manager Hidden Files Support', () => {
   test('TerminalFileManagerView renders hidden files with opacity-75 and muted text for distinction', () => {
     expect(content).toContain("const isHidden = item.name.startsWith('.');");
     expect(content).toContain("isHidden ? 'opacity-75' : ''");
-    expect(content).toContain("isHidden ? 'text-slate-400' : 'text-slate-200'");
+    expect(content).toContain("isHidden ? 'text-[var(--text-muted)]' : 'text-[var(--text-primary)]'");
   });
 
   describe('Pure Filter Logic Simulation', () => {
