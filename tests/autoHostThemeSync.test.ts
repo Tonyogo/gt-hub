@@ -11,11 +11,25 @@ import {
 } from '../frontend/src/theme/ThemeContext';
 
 describe('Auto System & Embedded Host Theme Sync Engine', () => {
-  test('parseThemeToken normalizes dark, light, and system/auto tokens and rejects invalid input', () => {
+  test('parseThemeToken normalizes dark, light, system/auto, composite tokens, and DaisyUI/Zashboard theme names', () => {
     expect(parseThemeToken('dark')).toBe('dark');
     expect(parseThemeToken('NIGHT')).toBe('dark');
+    expect(parseThemeToken('dark-mode')).toBe('dark');
+    expect(parseThemeToken('is-dark')).toBe('dark');
+    expect(parseThemeToken('only dark')).toBe('dark');
+    expect(parseThemeToken('dark light')).toBe('dark');
+    expect(parseThemeToken('github-dark')).toBe('dark');
+    expect(parseThemeToken('dracula')).toBe('dark');
+    expect(parseThemeToken('sunset')).toBe('dark');
+    expect(parseThemeToken('dim')).toBe('dark');
+    expect(parseThemeToken('business')).toBe('dark');
     expect(parseThemeToken('light')).toBe('light');
     expect(parseThemeToken('day')).toBe('light');
+    expect(parseThemeToken('light-mode')).toBe('light');
+    expect(parseThemeToken('only light')).toBe('light');
+    expect(parseThemeToken('cupcake')).toBe('light');
+    expect(parseThemeToken('winter')).toBe('light');
+    expect(parseThemeToken('nord')).toBe('light');
     expect(parseThemeToken('auto')).toBe('system');
     expect(parseThemeToken('system')).toBe('system');
     expect(parseThemeToken('invalid')).toBeNull();
@@ -43,11 +57,23 @@ describe('Auto System & Embedded Host Theme Sync Engine', () => {
     expect(parseThemeFromMessage('random-string')).toBeNull();
   });
 
-  test('parseLuminanceTheme classifies dark/light backgrounds and ignores transparent rgba(0, 0, 0, 0)', () => {
+  test('parseLuminanceTheme classifies rgb, hex, oklch, oklab, hsl, and color(srgb) backgrounds and ignores transparent colors', () => {
     expect(parseLuminanceTheme('rgb(9, 13, 22)')).toBe('dark');
     expect(parseLuminanceTheme('rgb(255, 255, 255)')).toBe('light');
     expect(parseLuminanceTheme('#090d16')).toBe('dark');
     expect(parseLuminanceTheme('#f8fafc')).toBe('light');
+    expect(parseLuminanceTheme('oklch(0.21 0.034 264.665)')).toBe('dark');
+    expect(parseLuminanceTheme('oklch(0.15 0 none)')).toBe('dark');
+    expect(parseLuminanceTheme('oklch(21% 0.034 264.665)')).toBe('dark');
+    expect(parseLuminanceTheme('oklch(0.98 0.005 240)')).toBe('light');
+    expect(parseLuminanceTheme('oklch(98% 0.005 240)')).toBe('light');
+    expect(parseLuminanceTheme('oklch(0.21 0.034 264.665 / 0)')).toBeNull();
+    expect(parseLuminanceTheme('oklab(0.18 0.01 -0.02)')).toBe('dark');
+    expect(parseLuminanceTheme('hsl(222, 47%, 11%)')).toBe('dark');
+    expect(parseLuminanceTheme('hsla(210, 40%, 98%, 1)')).toBe('light');
+    expect(parseLuminanceTheme('hsla(222, 47%, 11%, 0)')).toBeNull();
+    expect(parseLuminanceTheme('color(srgb 0.04 0.05 0.09)')).toBe('dark');
+    expect(parseLuminanceTheme('color(display-p3 0.98 0.98 0.99)')).toBe('light');
     expect(parseLuminanceTheme('rgba(0, 0, 0, 0)')).toBeNull();
     expect(parseLuminanceTheme('rgba(15, 23, 42, 0.05)')).toBeNull();
     expect(parseLuminanceTheme('transparent')).toBeNull();
@@ -172,6 +198,143 @@ describe('Auto System & Embedded Host Theme Sync Engine', () => {
     expect(contextCode).toContain('MutationObserver');
     expect(contextCode).toContain('prefers-color-scheme: dark');
     expect(contextCode).toContain("addEventListener('message'");
+  });
+
+  test('detectParentDocumentTheme prioritizes explicit dark classes/attributes on body, #app, or frameElement ancestors over white html background', () => {
+    const htmlEl = {
+      classList: { contains: () => false },
+      getAttribute: () => null,
+      style: {},
+    };
+    const bodyEl = {
+      classList: { contains: (c: string) => c === 'dark' },
+      getAttribute: () => null,
+      style: {},
+    };
+    const winWithWhiteHtmlAndDarkBody = {
+      self: { id: 1 },
+      top: { id: 2 },
+      parent: {
+        document: {
+          documentElement: htmlEl,
+          body: bodyEl,
+          querySelector: () => null,
+        },
+        // Even though html reports white background, body has explicit .dark class
+        getComputedStyle: (el: any) =>
+          el === htmlEl
+            ? { backgroundColor: 'rgb(255, 255, 255)', colorScheme: 'normal' }
+            : { backgroundColor: 'rgb(9, 13, 22)', colorScheme: 'dark' },
+      },
+    };
+    expect(detectParentDocumentTheme(winWithWhiteHtmlAndDarkBody)).toBe('dark');
+
+    // Frame container has dark background (oklch) while html has default white background
+    const darkContainerEl = {
+      classList: { contains: () => false },
+      getAttribute: () => null,
+      style: {},
+      parentElement: null,
+    };
+    const winWithDarkFrameAncestor = {
+      self: { id: 1 },
+      top: { id: 2 },
+      frameElement: {
+        parentElement: darkContainerEl,
+      },
+      parent: {
+        document: {
+          documentElement: htmlEl,
+          body: {
+            classList: { contains: () => false },
+            getAttribute: () => null,
+            style: {},
+          },
+          querySelector: () => null,
+        },
+        getComputedStyle: (el: any) => {
+          if (el === darkContainerEl) {
+            return { backgroundColor: 'oklch(0.18 0.02 260)', colorScheme: '' };
+          }
+          return { backgroundColor: 'rgb(255, 255, 255)', colorScheme: '' };
+        },
+      },
+    };
+    expect(detectParentDocumentTheme(winWithDarkFrameAncestor)).toBe('dark');
+
+    // Same-origin parent localStorage has dark theme token
+    const winWithParentLocalStorage = {
+      self: { id: 1 },
+      top: { id: 2 },
+      parent: {
+        localStorage: {
+          getItem: (key: string) => (key === 'vueuse-color-scheme' ? 'dark' : null),
+        },
+        document: {
+          documentElement: htmlEl,
+          body: null,
+        },
+        getComputedStyle: () => ({ backgroundColor: 'rgb(255, 255, 255)', colorScheme: '' }),
+      },
+    };
+    expect(detectParentDocumentTheme(winWithParentLocalStorage)).toBe('dark');
+
+    // Frame container has inherited computedStyle.colorScheme='light', while html/body has data-darkmode="true"
+    const innerWrapperEl = {
+      classList: { contains: () => false },
+      getAttribute: () => null,
+      style: {},
+      parentElement: null,
+    };
+    const darkHtmlEl = {
+      classList: { contains: () => false },
+      getAttribute: (name: string) => (name === 'data-darkmode' ? 'true' : null),
+      style: {},
+    };
+    const winWithInheritedLightColorSchemeAndDarkHtml = {
+      self: { id: 1 },
+      top: { id: 2 },
+      frameElement: {
+        parentElement: innerWrapperEl,
+      },
+      parent: {
+        document: {
+          documentElement: darkHtmlEl,
+          body: null,
+          querySelector: () => null,
+        },
+        getComputedStyle: () => ({ backgroundColor: 'rgb(255, 255, 255)', colorScheme: 'light' }),
+      },
+    };
+    expect(detectParentDocumentTheme(winWithInheritedLightColorSchemeAndDarkHtml)).toBe('dark');
+  });
+
+  test('getInitialThemeMode ignores legacy gemini_proxy_theme cache so mobile devices are not locked to light mode', () => {
+    const legacyLightStorage = {
+      getItem: (key: string) => (key === 'gemini_proxy_theme' ? 'light' : null),
+    };
+    const standaloneWin = {
+      self: { id: 1 },
+      top: undefined as any,
+      location: { search: '', hash: '' },
+    };
+    standaloneWin.top = standaloneWin.self;
+    expect(getInitialThemeMode(standaloneWin, legacyLightStorage)).toBe('system');
+  });
+
+  test('index.html and index.css declare light dark color-scheme for mobile WebKit/WebView dark mode inheritance', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const indexHtml = fs.readFileSync(
+      path.resolve(__dirname, '../frontend/index.html'),
+      'utf-8'
+    );
+    const indexCss = fs.readFileSync(
+      path.resolve(__dirname, '../frontend/src/index.css'),
+      'utf-8'
+    );
+    expect(indexHtml).toMatch(/<meta\s+name="color-scheme"\s+content="light dark"\s*\/?>/i);
+    expect(indexCss).toContain('color-scheme: light dark;');
   });
 
   test('LoginView and UnifiedTerminalView wire toggleTheme and keep Sun/Moon icons intact', () => {

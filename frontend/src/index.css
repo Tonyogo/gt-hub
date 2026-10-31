@@ -24,6 +24,10 @@
     --code-text: #0F172A;
     --scrollbar-thumb: rgba(15, 23, 42, 0.18);
     --scrollbar-thumb-hover: rgba(15, 23, 42, 0.32);
+    color-scheme: light dark;
+  }
+
+  :root[data-theme="light"] {
     color-scheme: light;
   }
 
