@@ -70,4 +70,15 @@ describe('Enterprise Light & Dark Theme System Architecture', () => {
     expect(mdContent).toContain('var(--code-bg)');
     expect(mdContent).not.toContain('bg-black/20');
   });
+
+  test('WebTerminalView defines calibrated DARK_TERMINAL_THEME (#090D16) and LIGHT_TERMINAL_THEME (#FFFFFF) and UnifiedTerminalView removes hardcoded #18181b menu', () => {
+    const webTermContent = fs.readFileSync(path.resolve(__dirname, '../frontend/src/components/WebTerminalView.tsx'), 'utf-8');
+    const unifiedContent = fs.readFileSync(path.resolve(__dirname, '../frontend/src/components/UnifiedTerminalView.tsx'), 'utf-8');
+
+    expect(webTermContent).toContain("background: '#090D16'");
+    expect(webTermContent).toContain("background: '#FFFFFF'");
+    expect(webTermContent).not.toContain('bg-[#160E12]');
+    expect(unifiedContent).not.toContain('bg-[#18181b]');
+    expect(unifiedContent).not.toContain('border-[#27272a]');
+  });
 });

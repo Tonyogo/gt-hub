@@ -32,7 +32,7 @@ export const TerminalMagnifierBubble: React.FC<TerminalMagnifierBubbleProps> = (
       )}
 
       {/* Magnifier Bubble Body */}
-      <div className="px-2.5 py-1 rounded-xl bg-slate-900/95 dark:bg-slate-950/95 border border-indigo-500/40 shadow-2xl backdrop-blur-xl flex items-center font-mono text-xs sm:text-sm font-semibold tracking-wide whitespace-pre text-slate-400 ring-1 ring-white/10">
+      <div className="px-2.5 py-1 rounded-xl bg-[var(--bg-elevated)]/95 border border-[var(--border-default)] shadow-2xl backdrop-blur-xl flex items-center font-mono text-xs sm:text-sm font-semibold tracking-wide whitespace-pre text-[var(--text-secondary)] ring-1 ring-[var(--border-subtle)]">
         <span>{textBefore}</span>
         <span className="bg-indigo-600 text-white px-1 py-0.5 rounded shadow-sm scale-110 mx-0.5">
           {focusChar === ' ' ? '␣' : focusChar}
