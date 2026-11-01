@@ -90,9 +90,21 @@ export default function UnifiedTerminalView({
   const proxyRef = useRef<TerminalProxyHandle>(null);
   const [serverTimezone, setServerTimezone] = useState<string>('');
 
-  const [isSplitMode, setIsSplitMode] = useState<boolean>(() => {
-    return localStorage.getItem('terminal_split_enabled') === 'true';
+  const [splitHostsMap, setSplitHostsMap] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem('terminal_split_hosts');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          return parsed as Record<string, boolean>;
+        }
+      }
+    } catch {
+      // Silently ignore corrupt JSON
+    }
+    return {};
   });
+  const isSplitMode = Boolean(activeHostId && splitHostsMap[activeHostId]);
   const [splitRatio, setSplitRatio] = useState<number>(() => {
     const saved = localStorage.getItem('terminal_split_ratio');
     if (!saved) return 50;
@@ -291,7 +303,26 @@ export default function UnifiedTerminalView({
 
   const handleHostChange = useCallback((newHostId: string) => {
     setActiveHostId(newHostId);
+    setActivePane('main');
     localStorage.setItem('terminal_active_host', newHostId);
+  }, []);
+
+  const updateHostSplitMode = useCallback((hostId: string, enabled: boolean) => {
+    if (!hostId) return;
+    setSplitHostsMap((prev) => {
+      const next = { ...prev };
+      if (enabled) {
+        next[hostId] = true;
+      } else {
+        delete next[hostId];
+      }
+      try {
+        localStorage.setItem('terminal_split_hosts', JSON.stringify(next));
+      } catch {
+        // Silently ignore storage errors
+      }
+      return next;
+    });
   }, []);
 
   const getActiveTerminalRef = useCallback((): WebTerminalHandle | null => {
@@ -309,28 +340,29 @@ export default function UnifiedTerminalView({
   }, [isSplitMode]);
 
   const openSplitPane = useCallback(() => {
-    setIsSplitMode(true);
-    localStorage.setItem('terminal_split_enabled', 'true');
+    if (!activeHostId) return;
+    updateHostSplitMode(activeHostId, true);
     setActivePane('split');
     setTimeout(() => {
       terminalRef.current?.fit(true);
       splitTerminalRef.current?.fit(true);
       splitTerminalRef.current?.focus();
     }, 100);
-  }, []);
+  }, [activeHostId, updateHostSplitMode]);
 
   const closeSplitPane = useCallback((notifyBackend: boolean = true) => {
     if (notifyBackend) {
       splitTerminalRef.current?.closePaneSession();
     }
-    setIsSplitMode(false);
-    localStorage.setItem('terminal_split_enabled', 'false');
+    if (activeHostId) {
+      updateHostSplitMode(activeHostId, false);
+    }
     setActivePane('main');
     setTimeout(() => {
       terminalRef.current?.fit(true);
       terminalRef.current?.focus();
     }, 100);
-  }, []);
+  }, [activeHostId, updateHostSplitMode]);
 
   const handleSplitterMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();

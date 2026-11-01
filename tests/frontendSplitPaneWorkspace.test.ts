@@ -48,4 +48,11 @@ describe('UnifiedTerminalView Split-Pane Workspace', () => {
     expect(content).toContain('ArrowLeft');
     expect(content).toContain('ArrowRight');
   });
+
+  it('isolates split mode state per activeHostId using terminal_split_hosts map and resets activePane on host switch', () => {
+    expect(content).toContain('terminal_split_hosts');
+    expect(content).toContain('splitHostsMap');
+    expect(content).toMatch(/const\s+isSplitMode\s*=\s*Boolean\(\s*activeHostId\s*&&\s*splitHostsMap\[activeHostId\]\s*\)/);
+    expect(content).toContain('updateHostSplitMode');
+  });
 });
