@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from '../../i18n/LanguageContext';
 import { apiFetch, getStoredAdminKey } from '../../utils/apiClient';
+import { isCurlCommandText, parseCurlCommand } from '../../utils/curlParser';
 import { TerminalEmptyState } from './components/TerminalEmptyState';
 
 export interface ListeningPortInfo {
@@ -71,6 +72,9 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
     const [isLoadingPorts, setIsLoadingPorts] = useState<boolean>(false);
     const [targetHost, setTargetHost] = useState<string>('127.0.0.1');
     const [port, setPort] = useState<string>('8000');
+    const [isPortsExpanded, setIsPortsExpanded] = useState<boolean>(false);
+    const [isPortsOverflowing, setIsPortsOverflowing] = useState<boolean>(false);
+    const portsContainerRef = useRef<HTMLDivElement>(null);
 
     // Speedtest State
     const [speedtestSizeMb, setSpeedtestSizeMb] = useState<number>(1);
@@ -124,6 +128,51 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
       setToastMessage({ text, type });
       setTimeout(() => setToastMessage(null), 2600);
     }, []);
+
+    // cURL Import State
+    const [showCurlImport, setShowCurlImport] = useState<boolean>(false);
+    const [curlInputText, setCurlInputText] = useState<string>('');
+
+    const applyCurlCommand = useCallback(
+      (rawText: string): boolean => {
+        const parsed = parseCurlCommand(rawText);
+        if (!parsed) {
+          showToast(t('proxy.curlParseError', '无法解析 cURL 命令，请检查格式'), 'error');
+          return false;
+        }
+
+        const VALID_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
+        const upperMethod = parsed.method ? parsed.method.toUpperCase() : 'GET';
+        const normalizedMethod = VALID_METHODS.includes(upperMethod) ? upperMethod : 'GET';
+        setMethod(normalizedMethod);
+
+        if (parsed.url) {
+          setRequestUrl(parsed.url);
+        }
+        setInsecure(Boolean(parsed.insecure));
+
+        const headerLines = Object.entries(parsed.headers)
+          .map(([k, v]) => `${k}: ${v}`)
+          .join('\n');
+        setCustomHeaders(headerLines);
+        setRequestBody(parsed.body || '');
+
+        if (
+          Object.keys(parsed.headers).length > 0 ||
+          Boolean(parsed.body) ||
+          parsed.insecure ||
+          (normalizedMethod !== 'GET' && normalizedMethod !== 'HEAD')
+        ) {
+          setShowAdvancedRequest(true);
+        }
+
+        setShowCurlImport(false);
+        setCurlInputText('');
+        showToast(t('proxy.curlImported', '已从 cURL 导入请求配置'), 'success');
+        return true;
+      },
+      [showToast, t]
+    );
 
     const getHeaders = useCallback(() => {
       const headers: Record<string, string> = {
@@ -195,6 +244,31 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
         fetchListeningPorts(false);
       }
     }, [isActive, activeHostId, fetchListeningPorts]);
+
+    useEffect(() => {
+      setIsPortsExpanded(false);
+    }, [activeHostId]);
+
+    useEffect(() => {
+      const el = portsContainerRef.current;
+      if (!el) return;
+
+      const checkOverflow = () => {
+        if (!isPortsExpanded) {
+          setIsPortsOverflowing(el.scrollHeight > el.clientHeight + 4);
+        }
+      };
+
+      checkOverflow();
+
+      if (typeof ResizeObserver !== 'undefined') {
+        const observer = new ResizeObserver(() => {
+          checkOverflow();
+        });
+        observer.observe(el);
+        return () => observer.disconnect();
+      }
+    }, [listeningPorts, isPortsExpanded]);
 
     const buildForwardCmd = (customPort?: number, customHost?: string) => {
       const p = customPort ?? 8000;
@@ -597,6 +671,29 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
               >
                 <RefreshCw className={`w-3 h-3 ${isLoadingPorts ? 'animate-spin text-indigo-500' : ''}`} />
               </button>
+              {listeningPorts.length > 0 && (isPortsOverflowing || isPortsExpanded) && (
+                <button
+                  type="button"
+                  data-testid="proxy-ports-expand-btn"
+                  onClick={() => setIsPortsExpanded((prev) => !prev)}
+                  className="flex items-center space-x-1 px-1.5 py-0.5 rounded text-[11px] text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 transition-colors ml-1 cursor-pointer shrink-0"
+                  title={isPortsExpanded ? t('proxy.collapsePorts', '收起') : t('proxy.expandPorts', '展开全部')}
+                >
+                  {isPortsExpanded ? (
+                    <>
+                      <ChevronUp className="w-3 h-3" />
+                      <span>{t('proxy.collapsePorts', '收起')}</span>
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="w-3 h-3" />
+                      <span>
+                        {t('proxy.expandPorts', '展开全部')} ({listeningPorts.length})
+                      </span>
+                    </>
+                  )}
+                </button>
+              )}
             </div>
 
             {/* Quick CLI Copy Buttons */}
@@ -639,7 +736,12 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
                 : t('proxy.noListeningPorts', '未在此节点上发现监听端口')}
             </div>
           ) : (
-            <div className="flex items-center gap-1.5 overflow-x-auto sm:flex-wrap pb-0.5 no-scrollbar">
+            <div
+              ref={portsContainerRef}
+              className={`flex items-center flex-wrap gap-1.5 transition-all duration-150 ${
+                isPortsExpanded ? 'max-h-40 overflow-y-auto pr-1' : 'max-h-[30px] overflow-hidden'
+              }`}
+            >
               {listeningPorts.map((p) => {
                 const badgeKey = `port-${p.port}`;
                 const isCopied = copiedCli === badgeKey;
@@ -964,15 +1066,76 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
                   <Zap className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                   <span>{t('proxy.requestMode', 'HTTP 请求调试器 (由 Agent 节点发出)')}</span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setShowAdvancedRequest((v) => !v)}
-                  className="flex items-center space-x-1 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
-                >
-                  <span>{isZh ? 'Headers / Body / 证书' : 'Headers / Body / TLS'}</span>
-                  {showAdvancedRequest ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                </button>
+                <div className="flex items-center space-x-2">
+                  <button
+                    type="button"
+                    data-testid="proxy-import-curl-btn"
+                    onClick={() => setShowCurlImport((v) => !v)}
+                    className="flex items-center space-x-1 text-[11px] text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors cursor-pointer"
+                    title={t('proxy.importCurl', '导入 cURL')}
+                  >
+                    <Terminal className="w-3.5 h-3.5" />
+                    <span>{t('proxy.importCurl', '导入 cURL')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowAdvancedRequest((v) => !v)}
+                    className="flex items-center space-x-1 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
+                  >
+                    <span>{isZh ? 'Headers / Body / 证书' : 'Headers / Body / TLS'}</span>
+                    {showAdvancedRequest ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
               </div>
+
+              {/* Collapsible cURL Import Panel */}
+              {showCurlImport && (
+                <div className="p-2.5 rounded-lg bg-[var(--bg-surface-sub)] border border-[var(--border-subtle)] space-y-2 animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium text-[var(--text-primary)] flex items-center space-x-1">
+                      <Terminal className="w-3.5 h-3.5 text-indigo-500" />
+                      <span>{t('proxy.importCurl', '导入 cURL')}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowCurlImport(false);
+                        setCurlInputText('');
+                      }}
+                      className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-pointer"
+                    >
+                      {isZh ? '取消' : 'Cancel'}
+                    </button>
+                  </div>
+                  <textarea
+                    data-testid="proxy-curl-input"
+                    value={curlInputText}
+                    onChange={(e) => setCurlInputText(e.target.value)}
+                    onPaste={(e) => {
+                      const pasted = e.clipboardData?.getData('text') || '';
+                      if (isCurlCommandText(pasted)) {
+                        e.preventDefault();
+                        setCurlInputText(pasted);
+                        applyCurlCommand(pasted);
+                      }
+                    }}
+                    placeholder={t('proxy.curlPlaceholder', '粘贴复制的 curl 命令 (支持浏览器 DevTools / Postman 多行格式)...')}
+                    rows={3}
+                    className="w-full bg-[var(--bg-surface)] border border-[var(--border-default)] rounded-lg p-2 text-xs text-[var(--text-primary)] font-mono focus:outline-none focus:border-indigo-500 resize-none"
+                  />
+                  <div className="flex items-center justify-end space-x-2">
+                    <button
+                      type="button"
+                      data-testid="proxy-curl-apply-btn"
+                      disabled={!curlInputText.trim()}
+                      onClick={() => applyCurlCommand(curlInputText)}
+                      className="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-all disabled:opacity-50 cursor-pointer"
+                    >
+                      {t('proxy.parseCurlBtn', '解析并填入')}
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Method + URL + Send (Responsive stack on ultra-narrow screens, row on sm+) */}
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
@@ -1001,6 +1164,13 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
                     data-testid="proxy-request-url-input"
                     value={requestUrl}
                     onChange={(e) => setRequestUrl(e.target.value)}
+                    onPaste={(e) => {
+                      const pasted = e.clipboardData?.getData('text') || '';
+                      if (isCurlCommandText(pasted)) {
+                        e.preventDefault();
+                        applyCurlCommand(pasted);
+                      }
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         handleSendRequest();

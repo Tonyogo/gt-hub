@@ -83,4 +83,22 @@ describe('Frontend TerminalProxyView & UnifiedTerminalView Integration', () => {
     expect(enContent).toContain('speedtestMode:');
     expect(zhContent).toContain('speedtestMode:');
   });
+
+  it('verifies TerminalProxyView.tsx implements single-row port folding and cURL import in HTTP debugger', () => {
+    const content = fs.readFileSync(proxyViewPath, 'utf-8');
+
+    // Single-row port folding
+    expect(content).toContain('isPortsExpanded');
+    expect(content).toContain('isPortsOverflowing');
+    expect(content).toContain('portsContainerRef');
+    expect(content).toContain('data-testid="proxy-ports-expand-btn"');
+    expect(content).toContain('max-h-[30px]');
+
+    // cURL paste & import in HTTP Request Debugger
+    expect(content).toContain('parseCurlCommand');
+    expect(content).toContain('isCurlCommandText');
+    expect(content).toContain('data-testid="proxy-import-curl-btn"');
+    expect(content).toContain('data-testid="proxy-curl-input"');
+    expect(content).toContain('data-testid="proxy-curl-apply-btn"');
+  });
 });
