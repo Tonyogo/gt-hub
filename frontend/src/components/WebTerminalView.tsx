@@ -1045,6 +1045,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       helperTextarea.setAttribute('enterkeyhint', 'done');
 
       handleFocus = () => {
+        onFocusPaneRef.current?.();
         setIsKeyboardOpen(true);
         setTimeout(() => updateViewport(), 50);
       };
@@ -2225,6 +2226,13 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     }
   }, [resolvedTheme]);
 
+  // Dynamically toggle xterm cursor blinking based on active pane focus
+  useEffect(() => {
+    if (xtermRef.current) {
+      xtermRef.current.options.cursorBlink = Boolean(isFocusedPane);
+    }
+  }, [isFocusedPane]);
+
   // Sync touch-action & user-select styling during selection mode to prevent browser gesture cancellation
   useEffect(() => {
     const container = terminalContainerRef.current;
@@ -2946,13 +2954,14 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         {/* xterm.js Canvas Container */}
       <div
         onClick={() => {
+          onFocusPaneRef.current?.();
           if (!isSelectModeRef.current && !isMobileRef.current) {
             xtermRef.current?.focus();
           }
         }}
         className={`flex-1 py-1.5 sm:py-2 pl-[max(0.5rem,env(safe-area-inset-left,0px))] pr-[max(0.5rem,env(safe-area-inset-right,0px))] bg-[var(--bg-canvas)] overflow-hidden min-h-0 relative ${
           isSelectMode ? 'cursor-crosshair select-none' : 'cursor-text'
-        } ${isRefitting ? 'opacity-40 select-none pointer-events-none' : 'opacity-100'} transition-opacity duration-150`}
+        } ${isRefitting ? 'opacity-40 select-none pointer-events-none' : isFocusedPane ? 'opacity-100' : 'opacity-75 hover:opacity-90'} transition-opacity duration-150`}
         style={{
           touchAction: isSelectMode || isMobile ? 'none' : 'pan-y',
           userSelect: isSelectMode ? 'none' : undefined,

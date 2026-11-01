@@ -31,7 +31,15 @@ describe('WebTerminalView & useTerminalWebSocket Split-Pane Support', () => {
     const en = fs.readFileSync(enPath, 'utf-8');
     expect(zh).toContain('splitPane:');
     expect(zh).toContain('closeSplitPane:');
+    expect(zh).toContain('activePaneBadge:');
     expect(en).toContain('splitPane:');
     expect(en).toContain('closeSplitPane:');
+    expect(en).toContain('activePaneBadge:');
+  });
+
+  it('synchronizes cursorBlink and inactive pane dimming with isFocusedPane in WebTerminalView', () => {
+    const content = fs.readFileSync(webTerminalPath, 'utf-8');
+    expect(content).toContain('xtermRef.current.options.cursorBlink = Boolean(isFocusedPane)');
+    expect(content).toContain('opacity-75');
   });
 });

@@ -27,6 +27,7 @@ export const zh: Translations = {
     closeSplitPane: "关闭分屏",
     paneMain: "终端 #1",
     paneSplit: "终端 #2",
+    activePaneBadge: "当前活动",
     connected: "已连接",
     disconnected: "已断开",
     connecting: "连接中...",

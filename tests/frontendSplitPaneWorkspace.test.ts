@@ -55,4 +55,13 @@ describe('UnifiedTerminalView Split-Pane Workspace', () => {
     expect(content).toMatch(/const\s+isSplitMode\s*=\s*Boolean\(\s*activeHostId\s*&&\s*splitHostsMap\[activeHostId\]\s*\)/);
     expect(content).toContain('updateHostSplitMode');
   });
+
+  it('renders high-contrast active pane indicators with border-t-2 accent bar, ring-inset, and active-pane-badge', () => {
+    expect(content).toContain('border-t-2');
+    expect(content).toContain('border-t-indigo-500');
+    expect(content).toContain('border-t-transparent');
+    expect(content).toContain('ring-inset');
+    expect(content).toContain('data-testid="active-pane-badge"');
+    expect(content).toContain('webTerminal.activePaneBadge');
+  });
 });

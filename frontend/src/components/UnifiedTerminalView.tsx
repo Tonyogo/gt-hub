@@ -1022,22 +1022,47 @@ export default function UnifiedTerminalView({
           {/* Main Terminal Pane */}
           <div
             style={isSplitMode ? { width: `${splitRatio}%` } : undefined}
-            className={`h-full flex flex-col min-w-0 min-h-0 relative ${
+            className={`h-full flex flex-col min-w-0 min-h-0 relative transition-colors duration-150 ${
               isSplitMode
                 ? activePane === 'main'
-                  ? 'border-r border-indigo-500/40 ring-1 ring-indigo-500/20'
+                  ? 'border-r border-indigo-500/40 ring-1 ring-inset ring-indigo-500/50'
                   : 'border-r border-[var(--border-subtle)]'
                 : 'w-full flex-1'
             }`}
           >
             {isSplitMode && (
-              <div className="flex items-center justify-between px-2 py-0.5 bg-[var(--bg-surface-sub)] border-b border-[var(--border-subtle)] text-[10px] select-none text-[var(--text-secondary)] shrink-0">
-                <div className="flex items-center space-x-1.5">
-                  <span className={`w-1.5 h-1.5 rounded-full ${activePane === 'main' ? 'bg-indigo-400 ring-2 ring-indigo-400/30' : 'bg-slate-600'}`} />
-                  <span className={activePane === 'main' ? 'font-semibold text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}>
+              <div
+                onClick={() => {
+                  setActivePane('main');
+                  terminalRef.current?.focus();
+                }}
+                className={`flex items-center justify-between px-2.5 py-1 border-t-2 border-b text-[11px] select-none shrink-0 cursor-pointer transition-colors duration-150 ${
+                  activePane === 'main'
+                    ? 'border-t-indigo-500 bg-indigo-500/10 dark:bg-indigo-500/15 border-b-indigo-500/30 text-[var(--text-primary)]'
+                    : 'border-t-transparent bg-[var(--bg-surface-sub)] border-b-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                }`}
+              >
+                <div className="flex items-center space-x-2">
+                  <span
+                    className={`w-2 h-2 rounded-full transition-all ${
+                      activePane === 'main'
+                        ? 'bg-emerald-400 ring-2 ring-emerald-400/30 shadow-xs'
+                        : 'bg-slate-500/50'
+                    }`}
+                  />
+                  <span className={activePane === 'main' ? 'font-semibold text-indigo-600 dark:text-indigo-300' : 'text-[var(--text-muted)]'}>
                     {t('webTerminal.paneMain', '终端 #1')}
                   </span>
+                  {activePane === 'main' && (
+                    <span
+                      data-testid="active-pane-badge"
+                      className="px-1.5 py-0.2 rounded-full text-[9px] font-semibold bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 border border-indigo-500/30 leading-tight"
+                    >
+                      {t('webTerminal.activePaneBadge', '当前活动')}
+                    </span>
+                  )}
                 </div>
+                <span className="hidden sm:inline text-[10px] font-mono text-[var(--text-muted)]">Alt+←</span>
               </div>
             )}
             <div className="flex-1 min-h-0 min-w-0 h-full relative">
@@ -1086,28 +1111,58 @@ export default function UnifiedTerminalView({
           {isSplitMode && (
             <div
               style={{ width: `${100 - splitRatio}%` }}
-              className={`h-full flex flex-col min-w-0 min-h-0 relative ${
+              className={`h-full flex flex-col min-w-0 min-h-0 relative transition-colors duration-150 ${
                 activePane === 'split'
-                  ? 'ring-1 ring-indigo-500/20'
+                  ? 'ring-1 ring-inset ring-indigo-500/50'
                   : ''
               }`}
             >
-              <div className="flex items-center justify-between px-2 py-0.5 bg-[var(--bg-surface-sub)] border-b border-[var(--border-subtle)] text-[10px] select-none text-[var(--text-secondary)] shrink-0">
-                <div className="flex items-center space-x-1.5">
-                  <span className={`w-1.5 h-1.5 rounded-full ${activePane === 'split' ? 'bg-indigo-400 ring-2 ring-indigo-400/30' : 'bg-slate-600'}`} />
-                  <span className={activePane === 'split' ? 'font-semibold text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}>
+              <div
+                onClick={() => {
+                  setActivePane('split');
+                  splitTerminalRef.current?.focus();
+                }}
+                className={`flex items-center justify-between px-2.5 py-1 border-t-2 border-b text-[11px] select-none shrink-0 cursor-pointer transition-colors duration-150 ${
+                  activePane === 'split'
+                    ? 'border-t-indigo-500 bg-indigo-500/10 dark:bg-indigo-500/15 border-b-indigo-500/30 text-[var(--text-primary)]'
+                    : 'border-t-transparent bg-[var(--bg-surface-sub)] border-b-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                }`}
+              >
+                <div className="flex items-center space-x-2">
+                  <span
+                    className={`w-2 h-2 rounded-full transition-all ${
+                      activePane === 'split'
+                        ? 'bg-emerald-400 ring-2 ring-emerald-400/30 shadow-xs'
+                        : 'bg-slate-500/50'
+                    }`}
+                  />
+                  <span className={activePane === 'split' ? 'font-semibold text-indigo-600 dark:text-indigo-300' : 'text-[var(--text-muted)]'}>
                     {t('webTerminal.paneSplit', '终端 #2')}
                   </span>
+                  {activePane === 'split' && (
+                    <span
+                      data-testid="active-pane-badge"
+                      className="px-1.5 py-0.2 rounded-full text-[9px] font-semibold bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 border border-indigo-500/30 leading-tight"
+                    >
+                      {t('webTerminal.activePaneBadge', '当前活动')}
+                    </span>
+                  )}
                 </div>
-                <button
-                  type="button"
-                  data-testid="close-split-pane-btn"
-                  onClick={() => closeSplitPane(true)}
-                  className="p-0.5 rounded hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
-                  title={t('webTerminal.closeSplitPane', '关闭分屏')}
-                >
-                  <X className="w-3 h-3" />
-                </button>
+                <div className="flex items-center space-x-2">
+                  <span className="hidden sm:inline text-[10px] font-mono text-[var(--text-muted)]">Alt+→</span>
+                  <button
+                    type="button"
+                    data-testid="close-split-pane-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      closeSplitPane(true);
+                    }}
+                    className="p-0.5 rounded hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                    title={t('webTerminal.closeSplitPane', '关闭分屏')}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
               </div>
               <div className="flex-1 min-h-0 min-w-0 h-full relative">
                 <WebTerminalView

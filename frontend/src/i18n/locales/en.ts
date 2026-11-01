@@ -25,6 +25,7 @@ export const en = {
     closeSplitPane: "Close Split",
     paneMain: "Terminal #1",
     paneSplit: "Terminal #2",
+    activePaneBadge: "Active",
     connected: "Connected",
     disconnected: "Disconnected",
     connecting: "Connecting...",
