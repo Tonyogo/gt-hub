@@ -14,4 +14,8 @@ describe('Terminal Mobile Direct Fullscreen Routing & Logic', () => {
     expect(unifiedContent).toContain('data-testid="fullscreen-toggle-btn"');
     expect(unifiedContent).toContain('handleFullscreenToggle');
   });
+
+  it('UnifiedTerminalView renders mobile fullscreen inside mobile more menu', () => {
+    expect(unifiedContent).toContain('data-testid="mobile-fullscreen-btn"');
+  });
 });

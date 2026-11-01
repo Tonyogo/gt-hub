@@ -731,6 +731,11 @@ export default function UnifiedTerminalView({
               <button
                 type="button"
                 data-testid="split-terminal-btn"
+                className={`hidden sm:inline-flex p-1 sm:p-1.5 rounded-lg border transition-all ${
+                  isSplitMode
+                    ? 'bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 border-indigo-500/30'
+                    : 'bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)]'
+                }`}
                 onClick={() => {
                   if (isSplitMode) {
                     closeSplitPane(true);
@@ -738,11 +743,6 @@ export default function UnifiedTerminalView({
                     openSplitPane();
                   }
                 }}
-                className={`p-1 sm:p-1.5 rounded-lg border transition-all ${
-                  isSplitMode
-                    ? 'bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 border-indigo-500/30'
-                    : 'bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)]'
-                }`}
                 title={isSplitMode ? t('webTerminal.closeSplitPane', '关闭分屏') : t('webTerminal.splitPane', '左右分屏')}
               >
                 <Columns2 className="w-3.5 h-3.5" />
@@ -771,7 +771,7 @@ export default function UnifiedTerminalView({
             <button
               type="button"
               onClick={() => fileManagerRef.current?.refresh()}
-              className="p-1 sm:p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all"
+              className="hidden sm:inline-flex p-1 sm:p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all"
               title={t('files.refresh', '刷新')}
             >
               <RefreshCw className="w-3.5 h-3.5" />
@@ -782,7 +782,7 @@ export default function UnifiedTerminalView({
             <button
               type="button"
               onClick={() => cronRef.current?.refresh()}
-              className="p-1 sm:p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all"
+              className="hidden sm:inline-flex p-1 sm:p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all"
               title={t('cron.refresh', '刷新')}
             >
               <RefreshCw className="w-3.5 h-3.5" />
@@ -793,7 +793,7 @@ export default function UnifiedTerminalView({
             <button
               type="button"
               onClick={() => taskRef.current?.refresh()}
-              className="p-1 sm:p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all"
+              className="hidden sm:inline-flex p-1 sm:p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all"
               title={t('tasks.refresh', '刷新')}
             >
               <RefreshCw className="w-3.5 h-3.5" />
@@ -804,7 +804,7 @@ export default function UnifiedTerminalView({
             <button
               type="button"
               onClick={() => proxyRef.current?.refresh()}
-              className="p-1 sm:p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all"
+              className="hidden sm:inline-flex p-1 sm:p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all"
               title={t('proxy.refresh', '刷新')}
             >
               <RefreshCw className="w-3.5 h-3.5" />
@@ -817,7 +817,7 @@ export default function UnifiedTerminalView({
             type="button"
             data-testid="fullscreen-toggle-btn"
             onClick={handleFullscreenToggle}
-            className={`p-1 sm:p-1.5 rounded-lg border transition-all ${
+            className={`hidden sm:inline-flex p-1 sm:p-1.5 rounded-lg border transition-all ${
               isBrowserFullscreen
                 ? 'bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 border-indigo-500/30'
                 : 'bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)]'
@@ -905,7 +905,44 @@ export default function UnifiedTerminalView({
                   </div>
                 )}
 
+                {subTab !== 'interactive' && (
+                  <div className="py-1">
+                    <button
+                      type="button"
+                      data-testid="mobile-refresh-btn"
+                      onClick={() => {
+                        if (subTab === 'files') fileManagerRef.current?.refresh();
+                        else if (subTab === 'cron') cronRef.current?.refresh();
+                        else if (subTab === 'tasks') taskRef.current?.refresh();
+                        else if (subTab === 'proxy') proxyRef.current?.refresh();
+                        setIsMoreMenuOpen(false);
+                      }}
+                      className="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-[var(--bg-control-hover)] text-left transition-colors"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>{t('files.refresh', '刷新')}</span>
+                    </button>
+                  </div>
+                )}
+
                 <div className="py-1">
+                  <button
+                    type="button"
+                    data-testid="mobile-fullscreen-btn"
+                    onClick={() => {
+                      handleFullscreenToggle();
+                      setIsMoreMenuOpen(false);
+                    }}
+                    className="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-[var(--bg-control-hover)] text-left transition-colors"
+                  >
+                    {isBrowserFullscreen ? (
+                      <Minimize2 className="w-3.5 h-3.5 text-indigo-400" />
+                    ) : (
+                      <Maximize2 className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
+                    )}
+                    <span>{isBrowserFullscreen ? t('webTerminal.exitFullscreen') : t('webTerminal.fullscreen')}</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => {
