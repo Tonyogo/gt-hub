@@ -6,9 +6,6 @@ import {
   ArrowRight,
   Keyboard,
   Check,
-  Copy,
-  ClipboardPaste,
-  TextSelect,
   MoreHorizontal,
   SlidersHorizontal
 } from 'lucide-react';
@@ -363,17 +360,6 @@ export const TerminalAccessoryBar: React.FC<TerminalAccessoryBarProps> = ({
 
         <div className="h-4 w-[1px] bg-[var(--border-subtle)] mx-0.5" />
 
-        {/* Action: Paste */}
-        <button
-          type="button"
-          onClick={onPaste}
-          className="px-2 py-1 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] active:scale-95 text-[var(--text-primary)] flex items-center space-x-1 font-mono text-xs font-semibold border border-[var(--border-subtle)] transition-all shadow-sm"
-          title={t('webTerminal.paste')}
-        >
-          <ClipboardPaste className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
-          <span className="text-[11px]">{t('webTerminal.paste')}</span>
-        </button>
-
         {/* Mode Toggle Capsule Button */}
         <button
           type="button"
@@ -397,30 +383,8 @@ export const TerminalAccessoryBar: React.FC<TerminalAccessoryBarProps> = ({
         </button>
       </div>
 
-      {/* Right Fixed Controls: Selection/Copy, Keyboard Toggle & Done/Checkmark Dismiss */}
+      {/* Right Fixed Controls: Keyboard Toggle & Done/Checkmark Dismiss */}
       <div className="flex items-center space-x-1 pl-1 border-l border-[var(--border-subtle)] shrink-0">
-        {/* Select Mode / Copy Button (Always visible in mobile right thumb zone) */}
-        <button
-          type="button"
-          onTouchStart={(e) => e.preventDefault()}
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={hasSelection ? onCopy : onToggleSelectMode}
-          className={`p-1.5 rounded-lg border transition-all active:scale-95 flex items-center justify-center ${
-            isSelectMode
-              ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 border-amber-500/40 shadow-sm ring-1 ring-amber-500/30'
-              : hasSelection
-              ? 'bg-indigo-600 text-white border-indigo-400 shadow-[0_0_10px_rgba(99,102,241,0.5)]'
-              : 'bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-primary)] border-[var(--border-subtle)]'
-          }`}
-          title={hasSelection ? t('webTerminal.copySelection') : isSelectMode ? t('webTerminal.exitSelectMode') : t('webTerminal.selectMode')}
-        >
-          {hasSelection ? (
-            <Copy className="w-3.5 h-3.5" />
-          ) : (
-            <TextSelect className="w-3.5 h-3.5" />
-          )}
-        </button>
-
         <button
           type="button"
           onTouchStart={(e) => e.preventDefault()}

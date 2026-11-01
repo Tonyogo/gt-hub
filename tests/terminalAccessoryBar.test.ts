@@ -156,17 +156,12 @@ describe('TerminalAccessoryBar and Anti-Keyboard-Popup Controls', () => {
     expect(zh.webTerminal.accessoryKeys.conciseKeys).toBe('简洁');
   });
 
-  test('Paste button preserves native touch and mouse events for clipboard user activation', () => {
+  test('TerminalAccessoryBar does not render Paste or Select Mode buttons (moved to top title bar)', () => {
     const content = fs.readFileSync(accessoryBarPath, 'utf-8');
-    // Extract the paste button block
-    const pasteIdx = content.indexOf('{/* Action: Paste');
-    expect(pasteIdx).toBeGreaterThan(0);
-    const pasteBlock = content.slice(pasteIdx, pasteIdx + 400);
-
-    // Should NOT contain onTouchStart preventDefault or onMouseDown preventDefault
-    expect(pasteBlock).not.toContain('onTouchStart={(e) => e.preventDefault()}');
-    expect(pasteBlock).not.toContain('onMouseDown={(e) => e.preventDefault()}');
-    expect(pasteBlock).toContain('onClick={onPaste}');
+    expect(content).not.toContain('<ClipboardPaste');
+    expect(content).not.toContain('<TextSelect');
+    expect(content).not.toContain('onClick={onPaste}');
+    expect(content).not.toContain('onClick={hasSelection ? onCopy : onToggleSelectMode}');
   });
 });
 

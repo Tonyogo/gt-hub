@@ -20,7 +20,8 @@ import {
   X,
   TextSelect,
   Plus,
-  ScrollText
+  ScrollText,
+  ClipboardPaste
 } from 'lucide-react';
 import { useTranslation } from '../i18n/LanguageContext';
 import { useTheme } from '../theme/ThemeContext';
@@ -151,6 +152,7 @@ export interface WebTerminalHandle {
   reconnect: () => void;
   resetSession: () => void;
   toggleSelectMode: () => void;
+  pasteClipboard: () => void;
   openScriptDrawer: () => void;
   fit: (force?: boolean) => void;
   scrollToBottomSafe?: () => void;
@@ -2710,6 +2712,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     reconnect: handleManualReconnect,
     resetSession: executeReset,
     toggleSelectMode: handleToggleSelectMode,
+    pasteClipboard: handlePasteClipboard,
     openScriptDrawer: () => setIsScriptDrawerOpen(true),
     fit: (force: boolean = false) => safeFit(force),
     scrollToBottomSafe: () => {
@@ -2744,7 +2747,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     setFontSizeSynced: (size: number) => {
       setFontSize(Math.max(9, Math.min(22, size)));
     },
-  }), [handleManualReconnect, executeReset, handleToggleSelectMode, safeFit, sendResize, updateCursorShift, handleScrollToBottom, clearReconnectTimers, paneId]);
+  }), [handleManualReconnect, executeReset, handleToggleSelectMode, handlePasteClipboard, safeFit, sendResize, updateCursorShift, handleScrollToBottom, clearReconnectTimers, paneId]);
 
   const handleFullscreenToggle = () => {
     if (standalone) {
@@ -2910,6 +2913,19 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           >
             <ScrollText className="w-3.5 h-3.5 text-indigo-400" />
             <span className="hidden md:inline font-sans text-[11px]">{t('scripts.title', '常用脚本库')}</span>
+          </button>
+
+          {/* Paste Clipboard */}
+          <button
+            type="button"
+            onClick={handlePasteClipboard}
+            className="p-1 sm:p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] active:scale-95 text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all flex items-center space-x-1 shrink-0"
+            title={t('webTerminal.paste', '粘贴')}
+          >
+            <ClipboardPaste className="w-3.5 h-3.5" />
+            <span className="text-[11px] hidden xl:inline">
+              {t('webTerminal.paste', '粘贴')}
+            </span>
           </button>
 
           {/* Select / Copy Mode Toggle (Desktop & Mobile unified) */}

@@ -57,8 +57,17 @@ describe('UnifiedTerminalView Micro Top Bar Integrated Controls', () => {
     expect(content).toContain('setIsMoreMenuOpen');
   });
 
-  it('UnifiedTerminalView keeps only Select Mode directly on mobile title bar while collapsing others to sm:inline-flex', () => {
-    // Desktop secondary buttons have hidden sm:inline-flex or hidden sm:flex
+  it('UnifiedTerminalView keeps only Paste and Select Mode directly on mobile title bar while collapsing others to sm:inline-flex', () => {
+    expect(content).toMatch(/import\s*\{[^}]*\bClipboardPaste\b[^}]*\}\s*from\s*'lucide-react'/);
+    expect(content).toContain('data-testid="top-paste-btn"');
+    expect(content).toContain('data-testid="top-select-mode-btn"');
+    expect(content).toContain('getActiveTerminalRef()?.pasteClipboard()');
+
+    // Paste and Select Mode buttons must NOT have hidden sm:inline-flex
+    expect(content).not.toMatch(/data-testid="top-paste-btn"[^>]*hidden\s+sm:inline-flex/);
+    expect(content).not.toMatch(/data-testid="top-select-mode-btn"[^>]*hidden\s+sm:inline-flex/);
+
+    // Desktop secondary buttons have hidden sm:inline-flex
     expect(content).toMatch(/data-testid="unified-open-scripts-btn"[^>]*hidden\s+sm:inline-flex/);
     expect(content).toMatch(/data-testid="split-terminal-btn"[^>]*hidden\s+sm:inline-flex/);
     expect(content).toMatch(/data-testid="fullscreen-toggle-btn"[^>]*hidden\s+sm:inline-flex/);

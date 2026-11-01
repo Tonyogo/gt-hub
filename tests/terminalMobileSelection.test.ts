@@ -7,21 +7,14 @@ describe('Terminal Mobile Selection and Copy/Paste Integration', () => {
   const zhLocalePath = path.resolve(__dirname, '../frontend/src/i18n/locales/zh.ts');
   const enLocalePath = path.resolve(__dirname, '../frontend/src/i18n/locales/en.ts');
 
-  it('verifies TerminalAccessoryBar provides paste, copy, and select mode buttons in right fixed controls', () => {
-    const content = fs.readFileSync(accessoryBarPath, 'utf8');
-    expect(content).toContain('onPaste');
-    expect(content).toContain('onCopy');
-    expect(content).toContain('onToggleSelectMode');
-    expect(content).toContain('ClipboardPaste');
-    expect(content).toContain('TextSelect');
-    expect(content).toContain('hasSelection');
-    expect(content).toContain('isSelectMode');
+  it('verifies Paste and Select Mode are removed from TerminalAccessoryBar and exposed via WebTerminalView top bar / handle', () => {
+    const accessoryContent = fs.readFileSync(accessoryBarPath, 'utf8');
+    expect(accessoryContent).not.toContain('<ClipboardPaste');
+    expect(accessoryContent).not.toContain('<TextSelect');
 
-    // Button should be in right fixed controls (shrink-0) and use smart onClick
-    expect(content).toContain('onClick={hasSelection ? onCopy : onToggleSelectMode}');
-    expect(content).toContain('Right Fixed Controls: Selection/Copy');
-    expect(content).not.toContain('onOpenSnippets');
-    expect(content).not.toContain('Sparkles');
+    const webTerminalContent = fs.readFileSync(webTerminalPath, 'utf8');
+    expect(webTerminalContent).toContain('pasteClipboard: () => void');
+    expect(webTerminalContent).toContain('pasteClipboard: handlePasteClipboard');
   });
 
   it('verifies WebTerminalView implements selection, clipboard copy, and auto-reset', () => {

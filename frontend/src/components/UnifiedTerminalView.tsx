@@ -18,6 +18,7 @@ import {
   RefreshCw,
   Trash2,
   TextSelect,
+  ClipboardPaste,
   ArrowLeft,
   Github,
   Languages,
@@ -510,6 +511,10 @@ export default function UnifiedTerminalView({
     getActiveTerminalRef()?.toggleSelectMode();
   }, [getActiveTerminalRef]);
 
+  const handlePasteClipboard = useCallback(() => {
+    getActiveTerminalRef()?.pasteClipboard();
+  }, [getActiveTerminalRef]);
+
   useEffect(() => {
     if (subTab === 'interactive' && activeHostId) {
       const t1 = setTimeout(() => {
@@ -748,9 +753,24 @@ export default function UnifiedTerminalView({
                 <Columns2 className="w-3.5 h-3.5" />
               </button>
 
+              {/* Paste Clipboard */}
+              <button
+                type="button"
+                data-testid="top-paste-btn"
+                onClick={handlePasteClipboard}
+                className="p-1 sm:p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] active:scale-95 text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all flex items-center space-x-1 shrink-0"
+                title={t('webTerminal.paste', '粘贴')}
+              >
+                <ClipboardPaste className="w-3.5 h-3.5" />
+                <span className="text-[11px] hidden xl:inline">
+                  {t('webTerminal.paste', '粘贴')}
+                </span>
+              </button>
+
               {/* Select / Copy Mode Toggle */}
               <button
                 type="button"
+                data-testid="top-select-mode-btn"
                 onClick={handleToggleSelectMode}
                 className={`p-1 sm:p-1.5 rounded-lg border transition-all flex items-center space-x-1 shrink-0 ${
                   isSelectMode
