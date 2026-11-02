@@ -2863,6 +2863,44 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
         {/* Action Buttons */}
         <div className="flex items-center space-x-0.5 sm:space-x-1.5 shrink-0">
+          {/* Paste Clipboard */}
+          <button
+            type="button"
+            onClick={handlePasteClipboard}
+            className="p-1 sm:p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] active:scale-95 text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all flex items-center justify-center shrink-0"
+            title={t('webTerminal.paste', '粘贴')}
+          >
+            <ClipboardPaste className="w-3.5 h-3.5" />
+          </button>
+
+          {/* Select / Copy Mode Toggle (Desktop & Mobile unified) */}
+          <button
+            type="button"
+            onClick={handleToggleSelectMode}
+            className={`p-1 sm:p-1.5 rounded-lg border transition-all flex items-center justify-center shrink-0 ${
+              isSelectMode
+                ? 'bg-amber-500/20 text-amber-600 dark:text-amber-300 border-amber-500/40 shadow-sm ring-1 ring-amber-500/30'
+                : 'bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)]'
+            }`}
+            title={isSelectMode ? t('webTerminal.exitSelectMode', '退出选择') : t('webTerminal.selectMode', '划选模式')}
+          >
+            <TextSelect className="w-3.5 h-3.5" />
+          </button>
+
+          {/* Desktop Divider */}
+          <div className="h-3.5 w-px bg-[var(--border-subtle)] mx-0.5 hidden sm:block shrink-0" />
+
+          {/* Script Library Drawer Toggle */}
+          <button
+            type="button"
+            data-testid="open-scripts-btn"
+            onClick={() => setIsScriptDrawerOpen(true)}
+            className="p-1 sm:p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all flex items-center justify-center shrink-0"
+            title={t('scripts.title', '常用脚本库')}
+          >
+            <ScrollText className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+          </button>
+
           {/* Zoom Out */}
           <button
             type="button"
@@ -2901,48 +2939,6 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
             title={t('webTerminal.resetSession')}
           >
             <Trash2 className="w-3.5 h-3.5" />
-          </button>
-
-          {/* Script Library Drawer Toggle */}
-          <button
-            type="button"
-            data-testid="open-scripts-btn"
-            onClick={() => setIsScriptDrawerOpen(true)}
-            className="p-1 sm:p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all flex items-center space-x-1 text-xs"
-            title={t('scripts.title', '常用脚本库')}
-          >
-            <ScrollText className="w-3.5 h-3.5 text-indigo-400" />
-            <span className="hidden md:inline font-sans text-[11px]">{t('scripts.title', '常用脚本库')}</span>
-          </button>
-
-          {/* Paste Clipboard */}
-          <button
-            type="button"
-            onClick={handlePasteClipboard}
-            className="p-1 sm:p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] active:scale-95 text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all flex items-center space-x-1 shrink-0"
-            title={t('webTerminal.paste', '粘贴')}
-          >
-            <ClipboardPaste className="w-3.5 h-3.5" />
-            <span className="text-[11px] hidden xl:inline">
-              {t('webTerminal.paste', '粘贴')}
-            </span>
-          </button>
-
-          {/* Select / Copy Mode Toggle (Desktop & Mobile unified) */}
-          <button
-            type="button"
-            onClick={handleToggleSelectMode}
-            className={`p-1 sm:p-1.5 rounded-lg border transition-all flex items-center space-x-1 shrink-0 ${
-              isSelectMode
-                ? 'bg-amber-500/20 text-amber-600 dark:text-amber-300 border-amber-500/40 shadow-sm ring-1 ring-amber-500/30'
-                : 'bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)]'
-            }`}
-            title={isSelectMode ? t('webTerminal.exitSelectMode', '退出选择') : t('webTerminal.selectMode', '划选模式')}
-          >
-            <TextSelect className="w-3.5 h-3.5" />
-            <span className="text-[11px] hidden xl:inline">
-              {isSelectMode ? t('webTerminal.exitSelectMode', '退出选择') : t('webTerminal.selectMode', '划选模式')}
-            </span>
           </button>
 
           {/* Fullscreen / Standalone Toggle */}

@@ -84,4 +84,27 @@ describe('UnifiedTerminalView Micro Top Bar Integrated Controls', () => {
     expect(content).toContain('data-testid="mobile-more-menu"');
     expect(content).toContain('openScriptDrawer');
   });
+
+  it('UnifiedTerminalView reorders desktop action buttons with Paste and Select Mode first, and strips text labels for pure icon presentation', () => {
+    // 1. Order verification: paste and select mode come before split and scripts
+    const idxPaste = content.indexOf('data-testid="top-paste-btn"');
+    const idxSelect = content.indexOf('data-testid="top-select-mode-btn"');
+    const idxSplit = content.indexOf('data-testid="split-terminal-btn"');
+    const idxScripts = content.indexOf('data-testid="unified-open-scripts-btn"');
+
+    expect(idxPaste).toBeGreaterThan(0);
+    expect(idxSelect).toBeGreaterThan(idxPaste);
+    expect(idxSplit).toBeGreaterThan(idxSelect);
+    expect(idxScripts).toBeGreaterThan(idxSplit);
+
+    // 2. Pure icon check: buttons do not contain embedded text spans
+    const pasteBlock = content.slice(idxPaste, idxSelect);
+    expect(pasteBlock).not.toMatch(/<span[^>]*>[^<]*<\/span>/);
+
+    const selectBlock = content.slice(idxSelect, idxSplit);
+    expect(selectBlock).not.toMatch(/<span[^>]*>[^<]*<\/span>/);
+
+    const scriptsBlock = content.slice(idxScripts, idxScripts + 350);
+    expect(scriptsBlock).not.toMatch(/<span[^>]*>[^<]*<\/span>/);
+  });
 });
