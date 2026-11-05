@@ -226,4 +226,197 @@ describe('AgentCronScheduler', () => {
 
     scheduler.stop();
   });
+
+  it('executes a fast job only once even if timer wakes up 150ms before target timestamp', async () => {
+    const scheduler = new AgentCronScheduler({ storageFile, cacheDir });
+    const reported: CronExecutionRecord[] = [];
+    scheduler.onReport((r) => reported.push(r));
+
+    const targetTime = Math.ceil((Date.now() + 300) / 1000) * 1000;
+    let fakeNow = targetTime - 150;
+
+    // Spy on getNextCronTime behavior by controlling Date.now around the boundary
+    const dateNowSpy = jest.spyOn(Date, 'now').mockImplementation(() => fakeNow);
+
+    try {
+      scheduler.syncJobs([
+        {
+          id: 'fast-date-job',
+          name: 'test',
+          cron: '* * * * *',
+          source: 'command',
+          command: 'date',
+          concurrency: 'forbid',
+          status: 'active',
+          createdAt: fakeNow,
+          updatedAt: fakeNow,
+        },
+      ]);
+
+      // Simulate scheduled execution at targetTime while clock is still 100ms early (targetTime - 100)
+      await (scheduler as any).executeJob('fast-date-job', 'scheduled', targetTime);
+      (scheduler as any).lastScheduledTriggerTime?.set('fast-date-job', targetTime);
+
+      // Even if clock is still targetTime - 80ms when scheduleJob runs, nextRunTime must be strictly > targetTime
+      fakeNow = targetTime - 80;
+      const summaries = scheduler.getSummaries();
+      expect(summaries[0].nextRunTime).toBeGreaterThan(targetTime);
+
+      // Attempting a second scheduled execution with the same targetTime must be skipped/ignored
+      const dup = await (scheduler as any).executeJob('fast-date-job', 'scheduled', targetTime);
+      expect(dup.status).toBe('skipped');
+      expect(reported.length).toBe(1);
+
+      // Manual trigger is not constrained by lastScheduledTriggerTime and executes
+      const manual = await scheduler.triggerJob('fast-date-job');
+      expect(manual.status).toBe('completed');
+      expect(reported.length).toBe(2);
+    } finally {
+      dateNowSpy.mockRestore();
+      scheduler.stop();
+    }
+  });
+
+  it('preserves lastScheduledTriggerTime on syncJobs unless cron expression changes', () => {
+    const scheduler = new AgentCronScheduler({ storageFile, cacheDir });
+    const now = Date.now();
+    scheduler.syncJobs([
+      {
+        id: 'job-a',
+        name: 'Job A',
+        cron: '*/5 * * * *',
+        source: 'command',
+        command: 'echo a',
+        concurrency: 'forbid',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'job-b',
+        name: 'Job B',
+        cron: '*/10 * * * *',
+        source: 'command',
+        command: 'echo b',
+        concurrency: 'forbid',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+
+    const targetTime = 1762344000000;
+    (scheduler as any).lastScheduledTriggerTime.set('job-a', targetTime);
+    (scheduler as any).lastScheduledTriggerTime.set('job-b', targetTime);
+
+    // Sync with same cron for job-a, modified cron for job-b
+    scheduler.syncJobs([
+      {
+        id: 'job-a',
+        name: 'Job A',
+        cron: '*/5 * * * *',
+        source: 'command',
+        command: 'echo a',
+        concurrency: 'forbid',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'job-b',
+        name: 'Job B',
+        cron: '*/15 * * * *', // changed cron!
+        source: 'command',
+        command: 'echo b',
+        concurrency: 'forbid',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      },
+    ]);
+
+    expect((scheduler as any).lastScheduledTriggerTime.get('job-a')).toBe(targetTime);
+    expect((scheduler as any).lastScheduledTriggerTime.has('job-b')).toBe(false);
+
+    // Sync without job-a removes it
+    scheduler.syncJobs([]);
+    expect((scheduler as any).lastScheduledTriggerTime.has('job-a')).toBe(false);
+
+    scheduler.stop();
+  });
+
+  it('restores lastScheduledTriggerTime from history on disk upon initialization', () => {
+    const historyFile = path.join(path.dirname(storageFile), 'schedule', 'history.json');
+    fs.mkdirSync(path.dirname(historyFile), { recursive: true });
+    const fakeHistory: Partial<CronExecutionRecord>[] = [
+      {
+        executionId: 'exec-1',
+        jobId: 'restored-job',
+        triggerTime: 1762344000000,
+        status: 'completed',
+      },
+      {
+        executionId: 'exec-2',
+        jobId: 'restored-job',
+        triggerTime: 1762344060000, // newer trigger time
+        status: 'completed',
+      },
+    ];
+    fs.writeFileSync(historyFile, JSON.stringify(fakeHistory), 'utf-8');
+
+    const scheduler = new AgentCronScheduler({ storageFile, historyFile, cacheDir });
+    expect((scheduler as any).lastScheduledTriggerTime.get('restored-job')).toBe(1762344060000);
+    scheduler.stop();
+  });
+
+  it('reschedules timer when wakeup is earlier than target timestamp', async () => {
+    const scheduler = new AgentCronScheduler({ storageFile, cacheDir });
+    const executeSpy = jest.spyOn(scheduler as any, 'executeJob').mockResolvedValue({ status: 'completed' } as any);
+    const scheduleSpy = jest.spyOn(scheduler as any, 'scheduleJob');
+
+    const baseTime = 1762344000000;
+    let fakeNow = baseTime;
+    const dateSpy = jest.spyOn(Date, 'now').mockImplementation(() => fakeNow);
+
+    try {
+      scheduler.syncJobs([
+        {
+          id: 'early-job',
+          name: 'Early Job',
+          cron: '* * * * *',
+          source: 'command',
+          command: 'echo 1',
+          concurrency: 'forbid',
+          status: 'active',
+          createdAt: baseTime,
+          updatedAt: baseTime,
+        },
+      ]);
+
+      scheduler.start();
+
+      // Grab the active timer callback
+      const timer = (scheduler as any).activeTimers.get('early-job');
+      expect(timer).toBeDefined();
+
+      // Now simulate waking up 150ms before target time (baseTime + 60000)
+      const targetTime = baseTime + 60000;
+      fakeNow = targetTime - 150;
+
+      scheduleSpy.mockClear();
+
+      // Invoke the timer callback directly
+      if (typeof (timer as any)._onTimeout === 'function') {
+        await (timer as any)._onTimeout();
+      }
+
+      // executeJob must NOT have been called because fakeNow < targetTime
+      expect(executeSpy).not.toHaveBeenCalled();
+      // scheduleJob must have been called to reschedule for remaining ms
+      expect(scheduleSpy).toHaveBeenCalledWith('early-job');
+    } finally {
+      dateSpy.mockRestore();
+      scheduler.stop();
+    }
+  });
 });

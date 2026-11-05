@@ -30,6 +30,7 @@ export class AgentCronScheduler {
   private jobs: Map<string, CronJobConfig> = new Map();
   private activeTimers: Map<string, NodeJS.Timeout> = new Map();
   private history: CronExecutionRecord[] = [];
+  private lastScheduledTriggerTime: Map<string, number> = new Map(); // jobId -> triggerTime
   private runningExecutions: Map<string, string> = new Map(); // jobId -> executionId
   private reportCallbacks: ((record: CronExecutionRecord) => void)[] = [];
   private started: boolean = false;
@@ -83,6 +84,14 @@ export class AgentCronScheduler {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
           this.history = parsed.slice(-this.MAX_HISTORY);
+          for (const rec of this.history) {
+            if (rec && rec.jobId && typeof rec.triggerTime === 'number') {
+              const prev = this.lastScheduledTriggerTime.get(rec.jobId) || 0;
+              if (rec.triggerTime > prev) {
+                this.lastScheduledTriggerTime.set(rec.jobId, rec.triggerTime);
+              }
+            }
+          }
         }
       } catch {}
     }
@@ -160,6 +169,11 @@ export class AgentCronScheduler {
     }
     this.activeTimers.clear();
 
+    const prevCrons = new Map<string, string>();
+    for (const [id, j] of this.jobs) {
+      prevCrons.set(id, j.cron);
+    }
+
     this.jobs.clear();
     for (const job of jobs) {
       if (job && job.id && isValidCronExpression(job.cron)) {
@@ -167,6 +181,14 @@ export class AgentCronScheduler {
           ...job,
           timezone: this.serverTimezone,
         });
+      }
+    }
+
+    // Clean up lastScheduledTriggerTime for removed jobs or jobs whose cron expression changed
+    for (const id of Array.from(this.lastScheduledTriggerTime.keys())) {
+      const newJob = this.jobs.get(id);
+      if (!newJob || newJob.cron !== prevCrons.get(id)) {
+        this.lastScheduledTriggerTime.delete(id);
       }
     }
 
@@ -191,7 +213,9 @@ export class AgentCronScheduler {
       let nextRunTime: number | null = null;
       if (job.status === 'active') {
         try {
-          nextRunTime = getNextCronTime(job.cron, undefined, this.serverTimezone).getTime();
+          const lastTrigger = this.lastScheduledTriggerTime.get(job.id) || 0;
+          const baseTime = Math.max(Date.now(), lastTrigger > 0 ? lastTrigger + 1000 : 0);
+          nextRunTime = getNextCronTime(job.cron, new Date(baseTime), this.serverTimezone).getTime();
         } catch {
           nextRunTime = null;
         }
@@ -217,7 +241,7 @@ export class AgentCronScheduler {
     return list.slice(0, limit);
   }
 
-  private scheduleJob(jobId: string): void {
+  private scheduleJob(jobId: string, minAfterTime?: number): void {
     const job = this.jobs.get(jobId);
     if (!job || job.status !== 'active') return;
 
@@ -226,14 +250,17 @@ export class AgentCronScheduler {
       this.activeTimers.delete(jobId);
     }
 
+    const now = Date.now();
+    const lastTrigger = this.lastScheduledTriggerTime.get(jobId) || 0;
+    const baseTime = Math.max(now, minAfterTime || 0, lastTrigger > 0 ? lastTrigger + 1000 : 0);
+
     let nextDate: Date;
     try {
-      nextDate = getNextCronTime(job.cron, undefined, this.serverTimezone);
+      nextDate = getNextCronTime(job.cron, new Date(baseTime), this.serverTimezone);
     } catch {
       return;
     }
 
-    const now = Date.now();
     const delay = Math.max(0, nextDate.getTime() - now);
 
     // Node.js setTimeout max limit is 2^31 - 1 (~24.8 days)
@@ -242,8 +269,8 @@ export class AgentCronScheduler {
 
     const timer = setTimeout(async () => {
       this.activeTimers.delete(jobId);
-      // If we haven't reached the target time yet (due to MAX_TIMEOUT capping), reschedule
-      if (Date.now() < nextDate.getTime() - 1000) {
+      // If we haven't reached the target time yet (due to early wakeup or MAX_TIMEOUT capping), reschedule
+      if (Date.now() < nextDate.getTime()) {
         if (this.started) {
           this.scheduleJob(jobId);
         }
@@ -255,7 +282,7 @@ export class AgentCronScheduler {
       } catch {}
 
       if (this.started && this.jobs.has(jobId) && this.jobs.get(jobId)!.status === 'active') {
-        this.scheduleJob(jobId);
+        this.scheduleJob(jobId, nextDate.getTime() + 1000);
       }
     }, timeoutDuration);
 
@@ -294,6 +321,26 @@ export class AgentCronScheduler {
       this.addHistoryRecord(notFoundRecord);
       this.emitReport(notFoundRecord);
       return notFoundRecord;
+    }
+
+    if (mode === 'scheduled' && triggerTime !== undefined) {
+      const prevTrigger = this.lastScheduledTriggerTime.get(job.id) || 0;
+      if (prevTrigger >= triggerTime) {
+        const skippedRecord: CronExecutionRecord = {
+          executionId: `cron_${job.id}_${now}`,
+          jobId: job.id,
+          jobName: job.name,
+          triggerTime: planTriggerTime,
+          startTime: now,
+          endTime: now,
+          status: 'skipped',
+          exitCode: null,
+          error: `Skipped: scheduled trigger time ${triggerTime} has already been executed`,
+          durationMs: 0,
+        };
+        return skippedRecord;
+      }
+      this.lastScheduledTriggerTime.set(job.id, triggerTime);
     }
 
     if (mode === 'scheduled' && job.status === 'paused') {
