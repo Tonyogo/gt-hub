@@ -5,13 +5,48 @@ const {
   HEARTBEAT_INTERVAL_MS,
   HEARTBEAT_TIMEOUT_MS,
   HANDSHAKE_TIMEOUT_MS,
+  isHeartbeatTimedOut,
 } = require('../scripts/gt.js');
 
 describe('Terminal Agent Keepalive & Control Protocol', () => {
   it('should export correct keepalive constants', () => {
     expect(HEARTBEAT_INTERVAL_MS).toBe(15000);
     expect(HEARTBEAT_TIMEOUT_MS).toBe(60000);
-    expect(HANDSHAKE_TIMEOUT_MS).toBe(4000);
+    expect(HANDSHAKE_TIMEOUT_MS).toBe(15000);
+  });
+
+  describe('isHeartbeatTimedOut (half-open socket protection)', () => {
+    it('times out after HEARTBEAT_TIMEOUT_MS even when socket has buffered outbound bytes', () => {
+      const now = 100000;
+      expect(
+        isHeartbeatTimedOut({
+          now,
+          lastPongReceived: now - 60001,
+          activeFileRpcCount: 0,
+          timeoutMs: 60000,
+        })
+      ).toBe(true);
+    });
+
+    it('defers timeout during active file_rpc up to 2x HEARTBEAT_TIMEOUT_MS hard cap', () => {
+      const now = 200000;
+      expect(
+        isHeartbeatTimedOut({
+          now,
+          lastPongReceived: now - 75000,
+          activeFileRpcCount: 1,
+          timeoutMs: 60000,
+        })
+      ).toBe(false);
+      expect(
+        isHeartbeatTimedOut({
+          now,
+          lastPongReceived: now - 120001,
+          activeFileRpcCount: 1,
+          timeoutMs: 60000,
+        })
+      ).toBe(true);
+    });
   });
 
   describe('parseControlMessage', () => {

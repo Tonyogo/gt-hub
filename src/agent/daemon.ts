@@ -21,9 +21,27 @@ import { StreamBatcher } from '../shared/utils/streamBatcher';
 import { BIN_MSG_TYPE, decodeBinaryPacket, encodeBinaryPacket } from '../shared/protocol/binaryProtocol';
 import { ProxyHandler } from './handlers/proxyHandler';
 
-export const HANDSHAKE_TIMEOUT_MS = 4000;
+export const HANDSHAKE_TIMEOUT_MS = 15000;
 export const HEARTBEAT_INTERVAL_MS = 15000;
 export const HEARTBEAT_TIMEOUT_MS = 60000;
+
+export function isHeartbeatTimedOut({
+  now = Date.now(),
+  lastPongReceived,
+  activeFileRpcCount = 0,
+  timeoutMs = HEARTBEAT_TIMEOUT_MS,
+}: {
+  now?: number;
+  lastPongReceived: number;
+  activeFileRpcCount?: number;
+  timeoutMs?: number;
+}): boolean {
+  const elapsed = now - lastPongReceived;
+  if (activeFileRpcCount > 0) {
+    return elapsed > timeoutMs * 2;
+  }
+  return elapsed > timeoutMs;
+}
 
 export function getLocalIp(): string {
   const ifaces = os.networkInterfaces();
@@ -381,6 +399,15 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       process.exit(0);
     }
     console.log('Status     : Running');
+    if (current.connectionState) {
+      const connDetail = current.connectionState === 'reconnecting' && current.reconnectAttempts
+        ? `${current.connectionState} (attempt #${current.reconnectAttempts})`
+        : current.connectionState;
+      console.log(`Connection : ${connDetail}`);
+      if (current.lastError) {
+        console.log(`Last Error : ${current.lastError}`);
+      }
+    }
     console.log(`PID        : ${current.pid}`);
     const currentCliVer = getVersionInfo().version;
     if (current.version) {
@@ -527,6 +554,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       startTime: new Date().toISOString(),
       logFile: logFile,
       version: getVersionInfo().version,
+      connectionState: 'connecting',
     });
 
     child.unref();
@@ -539,6 +567,23 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     process.exit(0);
   }
 
+  let isExiting = false;
+  let lastConnectionError: string | null = null;
+
+  function updateDaemonState(patch: Record<string, any>) {
+    if (isExiting) return;
+    try {
+      const s = AgentDaemonManager.getStatus();
+      if (s && s.running && s.pid === process.pid) {
+        const { running, stale, ...rest } = s;
+        AgentDaemonManager.saveStatus({
+          ...rest,
+          ...patch,
+        });
+      }
+    } catch {}
+  }
+
   if (!isDaemon && !isInternalDaemon) {
     AgentDaemonManager.saveStatus({
       pid: process.pid,
@@ -547,6 +592,8 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       server: serverArg,
       startTime: new Date().toISOString(),
       logFile: AgentDaemonManager.getLogFile(),
+      version: getVersionInfo().version,
+      connectionState: 'connecting',
     });
     const cleanupFg = () => {
       const s = AgentDaemonManager.getStatus();
@@ -610,11 +657,11 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
   let proxyHandler: ProxyHandler | null = null;
   let reconnectAttempts = 0;
   let reconnectTimer: NodeJS.Timeout | null = null;
-  let isExiting = false;
   let connectTimeoutTimer: NodeJS.Timeout | null = null;
   let heartbeatTimer: NodeJS.Timeout | null = null;
   let heartbeatTimeoutTimer: NodeJS.Timeout | null = null;
   let lastPongReceived = Date.now();
+  let activeFileRpcCount = 0;
   const pendingOutputQueue: Buffer[] = [];
   const maxPendingQueueBytes = 256 * 1024; // 256KB early buffer
   let pendingQueueBytes = 0;
@@ -714,10 +761,8 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     lastPongReceived = Date.now();
     heartbeatTimer = setInterval(() => {
       if (!ws || (ws.readyState !== 1 && ws.readyState !== WebSocket.OPEN)) return;
-      if (typeof ws.bufferedAmount === 'number' && ws.bufferedAmount > 0) {
-        onHeartbeatActivity();
-      }
-      if (Date.now() - lastPongReceived > HEARTBEAT_TIMEOUT_MS) {
+      if (isHeartbeatTimedOut({ now: Date.now(), lastPongReceived, activeFileRpcCount })) {
+        lastConnectionError = 'Heartbeat pong timeout (>60s)';
         console.warn(
           `[Agent] Heartbeat pong timeout (>60s) on ${serverArg}. Terminating stale connection...`
         );
@@ -733,11 +778,9 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
         ws.send(`JSON:${JSON.stringify({ type: 'ping' })}`);
         if (!heartbeatTimeoutTimer) {
           heartbeatTimeoutTimer = setTimeout(() => {
-            if (typeof ws?.bufferedAmount === 'number' && ws.bufferedAmount > 0) {
-              onHeartbeatActivity();
-              return;
-            }
-            if (Date.now() - lastPongReceived >= HEARTBEAT_TIMEOUT_MS) {
+            heartbeatTimeoutTimer = null;
+            if (isHeartbeatTimedOut({ now: Date.now(), lastPongReceived, activeFileRpcCount })) {
+              lastConnectionError = 'Heartbeat response timeout';
               console.warn(
                 `[Agent] Heartbeat response timeout on ${serverArg}. Terminating connection...`
               );
@@ -972,6 +1015,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
   function connect() {
     if (isExiting) return;
     const isReconnection = Boolean(ptyProcess);
+    activeFileRpcCount = 0;
 
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
@@ -1007,6 +1051,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
 
     if (connectTimeoutTimer) clearTimeout(connectTimeoutTimer);
     connectTimeoutTimer = setTimeout(() => {
+      lastConnectionError = `Connection timed out (${HANDSHAKE_TIMEOUT_MS / 1000}s)`;
       console.warn(`[Agent] Connection to ${serverArg} timed out (${HANDSHAKE_TIMEOUT_MS / 1000}s)`);
       if (ws) {
         try { ws.terminate(); } catch {}
@@ -1040,6 +1085,13 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
         reconnectTimer = null;
       }
       reconnectAttempts = 0;
+      lastConnectionError = null;
+      updateDaemonState({
+        connectionState: 'online',
+        reconnectAttempts: 0,
+        lastError: null,
+        lastConnectedAt: new Date().toISOString(),
+      });
       console.log(`[Agent] Connected and registered successfully! Reverse tunnel is active.`);
 
       startHeartbeat();
@@ -1081,8 +1133,6 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
 
         if (isFirstSpawn) {
           ws.send(`JSON:${JSON.stringify({ type: 'reset' })}`);
-        } else if (terminalHistory.getSize() > 0) {
-          sendHistorySync();
         }
         if (ptyProcess) {
           ws.send(`JSON:${JSON.stringify({ type: 'resize', cols: ptyProcess.cols, rows: ptyProcess.rows })}`);
@@ -1139,11 +1189,13 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
           }
           if (control.type === 'file_rpc') {
             onHeartbeatActivity();
+            activeFileRpcCount++;
             handleFileRpc({
               ...control,
               permissionMode: control.permissionMode || permissionMode,
               workspace: control.workspace || workspace,
             }, ws, onHeartbeatActivity).finally(() => {
+              activeFileRpcCount = Math.max(0, activeFileRpcCount - 1);
               onHeartbeatActivity();
             });
             return;
@@ -1244,6 +1296,13 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
           }
           if (control.type === 'registered') {
             console.log(`[Agent] Registered confirmed: hostId=${control.hostId}, status=${control.status}`);
+            lastConnectionError = null;
+            updateDaemonState({
+              connectionState: 'online',
+              reconnectAttempts: 0,
+              lastError: null,
+              lastConnectedAt: new Date().toISOString(),
+            });
             if (isReconnection && terminalHistory.getSize() > 0) {
               sendHistorySync();
             }
@@ -1264,6 +1323,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     });
 
     ws.on('close', (code: number, reason: any) => {
+      activeFileRpcCount = 0;
       if (ptyBatcher) {
         ptyBatcher.flush();
       }
@@ -1282,6 +1342,9 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
         console.error('Please choose a different name using --name=<unique-name>.');
         process.exit(1);
       }
+      if (!lastConnectionError && code !== 1000) {
+        lastConnectionError = `Connection closed (code: ${code}${reason ? `, reason: ${reason}` : ''})`;
+      }
       console.warn(`[Agent] Connection closed (code: ${code}, reason: ${reason || 'none'})`);
       ws = null;
       scheduleReconnect();
@@ -1295,6 +1358,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
         proxyHandler = null;
       }
       const msg = err && (err.message || err.code || err.name || String(err));
+      lastConnectionError = msg || 'Connection error';
       console.error(`[Agent] Connection error: ${msg || 'Unknown error'}`);
     });
   }
@@ -1307,6 +1371,11 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       reconnectTimer = null;
     }
     reconnectAttempts++;
+    updateDaemonState({
+      connectionState: 'reconnecting',
+      reconnectAttempts,
+      lastError: lastConnectionError,
+    });
     const delay = Math.min(30000, 1000 * Math.pow(1.5, Math.min(reconnectAttempts, 8)));
     console.log(`[Agent] Reconnecting in ${(delay / 1000).toFixed(1)}s (attempt #${reconnectAttempts})...`);
     reconnectTimer = setTimeout(() => {
@@ -1318,6 +1387,10 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
   function cleanup(signalName?: string) {
     if (isExiting) return;
     isExiting = true;
+    const s = AgentDaemonManager.getStatus();
+    if (s && s.pid === process.pid) {
+      AgentDaemonManager.clearStatus();
+    }
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;

@@ -112,6 +112,37 @@ describe('gt agent singleton daemon lifecycle and parameter guards', () => {
     expect(fs.existsSync(AgentDaemonManager.getStatusFile())).toBe(false);
   });
 
+  it('displays Connection state and Last Error in gt agent status when present in agent.json', () => {
+    process.env.GT_CONFIG_DIR = testConfigDir;
+    const { AgentDaemonManager } = require('../scripts/gt.js');
+    const { getVersionInfo } = require('../src/shared/version');
+    const dummy = spawn('node', ['-e', 'setInterval(()=>{}, 1000)']);
+    try {
+      AgentDaemonManager.saveStatus({
+        pid: dummy.pid,
+        name: 'conn-state-node',
+        server: 'https://gt.example.com',
+        version: getVersionInfo().version,
+        connectionState: 'reconnecting',
+        reconnectAttempts: 3,
+        lastError: 'Connection timed out (15s)',
+      });
+
+      const res = spawnSync('node', [gtPath, 'agent', 'status'], {
+        env: { ...process.env, GT_CONFIG_DIR: testConfigDir },
+        encoding: 'utf-8',
+        timeout: 5000,
+      });
+      expect(res.status).toBe(0);
+      expect(res.stdout).toContain('Status     : Running');
+      expect(res.stdout).toContain('Connection : reconnecting (attempt #3)');
+      expect(res.stdout).toContain('Last Error : Connection timed out (15s)');
+    } finally {
+      try { process.kill(dummy.pid!, 'SIGKILL'); } catch {}
+      AgentDaemonManager.clearStatus();
+    }
+  });
+
   it('supports background execution via gt agent start and singleton lifecycle management', async () => {
     // 1. Set credentials
     fs.writeFileSync(path.join(testConfigDir, 'config.json'), JSON.stringify({
