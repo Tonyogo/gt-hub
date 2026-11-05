@@ -144,6 +144,20 @@ export class AgentDaemonManager {
     } catch {}
   }
 
+  static async terminatePid(pid: number, timeoutMs: number = 3000): Promise<boolean> {
+    if (!this.isProcessAlive(pid)) return true;
+    try { process.kill(pid, 'SIGTERM'); } catch {}
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      if (!this.isProcessAlive(pid)) {
+        return true;
+      }
+      await new Promise(r => setTimeout(r, 50));
+    }
+    killProcessTreeSync(pid, 'SIGKILL');
+    return false;
+  }
+
   static async stop(): Promise<{ success: boolean; message: string; pid?: number; name?: string }> {
     const current = this.getStatus();
     if (!current || !current.running) {
@@ -153,20 +167,13 @@ export class AgentDaemonManager {
 
     const pid = current.pid;
     const agentName = current.name || 'agent';
-    try { process.kill(pid, 'SIGTERM'); } catch {}
-
-    const start = Date.now();
-    while (Date.now() - start < 3000) {
-      if (!this.isProcessAlive(pid)) {
-        this.clearStatus();
-        return { success: true, pid, name: agentName, message: `Agent daemon (PID: ${pid}) stopped successfully.` };
-      }
-      await new Promise(r => setTimeout(r, 100));
-    }
-
-    killProcessTreeSync(pid, 'SIGKILL');
+    const cleanlyStopped = await this.terminatePid(pid, 3000);
     this.clearStatus();
-    return { success: true, pid, name: agentName, message: `Agent daemon (PID: ${pid}) forcibly terminated.` };
+    if (cleanlyStopped) {
+      return { success: true, pid, name: agentName, message: `Agent daemon (PID: ${pid}) stopped successfully.` };
+    } else {
+      return { success: true, pid, name: agentName, message: `Agent daemon (PID: ${pid}) forcibly terminated.` };
+    }
   }
 
   static async getLogs(lines: number = 50, follow: boolean = false): Promise<void> {
@@ -461,26 +468,6 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     process.exit(1);
   }
 
-  // Singleton Mutex on Start:
-  if (!isInternalDaemon) {
-    const current = AgentDaemonManager.getStatus();
-    const currentCliVersion = getVersionInfo().version;
-    if (subCmd === 'restart') {
-      if (current && current.running) {
-        await AgentDaemonManager.stop();
-      }
-    } else if (current && current.running) {
-      if (!current.version || current.version !== currentCliVersion) {
-        const oldVer = current.version || 'legacy';
-        console.log(`[Agent] Active agent daemon is running outdated version (${oldVer}). Upgrading to current CLI version (${currentCliVersion})...`);
-        await AgentDaemonManager.stop();
-      } else {
-        console.error(`Error: Agent daemon is already running (PID: ${current.pid}). Use 'gt agent stop' or 'gt agent restart'.`);
-        process.exit(1);
-      }
-    }
-  }
-
   const resolvedName = ConfigStore.resolveAgentName();
   const sanitizedName = resolvedName.name;
   const hostName = sanitizedName;
@@ -505,6 +492,36 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
   }
 
   const isDaemon = subCmd === 'start' || subCmd === 'restart' || agentArgs.includes('-d') || agentArgs.includes('--detach') || subCmd === null;
+
+  let replacePid: number | null = null;
+
+  // Singleton Mutex on Start:
+  if (!isInternalDaemon) {
+    const current = AgentDaemonManager.getStatus();
+    const currentCliVersion = getVersionInfo().version;
+    if (subCmd === 'restart') {
+      if (current && current.running && current.pid) {
+        if (isDaemon) {
+          replacePid = current.pid;
+        } else {
+          await AgentDaemonManager.stop();
+        }
+      }
+    } else if (current && current.running && current.pid) {
+      if (!current.version || current.version !== currentCliVersion) {
+        const oldVer = current.version || 'legacy';
+        console.log(`[Agent] Active agent daemon is running outdated version (${oldVer}). Upgrading to current CLI version (${currentCliVersion})...`);
+        if (isDaemon) {
+          replacePid = current.pid;
+        } else {
+          await AgentDaemonManager.stop();
+        }
+      } else {
+        console.error(`Error: Agent daemon is already running (PID: ${current.pid}). Use 'gt agent stop' or 'gt agent restart'.`);
+        process.exit(1);
+      }
+    }
+  }
 
   if (isDaemon && !isInternalDaemon) {
     const cleanArgs: string[] = [];
@@ -542,7 +559,12 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       {
         detached: true,
         stdio: ['ignore', logFd, logFd],
-        env: { ...process.env, GT_SERVER: serverArg, GT_KEY: adminKey },
+        env: {
+          ...process.env,
+          GT_SERVER: serverArg,
+          GT_KEY: adminKey,
+          ...(replacePid ? { GT_REPLACE_PID: String(replacePid) } : {}),
+        },
       }
     );
 
@@ -614,6 +636,47 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     process.on('exit', cleanupDaemon);
     process.on('SIGINT', cleanupDaemon);
     process.on('SIGTERM', cleanupDaemon);
+
+    const envReplacePid = process.env.GT_REPLACE_PID ? parseInt(process.env.GT_REPLACE_PID, 10) : 0;
+    delete process.env.GT_REPLACE_PID;
+    if (envReplacePid > 0 && envReplacePid !== process.pid && AgentDaemonManager.isProcessAlive(envReplacePid)) {
+      const handoverSignalHandler = () => {
+        try {
+          killProcessTreeSync(envReplacePid, 'SIGKILL');
+        } catch {}
+        try {
+          cleanupDaemon();
+        } catch {}
+        process.exit(0);
+      };
+      process.on('SIGTERM', handoverSignalHandler);
+      process.on('SIGINT', handoverSignalHandler);
+
+      // Wait 50ms so parent CLI process can flush stdout and exit cleanly before old daemon teardown
+      await new Promise((r) => setTimeout(r, 50));
+
+      try {
+        await AgentDaemonManager.terminatePid(envReplacePid, 3000);
+      } finally {
+        process.off('SIGTERM', handoverSignalHandler);
+        process.off('SIGINT', handoverSignalHandler);
+      }
+
+      // Re-verify agent.json still has pid: process.pid
+      const currentStatus = AgentDaemonManager.getStatus();
+      if (!currentStatus || currentStatus.pid !== process.pid) {
+        AgentDaemonManager.saveStatus({
+          pid: process.pid,
+          name: hostName,
+          id: hostId,
+          server: serverArg,
+          startTime: new Date().toISOString(),
+          logFile: AgentDaemonManager.getLogFile(),
+          version: getVersionInfo().version,
+          connectionState: 'connecting',
+        });
+      }
+    }
   }
 
   const platform = os.platform();

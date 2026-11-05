@@ -509,4 +509,225 @@ describe('gt agent singleton daemon lifecycle and parameter guards', () => {
       timeout: 5000,
     });
   });
+
+  it('completes gt agent restart and keeps new daemon alive even when executed inside old daemon PTY that SIGKILLs its process group on SIGTERM', async () => {
+    fs.writeFileSync(path.join(testConfigDir, 'config.json'), JSON.stringify({
+      server: 'http://127.0.0.1:3000',
+      key: 'mock-key',
+      agentName: 'in-pty-restart-node',
+    }));
+
+    const { AgentDaemonManager } = require('../scripts/gt.js');
+    const { getVersionInfo } = require('../src/shared/version');
+    process.env.GT_CONFIG_DIR = testConfigDir;
+
+    // Simulate an old daemon that spawns a PTY shell and, upon receiving SIGTERM,
+    // immediately sends SIGKILL to the shell's process group (matching PosixPtyDriver cleanup).
+    const oldDaemonScript = `
+      const { spawn } = require('child_process');
+      let shellPid = null;
+      process.on('SIGTERM', () => {
+        if (shellPid) {
+          try { process.kill(-shellPid, 'SIGKILL'); } catch {}
+          try { process.kill(shellPid, 'SIGKILL'); } catch {}
+        }
+        setTimeout(() => process.exit(0), 200);
+      });
+      setInterval(() => {}, 1000);
+    `;
+    const oldDaemon = spawn(process.execPath, ['-e', oldDaemonScript], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    oldDaemon.unref();
+
+    AgentDaemonManager.saveStatus({
+      pid: oldDaemon.pid,
+      name: 'in-pty-restart-node',
+      server: 'http://127.0.0.1:3000',
+      version: getVersionInfo().version,
+    });
+
+    try {
+      // Run \`gt agent restart\` in the same process group as a child that oldDaemon would kill if signaled before exit
+      const runnerScript = `
+        const { spawnSync } = require('child_process');
+        process.on('SIGTERM', () => process.exit(143));
+        const res = spawnSync(process.execPath, [${JSON.stringify(gtPath)}, 'agent', 'restart'], {
+          env: process.env,
+          encoding: 'utf-8',
+        });
+        process.stdout.write(res.stdout || '');
+        process.stderr.write(res.stderr || '');
+        process.exit(res.status ?? 1);
+      `;
+
+      // Also wire oldDaemon to kill this runner if oldDaemon receives SIGTERM while runner is still alive
+      const killerGuard = spawn(process.execPath, ['-e', `
+        const targetOld = ${oldDaemon.pid};
+        const { spawn } = require('child_process');
+        const runner = spawn(process.execPath, ['-e', ${JSON.stringify(runnerScript)}], {
+          detached: true,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: process.env,
+        });
+        let out = '';
+        runner.stdout.on('data', d => out += d.toString());
+        runner.stderr.on('data', d => out += d.toString());
+        // Poll oldDaemon; the moment oldDaemon receives SIGTERM / dies, SIGKILL the runner process group (simulating PTY teardown)
+        const timer = setInterval(() => {
+          try {
+            process.kill(targetOld, 0);
+          } catch {
+            clearInterval(timer);
+            try { process.kill(-runner.pid, 'SIGKILL'); } catch {}
+          }
+        }, 10);
+        runner.on('close', (code) => {
+          clearInterval(timer);
+          console.log('RUNNER_EXIT=' + code);
+          console.log(out);
+          process.exit(0);
+        });
+      `], {
+        env: { ...process.env, GT_CONFIG_DIR: testConfigDir },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      let guardOut = '';
+      killerGuard.stdout.on('data', (d) => { guardOut += d.toString(); });
+      await new Promise<void>((resolve) => killerGuard.on('close', () => resolve()));
+
+      expect(guardOut).toContain('RUNNER_EXIT=0');
+      expect(guardOut).toContain('Agent started in background (PID:');
+
+      // Wait for handover to complete (oldDaemon should be dead, new daemon should be alive)
+      const waitStart = Date.now();
+      while (Date.now() - waitStart < 4000) {
+        if (!AgentDaemonManager.isProcessAlive(oldDaemon.pid)) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+
+      expect(AgentDaemonManager.isProcessAlive(oldDaemon.pid)).toBe(false);
+      const newStatus = AgentDaemonManager.getStatus();
+      expect(newStatus.running).toBe(true);
+      expect(newStatus.pid).not.toBe(oldDaemon.pid);
+    } finally {
+      try { if (oldDaemon.pid) process.kill(oldDaemon.pid, 'SIGKILL'); } catch {}
+      spawnSync('node', [gtPath, 'agent', 'stop'], {
+        env: { ...process.env, GT_CONFIG_DIR: testConfigDir },
+        encoding: 'utf-8',
+        timeout: 5000,
+      });
+    }
+  });
+
+  it('terminates old daemon if gt agent stop is called immediately during restart handover', async () => {
+    fs.writeFileSync(path.join(testConfigDir, 'config.json'), JSON.stringify({
+      server: 'http://127.0.0.1:3000',
+      key: 'mock-key',
+      agentName: 'stop-during-handover-node',
+    }));
+
+    const { AgentDaemonManager } = require('../scripts/gt.js');
+    const { getVersionInfo } = require('../src/shared/version');
+    process.env.GT_CONFIG_DIR = testConfigDir;
+
+    // Start a dummy process as the old daemon
+    const oldDaemon = spawn('node', ['-e', 'setInterval(() => {}, 1000)']);
+    AgentDaemonManager.saveStatus({
+      pid: oldDaemon.pid,
+      name: 'stop-during-handover-node',
+      server: 'http://127.0.0.1:3000',
+      version: getVersionInfo().version,
+    });
+
+    try {
+      // Trigger restart
+      const restartRes = spawnSync('node', [gtPath, 'agent', 'restart'], {
+        env: { ...process.env, GT_CONFIG_DIR: testConfigDir },
+        encoding: 'utf-8',
+        timeout: 5000,
+      });
+      expect(restartRes.status).toBe(0);
+
+      // Immediately call stop
+      const stopRes = spawnSync('node', [gtPath, 'agent', 'stop'], {
+        env: { ...process.env, GT_CONFIG_DIR: testConfigDir },
+        encoding: 'utf-8',
+        timeout: 5000,
+      });
+      expect(stopRes.status).toBe(0);
+
+      // Both old daemon and new daemon should be terminated
+      const waitStart = Date.now();
+      while (Date.now() - waitStart < 4000) {
+        if (!AgentDaemonManager.isProcessAlive(oldDaemon.pid)) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(AgentDaemonManager.isProcessAlive(oldDaemon.pid)).toBe(false);
+
+      const status = AgentDaemonManager.getStatus();
+      expect(status.running).toBe(false);
+    } finally {
+      try { if (oldDaemon.pid) process.kill(oldDaemon.pid, 'SIGKILL'); } catch {}
+      spawnSync('node', [gtPath, 'agent', 'stop'], {
+        env: { ...process.env, GT_CONFIG_DIR: testConfigDir },
+        encoding: 'utf-8',
+        timeout: 5000,
+      });
+    }
+  });
+
+  it('does not terminate running daemon if gt agent restart fails authentication', () => {
+    fs.writeFileSync(path.join(testConfigDir, 'config.json'), JSON.stringify({
+      server: 'http://127.0.0.1:3000',
+      key: 'mock-key',
+      agentName: 'auth-fail-restart-node',
+    }));
+
+    const { AgentDaemonManager } = require('../scripts/gt.js');
+    const { getVersionInfo } = require('../src/shared/version');
+    process.env.GT_CONFIG_DIR = testConfigDir;
+
+    // Start a dummy process as the running daemon
+    const dummy = spawn('node', ['-e', 'setInterval(() => {}, 1000)']);
+    AgentDaemonManager.saveStatus({
+      pid: dummy.pid,
+      name: 'auth-fail-restart-node',
+      server: 'http://127.0.0.1:3000',
+      version: getVersionInfo().version,
+    });
+
+    try {
+      // Clear credentials in a new empty config dir
+      const unauthConfigDir = path.join(os.tmpdir(), `gt-test-unauth-${Date.now()}`);
+      fs.mkdirSync(unauthConfigDir, { recursive: true });
+      // Copy agent.json so status sees the running daemon, but config.json has no server/key
+      fs.copyFileSync(AgentDaemonManager.getStatusFile(), path.join(unauthConfigDir, 'agent.json'));
+
+      const cleanEnv: Record<string, string> = { ...process.env, GT_CONFIG_DIR: unauthConfigDir };
+      delete cleanEnv.TERMINAL_SERVER;
+      delete cleanEnv.ADMIN_SECRET_KEY;
+      delete cleanEnv.GEMINI_PROXY_URL;
+      delete cleanEnv.GT_SERVER;
+      delete cleanEnv.GT_KEY;
+
+      const res = spawnSync('node', [gtPath, 'agent', 'restart'], {
+        env: cleanEnv,
+        encoding: 'utf-8',
+        timeout: 5000,
+      });
+
+      expect(res.status).toBe(1);
+      expect(res.stderr).toContain("Error: No authenticated server found.");
+      // Daemon must STILL be alive!
+      expect(AgentDaemonManager.isProcessAlive(dummy.pid)).toBe(true);
+
+      fs.rmSync(unauthConfigDir, { recursive: true, force: true });
+    } finally {
+      try { if (dummy.pid) process.kill(dummy.pid, 'SIGKILL'); } catch {}
+      AgentDaemonManager.clearStatus();
+    }
+  });
 });
