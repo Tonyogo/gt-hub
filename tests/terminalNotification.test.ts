@@ -262,7 +262,7 @@ describe('Universal Terminal Notification (OSC 9 / 777 / 99 / Bell)', () => {
       expect(panePtyContent).toContain("TERM_PROGRAM: 'ghostty'");
     });
 
-    it('registers OSC 9, 777, 99 and onBell handlers in WebTerminalView', () => {
+    it('registers OSC 9, 777, 99 and TerminalTaskCompletionDetector in WebTerminalView without triggering notifications on term.onBell', () => {
       const webTerminalContent = fs.readFileSync(
         path.resolve(__dirname, '../frontend/src/components/WebTerminalView.tsx'),
         'utf-8'
@@ -270,7 +270,8 @@ describe('Universal Terminal Notification (OSC 9 / 777 / 99 / Bell)', () => {
       expect(webTerminalContent).toContain('registerOscHandler(9,');
       expect(webTerminalContent).toContain('registerOscHandler(777,');
       expect(webTerminalContent).toContain('registerOscHandler(99,');
-      expect(webTerminalContent).toContain('term.onBell(');
+      expect(webTerminalContent).toContain('TerminalTaskCompletionDetector');
+      expect(webTerminalContent).not.toContain('term.onBell(');
     });
 
     it('dispatches notifications to external notify API and does not render toast or bell toggle button in WebTerminal / UnifiedTerminal', () => {

@@ -77,7 +77,7 @@ import {
   parseOsc9Notification,
   parseOsc777Notification,
   parseOsc99Notification,
-  TerminalBellCoordinator,
+  TerminalTaskCompletionDetector,
   sendUnifiedNotification,
 } from '../utils/terminalNotificationHelper';
 
@@ -253,7 +253,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
   const [selectedCharCount, setSelectedCharCount] = useState<number>(0);
   const [isSelectMode, setIsSelectMode] = useState<boolean>(false);
   const [isScriptDrawerOpen, setIsScriptDrawerOpen] = useState<boolean>(false);
-  const bellCoordinatorRef = useRef<TerminalBellCoordinator>(new TerminalBellCoordinator(500, 3000));
+  const taskCompletionDetectorRef = useRef<TerminalTaskCompletionDetector | null>(null);
   const [magnifier, setMagnifier] = useState<{
     visible: boolean;
     x: number;
@@ -750,6 +750,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
             console.debug('[WebTerminal] Received backend control message:', parsed);
             if (parsed.type === 'reset') {
               console.debug('[WebTerminal] Received reset signal from backend, clearing buffer and muting synthetic reports');
+              taskCompletionDetectorRef.current?.reset();
               isRemoteAltScreenRef.current = false;
               backgroundQueueRef.current.clear();
               writeSchedulerRef.current?.clear();
@@ -783,6 +784,10 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           }
         }
 
+        if (!isReplayingRef.current) {
+          taskCompletionDetectorRef.current?.recordOutput(data);
+        }
+
         isRemoteAltScreenRef.current = updateRemoteAltScreenState(isRemoteAltScreenRef.current, data);
 
         if (!isActiveRef.current) {
@@ -811,6 +816,9 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         }
       } else if (data instanceof ArrayBuffer) {
         const text = streamTextDecoderRef.current.decode(data, { stream: true });
+        if (!isReplayingRef.current) {
+          taskCompletionDetectorRef.current?.recordOutput(text);
+        }
         isRemoteAltScreenRef.current = updateRemoteAltScreenState(isRemoteAltScreenRef.current, text);
 
         if (!isActiveRef.current) {
@@ -993,11 +1001,23 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       }).catch(() => {});
     };
 
+    taskCompletionDetectorRef.current = new TerminalTaskCompletionDetector({
+      minTaskDurationMs: 10000,
+      idleSettleMs: 3000,
+      onComplete: () => {
+        triggerNotification(
+          t('webTerminal.taskCompletedTitle', '任务完成'),
+          t('webTerminal.taskCompletedMessage', '长耗时终端任务已执行完毕，正在等待您的输入'),
+          'info'
+        );
+      },
+    });
+
     // Intercept OSC 9 (iTerm2 style notifications emitted by Claude Code, etc.)
     const osc9Disposable = term.parser.registerOscHandler(9, (data) => {
       const parsed = parseOsc9Notification(data);
       if (parsed) {
-        bellCoordinatorRef.current.recordOscNotification();
+        taskCompletionDetectorRef.current?.recordOscNotification();
         triggerNotification(parsed.title, parsed.body);
         return true;
       }
@@ -1008,7 +1028,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     const osc777Disposable = term.parser.registerOscHandler(777, (data) => {
       const parsed = parseOsc777Notification(data);
       if (parsed) {
-        bellCoordinatorRef.current.recordOscNotification();
+        taskCompletionDetectorRef.current?.recordOscNotification();
         triggerNotification(parsed.title, parsed.body);
         return true;
       }
@@ -1019,19 +1039,11 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     const osc99Disposable = term.parser.registerOscHandler(99, (data) => {
       const parsed = parseOsc99Notification(data);
       if (parsed) {
-        bellCoordinatorRef.current.recordOscNotification();
+        taskCompletionDetectorRef.current?.recordOscNotification();
         triggerNotification(parsed.title, parsed.body);
         return true;
       }
       return false;
-    });
-
-    // Intercept standard terminal bell (\x07)
-    const bellDisposable = term.onBell(() => {
-      if (isReplayingRef.current) return;
-      if (bellCoordinatorRef.current.shouldTriggerBell()) {
-        triggerNotification('', t('webTerminal.defaultBellMessage', '终端收到响铃提醒，任务可能已完成或等待您的输入'), 'warning');
-      }
     });
 
     const fitAddon = new FitAddon();
@@ -1274,6 +1286,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
       const encoded = encodeModifierKey(domEvent, isCtrl, isAlt, isShift);
       if (encoded !== null) {
+        taskCompletionDetectorRef.current?.recordUserInput(encoded);
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
           wsRef.current.send(encoded);
         }
@@ -1804,6 +1817,8 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     });
 
     term.onData((data) => {
+      taskCompletionDetectorRef.current?.recordUserInput(data);
+
       // 1. Suppress all synthetic reports during session replay or connect/reset window
       if (isReplayingRef.current && isSyntheticTerminalReport(data)) {
         console.debug('[WebTerminal] Suppressed synthetic replay report:', JSON.stringify(data));
@@ -2163,7 +2178,8 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       osc9Disposable.dispose();
       osc777Disposable.dispose();
       osc99Disposable.dispose();
-      bellDisposable.dispose();
+      taskCompletionDetectorRef.current?.dispose();
+      taskCompletionDetectorRef.current = null;
       canvasAddonHandle.dispose();
       canvasAddonRef.current = null;
       selectionDisposable.dispose();
@@ -2355,6 +2371,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
   }, []);
 
   const handleSendInput = (data: string, shouldFocus = false) => {
+    taskCompletionDetectorRef.current?.recordUserInput(data);
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       const isAppCursorMode = Boolean(xtermRef.current?.modes?.applicationCursorKeysMode);
       wsRef.current.send(adaptNavigationSequenceToMode(data, isAppCursorMode));
@@ -2704,6 +2721,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     if (newHostId === activeHostIdRef.current && (wsRef.current?.readyState === WebSocket.OPEN || wsRef.current?.readyState === WebSocket.CONNECTING)) {
       return;
     }
+    taskCompletionDetectorRef.current?.reset();
     setActiveHostId(newHostId);
     activeHostIdRef.current = newHostId;
     localStorage.setItem('terminal_active_host', newHostId);
@@ -2735,6 +2753,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     if (controlledHostId !== undefined && controlledHostId !== activeHostId) {
       lastSentColsRef.current = 0;
       lastSentRowsRef.current = 0;
+      taskCompletionDetectorRef.current?.reset();
       setActiveHostId(controlledHostId);
       activeHostIdRef.current = controlledHostId;
       if (xtermRef.current) {
@@ -2747,6 +2766,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
   }, [controlledHostId, activeHostId, initWebSocket]);
 
   const executeReset = useCallback(() => {
+    taskCompletionDetectorRef.current?.reset();
     isRemoteAltScreenRef.current = false;
     lastSentColsRef.current = 0;
     lastSentRowsRef.current = 0;

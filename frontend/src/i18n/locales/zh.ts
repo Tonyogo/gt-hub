@@ -63,6 +63,8 @@ export const zh: Translations = {
     notificationsOff: "终端通知已静音 (点击开启)",
     defaultBellMessage: "终端收到响铃提醒，任务可能已完成或等待您的输入",
     terminalNotificationTitle: "终端通知",
+    taskCompletedTitle: "任务完成",
+    taskCompletedMessage: "长耗时终端任务已执行完毕，正在等待您的输入",
     accessoryKeys: {
       esc: "ESC",
       tab: "TAB",
