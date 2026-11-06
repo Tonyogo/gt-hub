@@ -75,8 +75,12 @@ export class ScriptService {
       }
     }
 
-    if (!title) {
+    if (!title || title === '新脚本') {
       title = name;
+    }
+
+    if (description === '描述信息') {
+      description = '';
     }
 
     if (!interpreter) {

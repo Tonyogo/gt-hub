@@ -47,6 +47,29 @@ describe('ScriptService', () => {
     });
   });
 
+  it('ignores default template placeholders ("新脚本" and "描述信息") and falls back to script filename', async () => {
+    const content = '#!/usr/bin/env bash\n# @title: 新脚本\n# @description: 描述信息\n\necho "Hello World"\n';
+    await service.saveScript('deploy-app.sh', content);
+
+    const list = await service.listScripts();
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({
+      name: 'deploy-app.sh',
+      title: 'deploy-app.sh',
+      description: '',
+      interpreter: 'bash',
+    });
+  });
+
+  it('falls back to filename when @title and @description tags are empty', async () => {
+    const content = '#!/usr/bin/env bash\n# @title:   \n# @description:   \n\necho "ok"\n';
+    await service.saveScript('clean-logs.sh', content);
+
+    const detail = await service.getScript('clean-logs.sh');
+    expect(detail.title).toBe('clean-logs.sh');
+    expect(detail.description).toBe('');
+  });
+
   it('retrieves single script content accurately', async () => {
     const content = 'echo "hello world"';
     await service.saveScript('hello.sh', content);
