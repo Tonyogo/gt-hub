@@ -3,7 +3,51 @@ export interface ParsedTerminalNotification {
   body: string;
 }
 
-export const TERMINAL_NOTIFICATIONS_STORAGE_KEY = 'gt_terminal_notifications_enabled';
+export const DEFAULT_NOTIFY_API_URL = 'https://www.yatao.cc.cd/api/admin/notify';
+
+export interface UnifiedNotificationPayload {
+  apiUrl?: string;
+  adminKey: string;
+  type?: 'info' | 'warning' | 'error' | 'success';
+  title: string;
+  message: string;
+}
+
+/**
+ * Sends a notification directly to the unified notification endpoint.
+ * Non-blocking, fails gracefully on network errors or timeouts.
+ */
+export async function sendUnifiedNotification(payload: UnifiedNotificationPayload): Promise<boolean> {
+  if (!payload || !payload.adminKey) {
+    return false;
+  }
+  const url = payload.apiUrl || DEFAULT_NOTIFY_API_URL;
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timeoutId = controller ? setTimeout(() => controller.abort(), 5000) : null;
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-admin-key': payload.adminKey,
+      },
+      body: JSON.stringify({
+        type: payload.type || 'info',
+        title: payload.title,
+        message: payload.message,
+      }),
+      signal: controller ? controller.signal : undefined,
+    });
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
 
 /**
  * Parses iTerm2 OSC 9 notification sequence payload: \x1b]9;<message>\x07
@@ -92,110 +136,5 @@ export class TerminalBellCoordinator {
     }
     this.lastBellTime = now;
     return true;
-  }
-}
-
-export function getTerminalNotificationsEnabled(): boolean {
-  try {
-    if (typeof window === 'undefined' || !window.localStorage) return true;
-    const raw = window.localStorage.getItem(TERMINAL_NOTIFICATIONS_STORAGE_KEY);
-    if (raw === null) return true;
-    return raw !== 'false';
-  } catch {
-    return true;
-  }
-}
-
-export function setTerminalNotificationsEnabled(enabled: boolean): void {
-  try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      window.localStorage.setItem(TERMINAL_NOTIFICATIONS_STORAGE_KEY, enabled ? 'true' : 'false');
-    }
-  } catch {
-    // Ignore storage errors
-  }
-}
-
-export async function requestBrowserNotificationPermission(): Promise<NotificationPermission | 'unsupported'> {
-  try {
-    if (typeof window === 'undefined' || !('Notification' in window)) {
-      return 'unsupported';
-    }
-    if (Notification.permission === 'granted' || Notification.permission === 'denied') {
-      return Notification.permission;
-    }
-    return await Notification.requestPermission();
-  } catch {
-    return 'unsupported';
-  }
-}
-
-export function playNotificationChime(): void {
-  try {
-    if (typeof window === 'undefined') return;
-    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioCtx) return;
-
-    const ctx = new AudioCtx();
-    const now = ctx.currentTime;
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(880, now);
-    osc.frequency.exponentialRampToValueAtTime(1174.66, now + 0.08);
-
-    gain.gain.setValueAtTime(0.08, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
-
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-
-    osc.start(now);
-    osc.stop(now + 0.22);
-    osc.onended = () => {
-      ctx.close().catch(() => {});
-    };
-  } catch {
-    // Ignore Web Audio errors when autoplay is blocked
-  }
-}
-
-export function dispatchBrowserNotification(title: string, body: string, tag?: string): void {
-  try {
-    if (typeof window === 'undefined' || !('Notification' in window)) return;
-    if (Notification.permission === 'granted') {
-      const n = new Notification(title, {
-        body,
-        tag: tag || 'gt-terminal-notification',
-      });
-      n.onclick = () => {
-        try {
-          window.focus();
-          n.close();
-        } catch {
-          // Ignore focus errors
-        }
-      };
-    } else if (Notification.permission === 'default') {
-      Notification.requestPermission().then((perm) => {
-        if (perm === 'granted') {
-          const n = new Notification(title, {
-            body,
-            tag: tag || 'gt-terminal-notification',
-          });
-          n.onclick = () => {
-            try {
-              window.focus();
-              n.close();
-            } catch {
-              // Ignore
-            }
-          };
-        }
-      }).catch(() => {});
-    }
-  } catch {
-    // Ignore Notification API errors
   }
 }

@@ -5,6 +5,8 @@ import {
   parseOsc777Notification,
   parseOsc99Notification,
   TerminalBellCoordinator,
+  sendUnifiedNotification,
+  DEFAULT_NOTIFY_API_URL,
 } from '../frontend/src/utils/terminalNotificationHelper';
 import { stripTerminalQuerySequences } from '../src/shared/utils/terminalSanitizer';
 
@@ -82,6 +84,65 @@ describe('Universal Terminal Notification (OSC 9 / 777 / 99 / Bell)', () => {
       expect(coord.shouldTriggerBell(3500)).toBe(false);
       // After 3000ms cooldown -> allowed
       expect(coord.shouldTriggerBell(5001)).toBe(true);
+    });
+  });
+
+  describe('sendUnifiedNotification', () => {
+    beforeEach(() => {
+      (global as any).fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ success: true }),
+      });
+    });
+
+    afterEach(() => {
+      delete (global as any).fetch;
+    });
+
+    it('sends POST request to https://www.yatao.cc.cd/api/admin/notify with x-admin-key and body', async () => {
+      const res = await sendUnifiedNotification({
+        adminKey: 'test-admin-key',
+        type: 'warning',
+        title: '[host-1] Claude Code',
+        message: 'Claude needs your permission to run Bash',
+      });
+
+      expect(res).toBe(true);
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      const [url, opts] = (global.fetch as jest.Mock).mock.calls[0];
+      expect(url).toBe(DEFAULT_NOTIFY_API_URL);
+      expect(url).toBe('https://www.yatao.cc.cd/api/admin/notify');
+      expect(opts.method).toBe('POST');
+      expect(opts.headers['x-admin-key']).toBe('test-admin-key');
+      expect(opts.headers['Content-Type']).toBe('application/json');
+      expect(JSON.parse(opts.body)).toEqual({
+        type: 'warning',
+        title: '[host-1] Claude Code',
+        message: 'Claude needs your permission to run Bash',
+      });
+    });
+
+    it('handles network failure gracefully without throwing', async () => {
+      (global as any).fetch = jest.fn().mockRejectedValue(new Error('Network error'));
+      const res = await sendUnifiedNotification({
+        adminKey: 'key',
+        title: 'Title',
+        message: 'Message',
+      });
+      expect(res).toBe(false);
+    });
+
+    it('returns false when response is not ok', async () => {
+      (global as any).fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+      });
+      const res = await sendUnifiedNotification({
+        adminKey: 'key',
+        title: 'Title',
+        message: 'Message',
+      });
+      expect(res).toBe(false);
     });
   });
 
