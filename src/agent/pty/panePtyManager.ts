@@ -57,6 +57,7 @@ export class SecondaryPanePtyManager {
       COLORTERM: 'truecolor',
       LANG: process.env.LANG || 'en_US.UTF-8',
       TERM_PROGRAM: 'gemini-proxy-agent',
+      LC_TERMINAL: 'iTerm2',
       PROMPT_EOL_MARK: '',
       ...(this.options.env || {}),
     };

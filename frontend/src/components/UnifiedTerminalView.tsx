@@ -29,6 +29,8 @@ import {
   MoreVertical,
   Columns2,
   X,
+  Bell,
+  BellOff,
 } from 'lucide-react';
 import { useTranslation } from '../i18n/LanguageContext';
 import { useTheme } from '../theme/ThemeContext';
@@ -40,6 +42,9 @@ import {
   onFullscreenChange,
 } from '../utils/browserFullscreenHelper';
 import { formatTimezoneOffset } from '../utils/timeHelpers';
+import {
+  getTerminalNotificationsEnabled,
+} from '../utils/terminalNotificationHelper';
 
 export interface UnifiedTerminalViewProps {
   adminKey?: string;
@@ -147,6 +152,12 @@ export default function UnifiedTerminalView({
   });
   const [isSelectMode, setIsSelectMode] = useState<boolean>(false);
   const [isAddNodeModalOpen, setIsAddNodeModalOpen] = useState<boolean>(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(() => getTerminalNotificationsEnabled());
+
+  const handleToggleNotifications = useCallback(() => {
+    getActiveTerminalRef()?.toggleNotifications();
+    setNotificationsEnabled(getTerminalNotificationsEnabled());
+  }, []);
   const [isBrowserFullscreen, setIsBrowserFullscreen] = useState<boolean>(() => isFullscreenActive());
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState<boolean>(false);
   const moreMenuRef = useRef<HTMLDivElement>(null);
@@ -731,6 +742,21 @@ export default function UnifiedTerminalView({
                 <ScrollText className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
               </button>
 
+              {/* Terminal Notifications Toggle */}
+              <button
+                type="button"
+                data-testid="unified-toggle-notifications-btn"
+                className={`hidden sm:inline-flex p-1 sm:p-1.5 rounded-lg border transition-all items-center justify-center shrink-0 ${
+                  notificationsEnabled
+                    ? 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border-indigo-500/30'
+                    : 'bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-muted)] border border-[var(--border-subtle)]'
+                }`}
+                onClick={handleToggleNotifications}
+                title={notificationsEnabled ? t('webTerminal.notificationsOn', '终端通知已开启 (点击静音)') : t('webTerminal.notificationsOff', '终端通知已静音 (点击开启)')}
+              >
+                {notificationsEnabled ? <Bell className="w-3.5 h-3.5" /> : <BellOff className="w-3.5 h-3.5" />}
+              </button>
+
               {/* Zoom Out */}
               <button
                 type="button"
@@ -881,6 +907,27 @@ export default function UnifiedTerminalView({
                     >
                       <Columns2 className="w-3.5 h-3.5 text-indigo-400" />
                       <span>{isSplitMode ? t('webTerminal.closeSplitPane', '关闭分屏') : t('webTerminal.splitPane', '左右分屏')}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleToggleNotifications();
+                        setIsMoreMenuOpen(false);
+                      }}
+                      className="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-[var(--bg-control-hover)] text-left transition-colors"
+                    >
+                      {notificationsEnabled ? (
+                        <>
+                          <Bell className="w-3.5 h-3.5 text-indigo-400" />
+                          <span>{t('webTerminal.notificationsOn', '终端通知已开启')}</span>
+                        </>
+                      ) : (
+                        <>
+                          <BellOff className="w-3.5 h-3.5 text-[var(--text-muted)]" />
+                          <span>{t('webTerminal.notificationsOff', '终端通知已静音')}</span>
+                        </>
+                      )}
                     </button>
 
                     <button

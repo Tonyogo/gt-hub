@@ -59,6 +59,10 @@ export const zh: Translations = {
     selectAllVisible: "全选当前屏",
     clearSelection: "清除选择",
     exitSelectMode: "退出选择",
+    notificationsOn: "终端通知已开启 (点击静音)",
+    notificationsOff: "终端通知已静音 (点击开启)",
+    defaultBellMessage: "终端收到响铃提醒，任务可能已完成或等待您的输入",
+    terminalNotificationTitle: "终端通知",
     accessoryKeys: {
       esc: "ESC",
       tab: "TAB",
