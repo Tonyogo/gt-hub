@@ -138,3 +138,97 @@ export class TerminalBellCoordinator {
     return true;
   }
 }
+
+export interface TaskCompletionDetectorOptions {
+  minTaskDurationMs?: number; // default 10000
+  idleSettleMs?: number;      // default 3000
+  onComplete: (info: { durationMs: number }) => void;
+}
+
+/**
+ * Detects completion of long-running terminal commands and CLI turns (e.g. Claude Code).
+ * Starts tracking on user command submission (\r / \n), monitors continuous output,
+ * and fires onComplete once after a quiet settle window (default 3s) if the task duration
+ * met the minimum threshold (default 10s). Suppresses itself if explicit OSC notifications fired.
+ */
+export class TerminalTaskCompletionDetector {
+  private minTaskDurationMs: number;
+  private idleSettleMs: number;
+  private onComplete: (info: { durationMs: number }) => void;
+  private taskStartTime: number = 0;
+  private lastOutputTime: number = 0;
+  private isTracking: boolean = false;
+  private hasOscNotification: boolean = false;
+  private idleTimer: any = null;
+
+  constructor(options: TaskCompletionDetectorOptions) {
+    this.minTaskDurationMs = options.minTaskDurationMs ?? 10000;
+    this.idleSettleMs = options.idleSettleMs ?? 3000;
+    this.onComplete = options.onComplete;
+  }
+
+  public recordUserInput(data: string, now: number = Date.now()): void {
+    if (!data || typeof data !== 'string') return;
+
+    if (data.includes('\x03')) {
+      this.reset();
+      return;
+    }
+
+    if (data.includes('\r') || data.includes('\n')) {
+      if (this.idleTimer) {
+        clearTimeout(this.idleTimer);
+        this.idleTimer = null;
+      }
+      this.isTracking = true;
+      this.taskStartTime = now;
+      this.lastOutputTime = now;
+      this.hasOscNotification = false;
+    }
+  }
+
+  public recordOutput(chunk: string, now: number = Date.now()): void {
+    if (!this.isTracking || !chunk) {
+      return;
+    }
+    this.lastOutputTime = now;
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+    }
+    this.idleTimer = setTimeout(() => {
+      this.handleIdleSettle();
+    }, this.idleSettleMs);
+  }
+
+  public recordOscNotification(): void {
+    this.hasOscNotification = true;
+  }
+
+  private handleIdleSettle(): void {
+    this.idleTimer = null;
+    if (!this.isTracking) return;
+
+    const durationMs = this.lastOutputTime - this.taskStartTime;
+    const hadOsc = this.hasOscNotification;
+    this.isTracking = false;
+
+    if (!hadOsc && durationMs >= this.minTaskDurationMs) {
+      this.onComplete({ durationMs });
+    }
+  }
+
+  public reset(): void {
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = null;
+    }
+    this.isTracking = false;
+    this.taskStartTime = 0;
+    this.lastOutputTime = 0;
+    this.hasOscNotification = false;
+  }
+
+  public dispose(): void {
+    this.reset();
+  }
+}

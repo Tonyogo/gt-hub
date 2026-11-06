@@ -5,6 +5,7 @@ import {
   parseOsc777Notification,
   parseOsc99Notification,
   TerminalBellCoordinator,
+  TerminalTaskCompletionDetector,
   sendUnifiedNotification,
   DEFAULT_NOTIFY_API_URL,
 } from '../frontend/src/utils/terminalNotificationHelper';
@@ -87,6 +88,87 @@ describe('Universal Terminal Notification (OSC 9 / 777 / 99 / Bell)', () => {
     });
   });
 
+  describe('TerminalTaskCompletionDetector (Activity-to-Idle Completion)', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('does not trigger completion for short commands (< 10s)', () => {
+      const onComplete = jest.fn();
+      const detector = new TerminalTaskCompletionDetector({
+        minTaskDurationMs: 10000,
+        idleSettleMs: 3000,
+        onComplete,
+      });
+
+      detector.recordUserInput('ls -la\r', 1000);
+      detector.recordOutput('total 0\r\n', 1200);
+      jest.advanceTimersByTime(3500);
+
+      expect(onComplete).not.toHaveBeenCalled();
+      detector.dispose();
+    });
+
+    it('triggers completion once when a task runs >= 10s and then settles for 3s', () => {
+      const onComplete = jest.fn();
+      const detector = new TerminalTaskCompletionDetector({
+        minTaskDurationMs: 10000,
+        idleSettleMs: 3000,
+        onComplete,
+      });
+
+      detector.recordUserInput('claude prompt\r', 1000);
+      detector.recordOutput('Thinking...', 5000);
+      detector.recordOutput('Done writing code.\r\n', 12500); // 11.5s elapsed >= 10s
+
+      jest.advanceTimersByTime(2900);
+      expect(onComplete).not.toHaveBeenCalled();
+
+      jest.advanceTimersByTime(200);
+      expect(onComplete).toHaveBeenCalledTimes(1);
+      expect(onComplete).toHaveBeenCalledWith({ durationMs: 11500 });
+      detector.dispose();
+    });
+
+    it('suppresses idle completion notification if an explicit OSC notification already fired during the task', () => {
+      const onComplete = jest.fn();
+      const detector = new TerminalTaskCompletionDetector({
+        minTaskDurationMs: 10000,
+        idleSettleMs: 3000,
+        onComplete,
+      });
+
+      detector.recordUserInput('claude\r', 1000);
+      detector.recordOutput('Working...', 12000);
+      detector.recordOscNotification();
+
+      jest.advanceTimersByTime(4000);
+      expect(onComplete).not.toHaveBeenCalled();
+      detector.dispose();
+    });
+
+    it('cancels task tracking when user presses Ctrl+C (\\x03)', () => {
+      const onComplete = jest.fn();
+      const detector = new TerminalTaskCompletionDetector({
+        minTaskDurationMs: 10000,
+        idleSettleMs: 3000,
+        onComplete,
+      });
+
+      detector.recordUserInput('sleep 30\r', 1000);
+      detector.recordOutput('running...', 12000);
+      detector.recordUserInput('\x03', 12100);
+
+      jest.advanceTimersByTime(4000);
+      expect(onComplete).not.toHaveBeenCalled();
+      detector.dispose();
+    });
+  });
+
   describe('sendUnifiedNotification', () => {
     beforeEach(() => {
       (global as any).fetch = jest.fn().mockResolvedValue({
@@ -165,7 +247,7 @@ describe('Universal Terminal Notification (OSC 9 / 777 / 99 / Bell)', () => {
   });
 
   describe('Agent PTY & Frontend Integration', () => {
-    it('sets LC_TERMINAL=iTerm2 in Agent PTY environments so CLI tools emit OSC 9 out of the box', () => {
+    it('sets LC_TERMINAL=iTerm2 and TERM_PROGRAM=ghostty in Agent PTY environments so CLI tools emit OSC 9 and OSC 777 out of the box', () => {
       const daemonContent = fs.readFileSync(
         path.resolve(__dirname, '../src/agent/daemon.ts'),
         'utf-8'
@@ -176,6 +258,8 @@ describe('Universal Terminal Notification (OSC 9 / 777 / 99 / Bell)', () => {
       );
       expect(daemonContent).toContain("LC_TERMINAL: 'iTerm2'");
       expect(panePtyContent).toContain("LC_TERMINAL: 'iTerm2'");
+      expect(daemonContent).toContain("TERM_PROGRAM: 'ghostty'");
+      expect(panePtyContent).toContain("TERM_PROGRAM: 'ghostty'");
     });
 
     it('registers OSC 9, 777, 99 and onBell handlers in WebTerminalView', () => {
