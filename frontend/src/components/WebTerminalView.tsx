@@ -22,8 +22,6 @@ import {
   Plus,
   ScrollText,
   ClipboardPaste,
-  Bell,
-  BellOff
 } from 'lucide-react';
 import { useTranslation } from '../i18n/LanguageContext';
 import { useTheme } from '../theme/ThemeContext';
@@ -80,11 +78,7 @@ import {
   parseOsc777Notification,
   parseOsc99Notification,
   TerminalBellCoordinator,
-  getTerminalNotificationsEnabled,
-  setTerminalNotificationsEnabled,
-  requestBrowserNotificationPermission,
-  playNotificationChime,
-  dispatchBrowserNotification,
+  sendUnifiedNotification,
 } from '../utils/terminalNotificationHelper';
 
 
@@ -167,8 +161,6 @@ export interface WebTerminalHandle {
   toggleSelectMode: () => void;
   pasteClipboard: () => void;
   openScriptDrawer: () => void;
-  toggleNotifications: () => void;
-  isNotificationsEnabled: () => boolean;
   fit: (force?: boolean) => void;
   scrollToBottomSafe?: () => void;
   isAtBottom?: () => boolean;
@@ -224,6 +216,8 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 }: WebTerminalViewProps, ref) {
   const { t } = useTranslation();
   const { resolvedTheme } = useTheme();
+  const adminKeyRef = useRef<string>(adminKey);
+  adminKeyRef.current = adminKey;
   const terminalContainerRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -259,16 +253,6 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
   const [selectedCharCount, setSelectedCharCount] = useState<number>(0);
   const [isSelectMode, setIsSelectMode] = useState<boolean>(false);
   const [isScriptDrawerOpen, setIsScriptDrawerOpen] = useState<boolean>(false);
-  const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(() => getTerminalNotificationsEnabled());
-  const notificationsEnabledRef = useRef<boolean>(notificationsEnabled);
-  notificationsEnabledRef.current = notificationsEnabled;
-  const [terminalToastNotification, setTerminalToastNotification] = useState<{
-    id: number;
-    title: string;
-    body: string;
-    hostId: string;
-  } | null>(null);
-  const toastNotificationTimerRef = useRef<NodeJS.Timeout | null>(null);
   const bellCoordinatorRef = useRef<TerminalBellCoordinator>(new TerminalBellCoordinator(500, 3000));
   const [magnifier, setMagnifier] = useState<{
     visible: boolean;
@@ -995,26 +979,18 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       return false;
     });
 
-    const triggerNotification = (title: string, body: string) => {
-      if (isReplayingRef.current || !notificationsEnabledRef.current) return;
-      playNotificationChime();
+    const triggerNotification = (title: string, body: string, explicitType?: 'warning' | 'info') => {
+      if (isReplayingRef.current) return;
       const hostLabel = activeHostIdRef.current || 'Local';
       const fullTitle = title ? `[${hostLabel}] ${title}` : `[${hostLabel}] ${t('webTerminal.terminalNotificationTitle', '终端通知')}`;
-      dispatchBrowserNotification(fullTitle, body);
+      const notificationType = explicitType || (/warn|fail|error|alert|prompt|permission|confirm/i.test(body) ? 'warning' : 'info');
 
-      setTerminalToastNotification({
-        id: Date.now(),
+      sendUnifiedNotification({
+        adminKey: adminKeyRef.current,
+        type: notificationType,
         title: fullTitle,
-        body,
-        hostId: hostLabel,
-      });
-
-      if (toastNotificationTimerRef.current) {
-        clearTimeout(toastNotificationTimerRef.current);
-      }
-      toastNotificationTimerRef.current = setTimeout(() => {
-        setTerminalToastNotification(null);
-      }, 5000);
+        message: body,
+      }).catch(() => {});
     };
 
     // Intercept OSC 9 (iTerm2 style notifications emitted by Claude Code, etc.)
@@ -1054,7 +1030,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     const bellDisposable = term.onBell(() => {
       if (isReplayingRef.current) return;
       if (bellCoordinatorRef.current.shouldTriggerBell()) {
-        triggerNotification('', t('webTerminal.defaultBellMessage', '终端收到响铃提醒，任务可能已完成或等待您的输入'));
+        triggerNotification('', t('webTerminal.defaultBellMessage', '终端收到响铃提醒，任务可能已完成或等待您的输入'), 'warning');
       }
     });
 
@@ -2188,9 +2164,6 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       osc777Disposable.dispose();
       osc99Disposable.dispose();
       bellDisposable.dispose();
-      if (toastNotificationTimerRef.current) {
-        clearTimeout(toastNotificationTimerRef.current);
-      }
       canvasAddonHandle.dispose();
       canvasAddonRef.current = null;
       selectionDisposable.dispose();
@@ -2802,21 +2775,6 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     onSelectModeChange?.(isSelectMode);
   }, [isSelectMode, onSelectModeChange]);
 
-  const handleToggleNotifications = useCallback(async () => {
-    const nextVal = !notificationsEnabledRef.current;
-    setNotificationsEnabled(nextVal);
-    notificationsEnabledRef.current = nextVal;
-    setTerminalNotificationsEnabled(nextVal);
-    if (nextVal) {
-      await requestBrowserNotificationPermission();
-      setToastMessage(t('webTerminal.notificationsOn', '终端通知已开启 (点击静音)'));
-    } else {
-      setToastMessage(t('webTerminal.notificationsOff', '终端通知已静音 (点击开启)'));
-    }
-    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
-    toastTimeoutRef.current = setTimeout(() => setToastMessage(null), 2500);
-  }, [t]);
-
   useImperativeHandle(ref, () => ({
     zoomIn: () => setFontSize((prev) => Math.min(22, prev + 1)),
     zoomOut: () => setFontSize((prev) => Math.max(9, prev - 1)),
@@ -2825,8 +2783,6 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     toggleSelectMode: handleToggleSelectMode,
     pasteClipboard: handlePasteClipboard,
     openScriptDrawer: () => setIsScriptDrawerOpen(true),
-    toggleNotifications: () => handleToggleNotifications(),
-    isNotificationsEnabled: () => notificationsEnabledRef.current,
     fit: (force: boolean = false) => safeFit(force),
     scrollToBottomSafe: () => {
       handleScrollToBottom();
@@ -3014,21 +2970,6 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
             <ScrollText className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
           </button>
 
-          {/* Terminal Notifications Toggle */}
-          <button
-            type="button"
-            data-testid="toggle-terminal-notifications-btn"
-            onClick={handleToggleNotifications}
-            className={`p-1 sm:p-1.5 rounded-lg border transition-all flex items-center justify-center shrink-0 ${
-              notificationsEnabled
-                ? 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border-indigo-500/30'
-                : 'bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-muted)] border border-[var(--border-subtle)]'
-            }`}
-            title={notificationsEnabled ? t('webTerminal.notificationsOn', '终端通知已开启 (点击静音)') : t('webTerminal.notificationsOff', '终端通知已静音 (点击开启)')}
-          >
-            {notificationsEnabled ? <Bell className="w-3.5 h-3.5" /> : <BellOff className="w-3.5 h-3.5" />}
-          </button>
-
           {/* Zoom Out */}
           <button
             type="button"
@@ -3125,38 +3066,6 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
             >
               <RefreshCw className="w-3 h-3 text-rose-500 dark:text-rose-300" />
               <span>{t('webTerminal.reconnectNow')}</span>
-            </button>
-          </div>
-        )}
-
-        {/* Floating In-Terminal OSC / Bell Notification Toast */}
-        {terminalToastNotification && (
-          <div
-            data-testid="terminal-toast-notification"
-            className="absolute top-3 right-3 z-40 max-w-sm rounded-xl bg-[var(--bg-elevated)]/95 border border-indigo-500/40 text-[var(--text-primary)] shadow-2xl backdrop-blur-md p-3 flex items-start space-x-2.5 animate-in fade-in slide-in-from-top-2 select-none"
-          >
-            <div className="p-1 rounded-lg bg-indigo-500/15 text-indigo-500 dark:text-indigo-400 shrink-0 mt-0.5">
-              <Bell className="w-4 h-4 animate-bounce" />
-            </div>
-            <div className="flex-1 min-w-0 pr-1">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 truncate">
-                  {terminalToastNotification.title}
-                </span>
-                <span className="text-[10px] text-[var(--text-muted)] font-mono ml-2 shrink-0">
-                  {new Date().toLocaleTimeString()}
-                </span>
-              </div>
-              <p className="text-xs text-[var(--text-secondary)] mt-1 whitespace-pre-wrap break-words leading-relaxed max-h-24 overflow-y-auto font-mono text-[11px]">
-                {terminalToastNotification.body}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setTerminalToastNotification(null)}
-              className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] transition-colors shrink-0"
-            >
-              <X className="w-3.5 h-3.5" />
             </button>
           </div>
         )}

@@ -178,7 +178,18 @@ describe('Universal Terminal Notification (OSC 9 / 777 / 99 / Bell)', () => {
       expect(panePtyContent).toContain("LC_TERMINAL: 'iTerm2'");
     });
 
-    it('registers OSC 9, 777, 99 and onBell handlers in WebTerminalView and toggle button in UnifiedTerminalView', () => {
+    it('registers OSC 9, 777, 99 and onBell handlers in WebTerminalView', () => {
+      const webTerminalContent = fs.readFileSync(
+        path.resolve(__dirname, '../frontend/src/components/WebTerminalView.tsx'),
+        'utf-8'
+      );
+      expect(webTerminalContent).toContain('registerOscHandler(9,');
+      expect(webTerminalContent).toContain('registerOscHandler(777,');
+      expect(webTerminalContent).toContain('registerOscHandler(99,');
+      expect(webTerminalContent).toContain('term.onBell(');
+    });
+
+    it('dispatches notifications to external notify API and does not render toast or bell toggle button in WebTerminal / UnifiedTerminal', () => {
       const webTerminalContent = fs.readFileSync(
         path.resolve(__dirname, '../frontend/src/components/WebTerminalView.tsx'),
         'utf-8'
@@ -187,11 +198,11 @@ describe('Universal Terminal Notification (OSC 9 / 777 / 99 / Bell)', () => {
         path.resolve(__dirname, '../frontend/src/components/UnifiedTerminalView.tsx'),
         'utf-8'
       );
-      expect(webTerminalContent).toContain('registerOscHandler(9,');
-      expect(webTerminalContent).toContain('registerOscHandler(777,');
-      expect(webTerminalContent).toContain('registerOscHandler(99,');
-      expect(webTerminalContent).toContain('term.onBell(');
-      expect(unifiedContent).toContain('data-testid="unified-toggle-notifications-btn"');
+
+      expect(webTerminalContent).toContain('sendUnifiedNotification(');
+      expect(webTerminalContent).not.toContain('terminalToastNotification');
+      expect(webTerminalContent).not.toContain('toggle-terminal-notifications-btn');
+      expect(unifiedContent).not.toContain('unified-toggle-notifications-btn');
     });
   });
 });
