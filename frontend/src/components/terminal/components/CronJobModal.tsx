@@ -370,7 +370,7 @@ export const CronJobModal: React.FC<CronJobModalProps> = ({
                     <option value="" disabled>-- 请选择脚本 --</option>
                     {scripts.map((s) => (
                       <option key={s.name} value={s.name}>
-                        {s.name} {s.title ? `(${s.title})` : ''}
+                        {s.name} {s.title && s.title !== s.name && s.title !== '新脚本' ? `(${s.title})` : ''}
                       </option>
                     ))}
                   </select>

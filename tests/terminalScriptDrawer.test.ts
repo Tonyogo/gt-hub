@@ -51,4 +51,20 @@ describe('TerminalScriptDrawer Component Architecture & Logic', () => {
     expect(content).toContain('scripts.newScript');
     expect(content).toContain('scripts.deleteConfirm');
   });
+
+  it('uses empty metadata tags in new script template and displays script filename in list items', () => {
+    const content = fs.readFileSync(componentPath, 'utf-8');
+    expect(content).not.toContain('# @title: 新脚本');
+    expect(content).toContain('# @title:');
+    expect(content).toContain('item.title && item.title !== item.name && item.title !== \'新脚本\'');
+  });
+
+  it('avoids duplicate script name in CronJobModal option label when title equals name', () => {
+    const cronModalPath = path.resolve(
+      __dirname,
+      '../frontend/src/components/terminal/components/CronJobModal.tsx'
+    );
+    const cronContent = fs.readFileSync(cronModalPath, 'utf-8');
+    expect(cronContent).toContain('s.title && s.title !== s.name');
+  });
 });

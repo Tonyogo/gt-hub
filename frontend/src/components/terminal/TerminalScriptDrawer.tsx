@@ -130,7 +130,7 @@ export const TerminalScriptDrawer: React.FC<TerminalScriptDrawerProps> = ({
     setIsCreating(true);
     setSelectedScriptName(null);
     setNewFileName('');
-    setCurrentContent('#!/usr/bin/env bash\n# @title: 新脚本\n# @description: 描述信息\n\necho "Hello World"\n');
+    setCurrentContent('#!/usr/bin/env bash\n# @title: \n# @description: \n\necho "Hello World"\n');
     setCurrentMeta(null);
     setIsEditing(true);
   };
@@ -301,12 +301,17 @@ export const TerminalScriptDrawer: React.FC<TerminalScriptDrawerProps> = ({
                       }`}
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium truncate">{item.title || item.name}</span>
+                        <span className="text-xs font-medium truncate">
+                          {item.title && item.title !== '新脚本' ? item.title : item.name}
+                        </span>
                         <span className="text-[10px] px-1.5 py-0.2 rounded-sm bg-[var(--bg-control)] text-[var(--text-secondary)] border border-[var(--border-subtle)] font-mono">
                           {item.interpreter || 'sh'}
                         </span>
                       </div>
-                      {item.description && (
+                      {item.title && item.title !== item.name && item.title !== '新脚本' && (
+                        <p className="text-[10px] text-[var(--text-muted)] font-mono truncate">{item.name}</p>
+                      )}
+                      {item.description && item.description !== '描述信息' && (
                         <p className="text-[11px] text-[var(--text-muted)] line-clamp-1">{item.description}</p>
                       )}
                     </button>
