@@ -138,6 +138,29 @@ describe('Mobile Keyboard Dismissal and Checkmark Controls', () => {
 
     expect(content).toContain('if (!isSelectModeRef.current && !isMobileRef.current)');
   });
+
+  test('prevents mobile keyboard pop-up and immediate retraction on tap boundary', () => {
+    const content = fs.readFileSync(webTerminalPath, 'utf-8');
+
+    // 1. Both branches of the single-tap handler (cursor line hit and miss) must preventDefault
+    //    so synthetic mousedown on canvas never blurs textarea 30ms after focus
+    const singleTapStart = content.indexOf('if (!isDragging && elapsed < 350) {');
+    const singleTapEnd = content.indexOf('const handleTouchCancel =', singleTapStart);
+    const singleTapBlock = content.slice(singleTapStart, singleTapEnd);
+
+    const hitBranchStart = singleTapBlock.indexOf('if (cell && isTouchOnCursorLine(');
+    const elseBranchStart = singleTapBlock.indexOf('} else {', hitBranchStart);
+    const hitBranch = singleTapBlock.slice(hitBranchStart, elseBranchStart);
+
+    expect(hitBranch).toContain('e.preventDefault()');
+    expect(hitBranch).not.toContain('isKeyboardShowingRef.current = true');
+
+    // 2. Touch move drag threshold uses 10px tolerance instead of 3px to tolerate thumb tap micro-rolls
+    const touchMoveStart = content.indexOf('const handleTouchMove = (e: TouchEvent) => {');
+    const touchMoveEnd = content.indexOf('const handleTouchEnd = (e: TouchEvent) => {', touchMoveStart);
+    const touchMoveBlock = content.slice(touchMoveStart, touchMoveEnd);
+    expect(touchMoveBlock).toContain('Math.abs(deltaY) > 10 || Math.abs(deltaX) > 10');
+  });
 });
 
 describe('Mobile Cursor-Line Keyboard Trigger Helper (isTouchOnCursorLine)', () => {

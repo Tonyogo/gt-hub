@@ -1707,7 +1707,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         handleHideKeyboard();
       }
 
-      if (!isDragging && (Math.abs(deltaY) > 3 || Math.abs(deltaX) > 3)) {
+      if (!isDragging && (Math.abs(deltaY) > 10 || Math.abs(deltaX) > 10)) {
         isDragging = true;
         isTouchScrollingActiveRef.current = true;
       }
@@ -1772,10 +1772,12 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         const cell = getCellCoordsFromTouch(touchStartX, touchStartY);
         const cursorBufferRow = (term.buffer.active.baseY || 0) + (term.buffer.active.cursorY || 0);
         if (cell && isTouchOnCursorLine({ touchBufferRow: cell.bufferRow, cursorBufferRow })) {
-          // Single tap on cursor input line -> Focus terminal & wake on-screen virtual keyboard synchronously
-          if (isMobileRef.current && standaloneRef.current) {
-            isKeyboardShowingRef.current = true;
+          // Single tap on cursor input line -> Focus terminal & wake on-screen virtual keyboard synchronously.
+          // Prevent synthetic mousedown/click 30ms later on canvas from blurring textarea.
+          if (e.cancelable) {
+            e.preventDefault();
           }
+          setIsKeyboardOpen(true);
           term.focus();
           const textarea = container?.querySelector('textarea');
           if (textarea) {
@@ -1963,7 +1965,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
         if (isKeyboardShowing) {
           setIsKeyboardOpen(true);
-        } else {
+        } else if (!isInputFocused || isKeyboardShowingRef.current) {
           setIsKeyboardOpen(false);
         }
       } else {
