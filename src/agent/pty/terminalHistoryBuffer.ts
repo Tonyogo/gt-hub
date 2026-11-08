@@ -52,6 +52,7 @@ export class TerminalHistoryBuffer {
   private totalLines: number = 0;
   private altChunks: Buffer[] = [];
   private altBytes: number = 0;
+  private altMouseModes: Set<string> = new Set();
   private inAltScreen: boolean = false;
   private readonly maxBytes: number;
   private readonly maxLines: number;
@@ -97,6 +98,7 @@ export class TerminalHistoryBuffer {
         this.inAltScreen = true;
         this.altChunks = [];
         this.altBytes = 0;
+        this.altMouseModes.clear();
         buf = buf.subarray(enterIdx + ALT_SCREEN_ENTER_BUFFER.length);
       } else {
         const exitIdx = buf.indexOf(ALT_SCREEN_EXIT_BUFFER);
@@ -108,6 +110,7 @@ export class TerminalHistoryBuffer {
         this.inAltScreen = false;
         this.altChunks = [];
         this.altBytes = 0;
+        this.altMouseModes.clear();
         buf = buf.subarray(exitIdx + ALT_SCREEN_EXIT_BUFFER.length);
       }
     }
@@ -195,12 +198,38 @@ export class TerminalHistoryBuffer {
     }
   }
 
+  private getAltHeaderBuffer(): Buffer {
+    if (this.altMouseModes.size === 0) {
+      return ALT_SCREEN_ENTER_BUFFER;
+    }
+    let headerStr = '\x1b[?1049h';
+    for (const mode of ['1000', '1002', '1003', '1006']) {
+      if (this.altMouseModes.has(mode)) {
+        headerStr += `\x1b[?${mode}h`;
+      }
+    }
+    return Buffer.from(headerStr, 'binary');
+  }
+
   private pushAlt(buf: Buffer): void {
     if (buf.length === 0) return;
+    if (buf.includes(0x1b)) {
+      const text = buf.toString('binary');
+      const regex = /\x1b\[\?(1000|1002|1003|1006)([hl])/g;
+      let match: RegExpExecArray | null = null;
+      while ((match = regex.exec(text)) !== null) {
+        if (match[2] === 'h') {
+          this.altMouseModes.add(match[1]);
+        } else {
+          this.altMouseModes.delete(match[1]);
+        }
+      }
+    }
     this.altChunks.push(buf);
     this.altBytes += buf.length;
 
-    const effectiveMaxAlt = Math.max(1, this.maxAltBytes - ALT_SCREEN_ENTER_BUFFER.length);
+    const headerLen = this.getAltHeaderBuffer().length;
+    const effectiveMaxAlt = Math.max(1, this.maxAltBytes - headerLen);
     while (this.altBytes > effectiveMaxAlt && this.altChunks.length > 0) {
       const head = this.altChunks[0];
       const excess = this.altBytes - effectiveMaxAlt;
@@ -228,8 +257,9 @@ export class TerminalHistoryBuffer {
       }
       return Buffer.concat(this.chunks, this.totalBytes);
     }
-    const allChunks = [...this.chunks, ALT_SCREEN_ENTER_BUFFER, ...this.altChunks];
-    const totalLen = this.totalBytes + ALT_SCREEN_ENTER_BUFFER.length + this.altBytes;
+    const altHeader = this.getAltHeaderBuffer();
+    const allChunks = [...this.chunks, altHeader, ...this.altChunks];
+    const totalLen = this.totalBytes + altHeader.length + this.altBytes;
     return Buffer.concat(allChunks, totalLen);
   }
 
@@ -251,7 +281,7 @@ export class TerminalHistoryBuffer {
    * Current byte size of the buffer.
    */
   public getSize(): number {
-    return this.totalBytes + (this.inAltScreen ? ALT_SCREEN_ENTER_BUFFER.length + this.altBytes : 0);
+    return this.totalBytes + (this.inAltScreen ? this.getAltHeaderBuffer().length + this.altBytes : 0);
   }
 
   /**
@@ -264,6 +294,7 @@ export class TerminalHistoryBuffer {
     this.totalLines = 0;
     this.altChunks = [];
     this.altBytes = 0;
+    this.altMouseModes.clear();
     this.inAltScreen = false;
   }
 }

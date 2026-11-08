@@ -401,16 +401,16 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       }, 320);
     }
 
-    // Always scroll xterm to bottom cursor line upon keyboard collapse
-    if (xtermRef.current) {
+    // Always scroll xterm to bottom cursor line upon keyboard collapse unless user is actively scrolling
+    if (xtermRef.current && !isTouchScrollingActiveRef.current && isAtBottomRef.current) {
       scrollToBottomSafe(xtermRef.current);
       setTimeout(() => {
-        if (xtermRef.current) {
+        if (xtermRef.current && !isTouchScrollingActiveRef.current && isAtBottomRef.current) {
           scrollToBottomSafe(xtermRef.current);
         }
       }, 100);
       setTimeout(() => {
-        if (xtermRef.current) {
+        if (xtermRef.current && !isTouchScrollingActiveRef.current && isAtBottomRef.current) {
           scrollToBottomSafe(xtermRef.current);
         }
       }, 320);
@@ -1148,15 +1148,15 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
             }
           }, 320);
         }
-        if (xtermRef.current) {
+        if (xtermRef.current && !isTouchScrollingActiveRef.current && isAtBottomRef.current) {
           scrollToBottomSafe(xtermRef.current);
           setTimeout(() => {
-            if (xtermRef.current) {
+            if (xtermRef.current && !isTouchScrollingActiveRef.current && isAtBottomRef.current) {
               scrollToBottomSafe(xtermRef.current);
             }
           }, 100);
           setTimeout(() => {
-            if (xtermRef.current) {
+            if (xtermRef.current && !isTouchScrollingActiveRef.current && isAtBottomRef.current) {
               scrollToBottomSafe(xtermRef.current);
             }
           }, 320);
@@ -1777,7 +1777,6 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           if (e.cancelable) {
             e.preventDefault();
           }
-          setIsKeyboardOpen(true);
           term.focus();
           const textarea = container?.querySelector('textarea');
           if (textarea) {
@@ -1809,7 +1808,10 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     }
 
     const bufferChangeDisposable = term.buffer.onBufferChange((buf) => {
-      if (buf.type !== 'alternate') {
+      if (buf.type === 'alternate') {
+        isRemoteAltScreenRef.current = true;
+      } else {
+        isRemoteAltScreenRef.current = false;
         altScrollState = { accumulatedPx: 0, lastEventTimeMs: 0, lastDispatchTimeMs: 0 };
         stopMomentumScroll();
         if (term.modes?.mouseTrackingMode && term.modes.mouseTrackingMode !== 'none') {
@@ -1965,7 +1967,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
         if (isKeyboardShowing) {
           setIsKeyboardOpen(true);
-        } else if (!isInputFocused || isKeyboardShowingRef.current) {
+        } else {
           setIsKeyboardOpen(false);
         }
       } else {
@@ -2007,15 +2009,15 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         }
 
         // Always scroll to bottom when keyboard closes
-        if (xtermRef.current) {
+        if (xtermRef.current && !isTouchScrollingActiveRef.current && isAtBottomRef.current) {
           scrollToBottomSafe(xtermRef.current);
           setTimeout(() => {
-            if (xtermRef.current) {
+            if (xtermRef.current && !isTouchScrollingActiveRef.current && isAtBottomRef.current) {
               scrollToBottomSafe(xtermRef.current);
             }
           }, 100);
           setTimeout(() => {
-            if (xtermRef.current) {
+            if (xtermRef.current && !isTouchScrollingActiveRef.current && isAtBottomRef.current) {
               scrollToBottomSafe(xtermRef.current);
             }
           }, 320);

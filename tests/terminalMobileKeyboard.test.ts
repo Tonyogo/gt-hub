@@ -160,6 +160,17 @@ describe('Mobile Keyboard Dismissal and Checkmark Controls', () => {
     const touchMoveEnd = content.indexOf('const handleTouchEnd = (e: TouchEvent) => {', touchMoveStart);
     const touchMoveBlock = content.slice(touchMoveStart, touchMoveEnd);
     expect(touchMoveBlock).toContain('Math.abs(deltaY) > 10 || Math.abs(deltaX) > 10');
+
+    // 3. Keyboard hide / blur / viewport close must not yank scroll to bottom while user is touch-scrolling or scrolled up
+    const blurStart = content.indexOf('handleBlur = () => {');
+    const blurEnd = content.indexOf('helperTextarea.addEventListener', blurStart);
+    const blurBlock = content.slice(blurStart, blurEnd);
+    expect(blurBlock).toContain('!isTouchScrollingActiveRef.current && isAtBottomRef.current');
+
+    // 4. Buffer change to alternate synchronizes isRemoteAltScreenRef.current = true
+    const bufChangeStart = content.indexOf('const bufferChangeDisposable = term.buffer.onBufferChange');
+    const bufChangeBlock = content.slice(bufChangeStart, bufChangeStart + 500);
+    expect(bufChangeBlock).toContain('isRemoteAltScreenRef.current = true');
   });
 });
 

@@ -92,6 +92,20 @@ describe('TerminalHistoryBuffer Unit Tests', () => {
     expect(afterExit).not.toContain('\x1b[?1049h');
   });
 
+  test('preserves active mouse tracking modes (\\x1b[?1000h...\\x1b[?1006h) in alternate screen across chunk eviction', () => {
+    const buf = new TerminalHistoryBuffer(1024);
+    buf.push('\x1b[?1049h\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h');
+    for (let i = 0; i < 40; i++) {
+      buf.push(`Frame ${i}: ${'A'.repeat(60)}\r\n`);
+    }
+
+    const replayed = buf.getString();
+    expect(replayed).toContain('\x1b[?1049h');
+    expect(replayed).toContain('\x1b[?1000h');
+    expect(replayed).toContain('\x1b[?1006h');
+    expect(replayed).toContain('Frame 39');
+  });
+
   test('enforces default 2000-line history cap when more than 2000 lines are pushed', () => {
     const buf = new TerminalHistoryBuffer();
     for (let i = 1; i <= 2500; i++) {
