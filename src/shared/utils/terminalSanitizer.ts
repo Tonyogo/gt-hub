@@ -7,10 +7,9 @@
 export function stripTerminalQuerySequences(stream: string): string {
   if (!stream || typeof stream !== 'string') return '';
   let stripped = stream.replace(
-    /\x1b(?:\](?:4|10|11|12);\?(?:\x1b\\|\x07)|\](?:9|99|777);[^\x1b\x07]*(?:\x1b\\|\x07)|\[[>?=]?(?:0)?c|\[\??6n|\[\??\d+\$p|\[>0?q|\[(?:14|18|19|20|21)t)/g,
+    /\x1b(?:\](?:4|10|11|12);\?(?:\x1b\\|\x07)|\[[>?=]?(?:0)?c|\[\??6n|\[\??\d+\$p|\[>0?q|\[(?:14|18|19|20|21)t)/g,
     ''
   );
-  stripped = stripped.replace(/(\x1b\][^\x1b\x07]*\x07)|\x07/g, (_match, oscSeq) => oscSeq || '');
   if (!stripped) return '';
 
   // Neutralize unclosed mouse tracking or focus modes when replayed stream ends in normal buffer mode

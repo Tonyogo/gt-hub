@@ -886,8 +886,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
       LANG: process.env.LANG || 'en_US.UTF-8',
-      TERM_PROGRAM: 'ghostty',
-      LC_TERMINAL: 'iTerm2',
+      TERM_PROGRAM: 'gemini-proxy-agent',
       PROMPT_EOL_MARK: '',
       ...(process.env.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN
         ? { CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: process.env.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN }

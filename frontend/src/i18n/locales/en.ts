@@ -57,12 +57,6 @@ export const en = {
     selectAllVisible: "Select Screen",
     clearSelection: "Clear Selection",
     exitSelectMode: "Exit Select",
-    notificationsOn: "Terminal Notifications On (Click to Mute)",
-    notificationsOff: "Terminal Notifications Muted (Click to Enable)",
-    defaultBellMessage: "Terminal rang a bell — task may be finished or awaiting input",
-    terminalNotificationTitle: "Terminal Notification",
-    taskCompletedTitle: "Task Completed",
-    taskCompletedMessage: "Long-running terminal task has completed and is waiting for your input",
     accessoryKeys: {
       esc: "ESC",
       tab: "TAB",
