@@ -100,3 +100,17 @@ export function isTouchOnCursorLine({
   const effectiveTolerance = Math.max(0, tolerance);
   return Math.abs(touchBufferRow - cursorBufferRow) <= effectiveTolerance;
 }
+
+/**
+ * Encodes a 0-based terminal viewport cell coordinate (col, viewportRow) into a 1-based
+ * SGR (1006) mouse left-click press + release sequence for TUI apps (e.g. Claude Code).
+ */
+export function encodeSgrMouseTap(col: number, viewportRow: number): string {
+  if (!Number.isFinite(col) || !Number.isFinite(viewportRow) || col < 0 || viewportRow < 0) {
+    return '';
+  }
+  const col1 = Math.trunc(col) + 1;
+  const row1 = Math.trunc(viewportRow) + 1;
+  return `\x1b[<0;${col1};${row1}M\x1b[<0;${col1};${row1}m`;
+}
+

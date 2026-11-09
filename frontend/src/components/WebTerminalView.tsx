@@ -40,6 +40,7 @@ import {
   calculateKeyboardTranslateY,
   shouldBlockPtyResize,
   isTouchOnCursorLine,
+  encodeSgrMouseTap,
 } from '../utils/mobileViewportHelper';
 import {
   isUserAtBottom,
@@ -1693,7 +1694,23 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       if (!isDragging && elapsed < 350) {
         const cell = getCellCoordsFromTouch(touchStartX, touchStartY);
         const cursorBufferRow = (term.buffer.active.baseY || 0) + (term.buffer.active.cursorY || 0);
-        if (cell && isTouchOnCursorLine({ touchBufferRow: cell.bufferRow, cursorBufferRow })) {
+        const isAltMouseTracking =
+          term.buffer?.active?.type === 'alternate' &&
+          isRemoteAltScreenRef.current &&
+          Boolean(term.modes?.mouseTrackingMode && term.modes.mouseTrackingMode !== 'none');
+
+        if (isAltMouseTracking && cell && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+          const sgrTap = encodeSgrMouseTap(cell.col, cell.viewportRow);
+          if (sgrTap) {
+            wsRef.current.send(sgrTap);
+          }
+        }
+
+        if (cell && isTouchOnCursorLine({
+          touchBufferRow: cell.bufferRow,
+          cursorBufferRow,
+          tolerance: isAltMouseTracking ? 0 : 1,
+        })) {
           // Single tap on cursor input line -> Focus terminal & wake on-screen virtual keyboard synchronously.
           // Prevent synthetic mousedown/click 30ms later on canvas from blurring textarea.
           if (e.cancelable) {

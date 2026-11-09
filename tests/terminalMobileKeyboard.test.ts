@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { en } from '../frontend/src/i18n/locales/en';
 import { zh } from '../frontend/src/i18n/locales/zh';
-import { isTouchOnCursorLine } from '../frontend/src/utils/mobileViewportHelper';
+import { isTouchOnCursorLine, encodeSgrMouseTap } from '../frontend/src/utils/mobileViewportHelper';
 
 describe('Mobile Keyboard Dismissal and Checkmark Controls', () => {
   const accessoryBarPath = path.resolve(__dirname, '../frontend/src/components/terminal/TerminalAccessoryBar.tsx');
@@ -208,6 +208,37 @@ describe('Mobile Cursor-Line Keyboard Trigger Helper (isTouchOnCursorLine)', () 
     expect(isTouchOnCursorLine({ touchBufferRow: 25, cursorBufferRow: 25, tolerance: 0 })).toBe(true);
     expect(isTouchOnCursorLine({ touchBufferRow: -1, cursorBufferRow: 0 })).toBe(false);
     expect(isTouchOnCursorLine({ touchBufferRow: NaN, cursorBufferRow: 10 })).toBe(false);
+  });
+});
+
+describe('Mobile TUI SGR Mouse Tap Helper (encodeSgrMouseTap)', () => {
+  test('encodes 0-based cell coordinates into 1-based SGR left-button press and release sequence', () => {
+    expect(encodeSgrMouseTap(0, 0)).toBe('\x1b[<0;1;1M\x1b[<0;1;1m');
+    expect(encodeSgrMouseTap(14, 22)).toBe('\x1b[<0;15;23M\x1b[<0;15;23m');
+  });
+
+  test('truncates fractional coordinates and returns empty string for negative or non-finite inputs', () => {
+    expect(encodeSgrMouseTap(4.8, 9.2)).toBe('\x1b[<0;5;10M\x1b[<0;5;10m');
+    expect(encodeSgrMouseTap(-1, 5)).toBe('');
+    expect(encodeSgrMouseTap(5, -1)).toBe('');
+    expect(encodeSgrMouseTap(NaN, 5)).toBe('');
+    expect(encodeSgrMouseTap(5, Infinity)).toBe('');
+  });
+
+  test('WebTerminalView dispatches SGR mouse tap in alternate screen with mouse tracking and uses tolerance 0 for cursor line', () => {
+    const webTerminalPath = path.resolve(__dirname, '../frontend/src/components/WebTerminalView.tsx');
+    const content = fs.readFileSync(webTerminalPath, 'utf-8');
+
+    expect(content).toMatch(
+      /import\s*\{[^}]*encodeSgrMouseTap[^}]*\}\s*from\s*['"]\.\.\/utils\/mobileViewportHelper['"]/
+    );
+
+    const singleTapStart = content.indexOf('if (!isDragging && elapsed < 350) {');
+    const singleTapEnd = content.indexOf('const handleTouchCancel =', singleTapStart);
+    const singleTapBlock = content.slice(singleTapStart, singleTapEnd);
+
+    expect(singleTapBlock).toContain('encodeSgrMouseTap(cell.col, cell.viewportRow)');
+    expect(singleTapBlock).toContain('tolerance: isAltMouseTracking ? 0 : 1');
   });
 });
 
