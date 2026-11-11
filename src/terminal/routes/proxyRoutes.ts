@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import { Router, Request, Response, NextFunction } from 'express';
 import config from '../../../config/default';
-import { safeCompareSecret } from '../../shared/utils/security';
+import { safeCompareSecret, extractAdminKeyFromRequest } from '../../shared/utils/security';
 import { ticketManager } from '../../server/modules/auth/ticketManager';
 import { terminalProxyBridge } from '../services/terminalProxyBridge';
 
@@ -49,17 +49,16 @@ export function proxyAuthMiddleware(req: Request, res: Response, next: NextFunct
     return next();
   }
 
-  // 1. Check header x-admin-key
-  const headerKey = req.headers['x-admin-key'];
-  if (headerKey && safeCompareSecret(headerKey, secretKey)) {
-    return next();
-  }
-
-  // 2. Check query key / x-admin-key
-  const queryKey = (req.query.key as string) || (req.query['x-admin-key'] as string);
-  if (queryKey && safeCompareSecret(queryKey, secretKey)) {
-    const token = createProxySessionToken(secretKey);
-    res.setHeader('Set-Cookie', `gt_proxy_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200`);
+  // 1. Check direct admin key (header x-admin-key, Bearer token, query admin_key/x-admin-key/key)
+  const candidateKey = extractAdminKeyFromRequest(req);
+  if (candidateKey && safeCompareSecret(candidateKey, secretKey)) {
+    const isFromQuery = Boolean(
+      (req.query && (req.query.admin_key || req.query['x-admin-key'] || req.query.key))
+    );
+    if (isFromQuery) {
+      const token = createProxySessionToken(secretKey);
+      res.setHeader('Set-Cookie', `gt_proxy_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200`);
+    }
     return next();
   }
 

@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import config from '../config/default';
-import { safeCompareSecret } from '../../shared/utils/security';
+import { safeCompareSecret, extractAdminKeyFromRequest } from '../../shared/utils/security';
 import { ticketManager } from '../modules/auth/ticketManager';
 
 export function adminAuthMiddleware(req: Request, res: Response, next: NextFunction): void {
@@ -16,8 +16,7 @@ export function adminAuthMiddleware(req: Request, res: Response, next: NextFunct
     return next();
   }
 
-  const rawProvidedKey = req.headers['x-admin-key'] || req.query['x-admin-key'] || req.query.key;
-  const providedKey = Array.isArray(rawProvidedKey) ? rawProvidedKey[0] : rawProvidedKey;
+  const providedKey = extractAdminKeyFromRequest(req);
 
   if (!safeCompareSecret(providedKey, secretKey)) {
     res.status(401).json({ error: 'Unauthorized: Invalid x-admin-key' });

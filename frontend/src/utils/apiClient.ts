@@ -2,22 +2,30 @@ type UnauthorizedListener = () => void;
 
 const unauthorizedListeners: Set<UnauthorizedListener> = new Set();
 
-export const ADMIN_KEY_STORAGE_KEY = 'admin_secret_key';
+export const ADMIN_KEY_STORAGE_KEY = 'adminKey';
+export const ADMIN_LOGGED_OUT_STORAGE_KEY = 'admin_logged_out';
+export const DEFAULT_ADMIN_KEY = 'gt-hub';
 
 /**
  * Retrieve stored admin secret key from localStorage with legacy fallback.
+ * Defaults to DEFAULT_ADMIN_KEY ('gt-hub') unless explicitly logged out.
  */
 export function getStoredAdminKey(): string {
   if (typeof window === 'undefined' || !window.localStorage) {
     return '';
   }
   try {
-    return (
-      localStorage.getItem('admin_secret_key') ||
-      localStorage.getItem('gt_admin_key') ||
+    const key =
       localStorage.getItem('adminKey') ||
-      ''
-    );
+      localStorage.getItem('admin_secret_key') ||
+      localStorage.getItem('gt_admin_key');
+    if (key && key.trim()) {
+      return key.trim();
+    }
+    if (localStorage.getItem(ADMIN_LOGGED_OUT_STORAGE_KEY) === 'true') {
+      return '';
+    }
+    return DEFAULT_ADMIN_KEY;
   } catch {
     return '';
   }
@@ -31,21 +39,27 @@ export function setStoredAdminKey(key: string): void {
     return;
   }
   try {
-    localStorage.setItem('admin_secret_key', key);
+    localStorage.setItem(ADMIN_KEY_STORAGE_KEY, key);
+    localStorage.removeItem('admin_secret_key');
+    localStorage.removeItem('gt_admin_key');
+    localStorage.removeItem(ADMIN_LOGGED_OUT_STORAGE_KEY);
   } catch {}
 }
 
 /**
  * Remove stored admin secret key and legacy keys from localStorage.
  */
-export function clearStoredAdminKey(): void {
+export function clearStoredAdminKey(markLoggedOut = false): void {
   if (typeof window === 'undefined' || !window.localStorage) {
     return;
   }
   try {
+    localStorage.removeItem(ADMIN_KEY_STORAGE_KEY);
     localStorage.removeItem('admin_secret_key');
     localStorage.removeItem('gt_admin_key');
-    localStorage.removeItem('adminKey');
+    if (markLoggedOut) {
+      localStorage.setItem(ADMIN_LOGGED_OUT_STORAGE_KEY, 'true');
+    }
   } catch {}
 }
 

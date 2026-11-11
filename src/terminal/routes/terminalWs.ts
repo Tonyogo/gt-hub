@@ -3,7 +3,7 @@ import { URL } from 'url';
 import { WebSocketServer, WebSocket, RawData } from 'ws';
 import config from '../../../config/default';
 import logger from '../../utils/logger';
-import { safeCompareSecret } from '../../shared/utils/security';
+import { safeCompareSecret, extractAdminKeyFromRequest } from '../../shared/utils/security';
 import { terminalHostManager, TerminalHostManager } from '../services/terminalHostManager';
 import { terminalExecBridge } from '../services/terminalExecBridge';
 import { terminalProxyBridge } from '../services/terminalProxyBridge';
@@ -41,20 +41,13 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
         isAuthorized = true;
       }
 
-      // 2. Header validation (standard for CLI & non-browser clients)
-      if (!isAuthorized && req.headers['x-admin-key']) {
-        const headerKey = Array.isArray(req.headers['x-admin-key'])
-          ? req.headers['x-admin-key'][0]
-          : req.headers['x-admin-key'];
-        if (safeCompareSecret(headerKey, secretKey)) {
-          isAuthorized = true;
-        }
-      }
-
-      // 3. Fallback query parameter validation (backward compatibility)
+      // 2. Admin key extraction (x-admin-key, Authorization Bearer, query params)
       if (!isAuthorized) {
-        const queryKey = parsedUrl.searchParams.get('x-admin-key') || parsedUrl.searchParams.get('key');
-        if (queryKey && safeCompareSecret(queryKey, secretKey)) {
+        const providedKey = extractAdminKeyFromRequest({
+          headers: req.headers as Record<string, unknown>,
+          url: reqUrl,
+        });
+        if (safeCompareSecret(providedKey, secretKey)) {
           isAuthorized = true;
         }
       }

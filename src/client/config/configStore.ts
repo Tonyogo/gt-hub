@@ -238,6 +238,7 @@ export class ConfigStore {
 
     const key =
       cliOpts.key ||
+      env.ADMIN_SECRET_KEY ||
       env.GT_KEY ||
       contextConfig.key ||
       data.key ||

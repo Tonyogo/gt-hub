@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import config from '../../config/default';
-import { safeCompareSecret } from '../../../shared/utils/security';
+import { safeCompareSecret, extractAdminKeyFromRequest } from '../../../shared/utils/security';
 import { ticketManager } from './ticketManager';
 import { loginRateLimiter } from './rateLimiter';
 
@@ -12,8 +12,7 @@ export class AuthController {
       return;
     }
 
-    const rawProvidedKey = req.headers['x-admin-key'] || req.query['x-admin-key'] || req.query.key;
-    const providedKey = Array.isArray(rawProvidedKey) ? rawProvidedKey[0] : rawProvidedKey;
+    const providedKey = extractAdminKeyFromRequest(req);
     const authenticated = safeCompareSecret(providedKey, secretKey);
 
     res.status(200).json({
@@ -39,7 +38,7 @@ export class AuthController {
       return;
     }
 
-    const { key } = req.body || {};
+    const key = (req.body && req.body.key !== undefined) ? req.body.key : extractAdminKeyFromRequest(req);
     if (safeCompareSecret(key, secretKey)) {
       loginRateLimiter.clear(clientIp);
       res.status(200).json({ success: true });

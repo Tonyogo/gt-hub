@@ -15,7 +15,11 @@ export interface SecurityValidationResult {
 
 export function validateSecurityConfig(options: SecurityValidationOptions = {}): SecurityValidationResult {
   const nodeEnv = options.nodeEnv !== undefined ? options.nodeEnv : process.env.NODE_ENV;
-  const secretKey = (options.secretKey !== undefined ? options.secretKey : (process.env.GT_KEY || '')).trim();
+  const secretKey = (
+    options.secretKey !== undefined
+      ? options.secretKey
+      : (process.env.ADMIN_SECRET_KEY || process.env.GT_KEY || 'gt-hub')
+  ).trim();
   const allowInsecure = options.allowInsecure !== undefined
     ? options.allowInsecure
     : process.env.GT_ALLOW_INSECURE_NO_AUTH === 'true';

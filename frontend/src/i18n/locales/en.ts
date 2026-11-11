@@ -1,6 +1,6 @@
 export const en = {
   nav: {
-    adminKeyPlaceholder: "Admin Secret Key",
+    adminKeyPlaceholder: "Admin Secret Key (default: gt-hub)",
     login: "Login",
     logout: "Logout",
     github: "GitHub",

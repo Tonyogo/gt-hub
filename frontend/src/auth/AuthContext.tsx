@@ -1,4 +1,12 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import {
+  getStoredAdminKey,
+  setStoredAdminKey,
+  clearStoredAdminKey,
+  ADMIN_KEY_STORAGE_KEY,
+  ADMIN_LOGGED_OUT_STORAGE_KEY,
+  DEFAULT_ADMIN_KEY,
+} from '../utils/apiClient';
 
 export type AuthStatus = 'checking' | 'authenticated' | 'unauthenticated';
 
@@ -27,9 +35,14 @@ export interface MinimalHistoryWindowLike {
   } | null;
 }
 
+export interface StorageLike {
+  setItem(key: string, value: string): void;
+  removeItem?(key: string): void;
+}
+
 export function consumeHashAdminKey(
   win?: MinimalHistoryWindowLike | Window | any,
-  storage?: Pick<Storage, 'setItem'> | null
+  storage?: StorageLike | Pick<Storage, 'setItem'> | null
 ): string | null {
   const w = win !== undefined ? win : typeof window !== 'undefined' ? window : null;
   const rawHash: string = w?.location?.hash || '';
@@ -51,7 +64,10 @@ export function consumeHashAdminKey(
     storage !== undefined ? storage : typeof localStorage !== 'undefined' ? localStorage : null;
   if (s) {
     try {
-      s.setItem('admin_secret_key', trimmedKey);
+      s.setItem(ADMIN_KEY_STORAGE_KEY, trimmedKey);
+      if ('removeItem' in s && typeof (s as any).removeItem === 'function') {
+        (s as any).removeItem(ADMIN_LOGGED_OUT_STORAGE_KEY);
+      }
     } catch {
       // Ignore storage errors
     }
@@ -110,17 +126,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (hashKey) {
       return hashKey;
     }
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('admin_secret_key') || '';
-    }
-    return '';
+    return getStoredAdminKey();
   });
   const [error, setError] = useState<string | null>(null);
 
   const checkAuth = useCallback(async () => {
     try {
       consumeHashAdminKey();
-      const storedKey = typeof window !== 'undefined' ? localStorage.getItem('admin_secret_key') || '' : '';
+      const storedKey = getStoredAdminKey();
       const headers: HeadersInit = storedKey ? { 'x-admin-key': storedKey } : {};
       const res = await fetch('/api/auth/status', { headers });
 
@@ -129,9 +142,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setAuthRequired(Boolean(data.authRequired));
 
         if (!data.authRequired || data.authenticated) {
+          if (storedKey) {
+            setStoredAdminKey(storedKey);
+          }
           setAdminKey(storedKey);
           setStatus('authenticated');
         } else {
+          // If candidate failed, and storedKey !== DEFAULT_ADMIN_KEY and not explicitly logged out,
+          // try fallback to DEFAULT_ADMIN_KEY ('gt-hub')
+          const isExplicitlyLoggedOut =
+            typeof localStorage !== 'undefined' &&
+            localStorage.getItem(ADMIN_LOGGED_OUT_STORAGE_KEY) === 'true';
+
+          if (storedKey !== DEFAULT_ADMIN_KEY && !isExplicitlyLoggedOut) {
+            try {
+              const fallbackRes = await fetch('/api/auth/status', {
+                headers: { 'x-admin-key': DEFAULT_ADMIN_KEY },
+              });
+              if (fallbackRes.ok) {
+                const fallbackData = await fallbackRes.json();
+                if (!fallbackData.authRequired || fallbackData.authenticated) {
+                  setStoredAdminKey(DEFAULT_ADMIN_KEY);
+                  setAdminKey(DEFAULT_ADMIN_KEY);
+                  setStatus('authenticated');
+                  return;
+                }
+              }
+            } catch {
+              // Fallback failed
+            }
+          }
           setStatus('unauthenticated');
         }
       } else {
@@ -148,13 +188,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const handleMessage = (event: MessageEvent) => {
       const ssoKey = parseAuthMessage(event.data);
       if (ssoKey) {
-        if (typeof window !== 'undefined') {
-          try {
-            localStorage.setItem('admin_secret_key', ssoKey);
-          } catch {
-            // Ignore storage errors
-          }
-        }
+        setStoredAdminKey(ssoKey);
         setAdminKey(ssoKey);
         void checkAuth();
       }
@@ -182,9 +216,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
 
       if (res.ok) {
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('admin_secret_key', key);
-        }
+        setStoredAdminKey(key);
         setAdminKey(key);
         setStatus('authenticated');
         return true;
@@ -200,8 +232,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
+    clearStoredAdminKey(true);
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('admin_secret_key');
       sessionStorage.removeItem('cached_terminal_hosts');
     }
     setAdminKey('');

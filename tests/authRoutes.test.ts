@@ -2,7 +2,7 @@ import request from 'supertest';
 import express from 'express';
 import authRoutes from '../src/auth/routes/authRoutes';
 import { loginRateLimiter } from '../src/server/modules/auth/rateLimiter';
-import config from '../config/default';
+import config, { DEFAULT_ADMIN_SECRET_KEY, resolveAdminSecretKey } from '../config/default';
 
 describe('Auth Routes (/api/auth)', () => {
   const app = express();
@@ -14,6 +14,22 @@ describe('Auth Routes (/api/auth)', () => {
   afterEach(() => {
     config.adminSecretKey = originalKey;
     loginRateLimiter.reset();
+  });
+
+  describe('resolveAdminSecretKey configuration resolution', () => {
+    it('defaults to "gt-hub" when no env vars are set or whitespace-only', () => {
+      expect(DEFAULT_ADMIN_SECRET_KEY).toBe('gt-hub');
+      expect(resolveAdminSecretKey({})).toBe('gt-hub');
+      expect(resolveAdminSecretKey({ ADMIN_SECRET_KEY: '   ' })).toBe('gt-hub');
+      expect(resolveAdminSecretKey({ GT_KEY: '   ' })).toBe('gt-hub');
+    });
+
+    it('prefers ADMIN_SECRET_KEY over GT_KEY', () => {
+      expect(resolveAdminSecretKey({ ADMIN_SECRET_KEY: 'primary-key', GT_KEY: 'legacy-key' })).toBe(
+        'primary-key',
+      );
+      expect(resolveAdminSecretKey({ GT_KEY: 'legacy-key' })).toBe('legacy-key');
+    });
   });
 
   describe('GET /api/auth/status', () => {
@@ -38,6 +54,31 @@ describe('Auth Routes (/api/auth)', () => {
         .set('x-admin-key', 'correct-secret-key');
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ authRequired: true, authenticated: true });
+    });
+
+    it('returns authenticated: true when valid Authorization Bearer header is provided', async () => {
+      config.adminSecretKey = 'correct-secret-key';
+      const res = await request(app)
+        .get('/api/auth/status')
+        .set('Authorization', 'Bearer correct-secret-key');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ authRequired: true, authenticated: true });
+    });
+
+    it('returns authenticated: true when valid query params are provided (admin_key, x-admin-key, key)', async () => {
+      config.adminSecretKey = 'correct-secret-key';
+
+      const resAdminKey = await request(app).get('/api/auth/status?admin_key=correct-secret-key');
+      expect(resAdminKey.status).toBe(200);
+      expect(resAdminKey.body).toEqual({ authRequired: true, authenticated: true });
+
+      const resXAdminKey = await request(app).get('/api/auth/status?x-admin-key=correct-secret-key');
+      expect(resXAdminKey.status).toBe(200);
+      expect(resXAdminKey.body).toEqual({ authRequired: true, authenticated: true });
+
+      const resKey = await request(app).get('/api/auth/status?key=correct-secret-key');
+      expect(resKey.status).toBe(200);
+      expect(resKey.body).toEqual({ authRequired: true, authenticated: true });
     });
 
     it('returns authenticated: false when invalid x-admin-key header is provided', async () => {

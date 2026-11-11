@@ -6,6 +6,14 @@ import {
   requestParentAuth,
   MinimalHistoryWindowLike,
 } from '../frontend/src/auth/AuthContext';
+import {
+  getStoredAdminKey,
+  setStoredAdminKey,
+  clearStoredAdminKey,
+  ADMIN_KEY_STORAGE_KEY,
+  ADMIN_LOGGED_OUT_STORAGE_KEY,
+  DEFAULT_ADMIN_KEY,
+} from '../frontend/src/utils/apiClient';
 
 describe('Frontend AuthContext Architecture', () => {
   const authContextPath = path.resolve(__dirname, '../frontend/src/auth/AuthContext.tsx');
@@ -28,11 +36,11 @@ describe('Frontend AuthContext Architecture', () => {
 
   it('probes /api/auth/status on initialization', () => {
     expect(content).toContain('/api/auth/status');
-    expect(content).toContain('admin_secret_key');
+    expect(content).toContain('getStoredAdminKey()');
   });
 
   it('clears session and local storage on logout', () => {
-    expect(content).toContain("localStorage.removeItem('admin_secret_key')");
+    expect(content).toContain('clearStoredAdminKey(true)');
     expect(content).toContain("sessionStorage.removeItem('cached_terminal_hosts')");
   });
 
@@ -44,7 +52,7 @@ describe('Frontend AuthContext Architecture', () => {
 });
 
 describe('SSO Helpers in AuthContext', () => {
-  it('consumeHashAdminKey extracts and scrubs admin_key from simple hash and persists to admin_secret_key', () => {
+  it('consumeHashAdminKey extracts and scrubs admin_key from simple hash and persists to adminKey', () => {
     let replacedUrl = '';
     const mockWin: MinimalHistoryWindowLike = {
       location: {
@@ -62,11 +70,12 @@ describe('SSO Helpers in AuthContext', () => {
     const storageMap = new Map<string, string>();
     const mockStorage = {
       setItem: (k: string, v: string) => storageMap.set(k, v),
+      removeItem: (k: string) => storageMap.delete(k),
     };
 
     const key = consumeHashAdminKey(mockWin, mockStorage);
     expect(key).toBe('gt-secret');
-    expect(storageMap.get('admin_secret_key')).toBe('gt-secret');
+    expect(storageMap.get('adminKey')).toBe('gt-secret');
     expect(replacedUrl).toBe('/?theme=dark');
   });
 
@@ -175,6 +184,85 @@ describe('SSO Helpers in AuthContext', () => {
       },
     };
     expect(requestParentAuth(throwingWin)).toBe(false);
+  });
+});
+
+class MockLocalStorage {
+  private store = new Map<string, string>();
+  getItem(key: string): string | null {
+    return this.store.get(key) ?? null;
+  }
+  setItem(key: string, value: string): void {
+    this.store.set(key, String(value));
+  }
+  removeItem(key: string): void {
+    this.store.delete(key);
+  }
+  clear(): void {
+    this.store.clear();
+  }
+}
+
+describe('Frontend apiClient storage helpers', () => {
+  let mockStorage: MockLocalStorage;
+
+  beforeEach(() => {
+    mockStorage = new MockLocalStorage();
+    (global as any).window = global;
+    (global as any).localStorage = mockStorage;
+  });
+
+  afterEach(() => {
+    delete (global as any).window;
+    delete (global as any).localStorage;
+  });
+
+  it('exports standardized storage keys and DEFAULT_ADMIN_KEY = "gt-hub"', () => {
+    expect(ADMIN_KEY_STORAGE_KEY).toBe('adminKey');
+    expect(ADMIN_LOGGED_OUT_STORAGE_KEY).toBe('admin_logged_out');
+    expect(DEFAULT_ADMIN_KEY).toBe('gt-hub');
+  });
+
+  it('getStoredAdminKey returns DEFAULT_ADMIN_KEY by default unless explicitly logged out', () => {
+    expect(getStoredAdminKey()).toBe('gt-hub');
+
+    localStorage.setItem(ADMIN_LOGGED_OUT_STORAGE_KEY, 'true');
+    expect(getStoredAdminKey()).toBe('');
+  });
+
+  it('getStoredAdminKey reads adminKey with backward compatibility for admin_secret_key and gt_admin_key', () => {
+    localStorage.setItem('gt_admin_key', 'legacy-gt');
+    expect(getStoredAdminKey()).toBe('legacy-gt');
+
+    localStorage.setItem('admin_secret_key', 'legacy-admin-secret');
+    expect(getStoredAdminKey()).toBe('legacy-admin-secret');
+
+    localStorage.setItem('adminKey', 'unified-key');
+    expect(getStoredAdminKey()).toBe('unified-key');
+  });
+
+  it('setStoredAdminKey persists to adminKey and cleans up legacy and logged out keys', () => {
+    localStorage.setItem('admin_secret_key', 'old1');
+    localStorage.setItem('gt_admin_key', 'old2');
+    localStorage.setItem(ADMIN_LOGGED_OUT_STORAGE_KEY, 'true');
+
+    setStoredAdminKey('new-val');
+    expect(localStorage.getItem('adminKey')).toBe('new-val');
+    expect(localStorage.getItem('admin_secret_key')).toBeNull();
+    expect(localStorage.getItem('gt_admin_key')).toBeNull();
+    expect(localStorage.getItem(ADMIN_LOGGED_OUT_STORAGE_KEY)).toBeNull();
+  });
+
+  it('clearStoredAdminKey removes keys and conditionally marks logged out', () => {
+    setStoredAdminKey('key1');
+    clearStoredAdminKey(false);
+    expect(localStorage.getItem('adminKey')).toBeNull();
+    expect(localStorage.getItem(ADMIN_LOGGED_OUT_STORAGE_KEY)).toBeNull();
+
+    setStoredAdminKey('key2');
+    clearStoredAdminKey(true);
+    expect(localStorage.getItem('adminKey')).toBeNull();
+    expect(localStorage.getItem(ADMIN_LOGGED_OUT_STORAGE_KEY)).toBe('true');
   });
 });
 

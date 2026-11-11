@@ -2,7 +2,7 @@ import { Translations } from './en';
 
 export const zh: Translations = {
   nav: {
-    adminKeyPlaceholder: "管理员密钥",
+    adminKeyPlaceholder: "管理员密钥 (默认: gt-hub)",
     login: "进入控制台",
     logout: "退出登录",
     github: "GitHub 仓库",

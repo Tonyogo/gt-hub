@@ -1,4 +1,8 @@
-import config, { HubConfig } from '../../../config/default';
+import config, {
+  HubConfig,
+  DEFAULT_ADMIN_SECRET_KEY,
+  resolveAdminSecretKey,
+} from '../../../config/default';
 
-export { HubConfig, config };
+export { HubConfig, config, DEFAULT_ADMIN_SECRET_KEY, resolveAdminSecretKey };
 export default config;
