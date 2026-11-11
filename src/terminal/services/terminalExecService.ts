@@ -1,5 +1,6 @@
 import { terminalHostManager } from './terminalHostManager';
 import terminalLogService from './terminalLogService';
+import { terminalExecCallbackService, ExecCallbackConfig } from './terminalExecCallbackService';
 
 export interface StartExecutionOptions {
   command: string;
@@ -7,6 +8,7 @@ export interface StartExecutionOptions {
   timeoutMs?: number;
   env?: Record<string, string>;
   stdin?: string;
+  callback?: ExecCallbackConfig;
 }
 
 export class TerminalExecService {
@@ -40,11 +42,26 @@ export class TerminalExecService {
       const logMsg = `[Exec] Started task ${effectiveTaskId} on [${trimmedHost}]: ${trimmedCmd} (timeout: ${timeoutMs}ms${options.cwd ? `, cwd: ${options.cwd.trim()}` : ''})`;
       terminalLogService.addLog('info', logMsg);
 
+      let callbackRegistered: boolean | undefined = undefined;
+      if (options.callback) {
+        terminalExecCallbackService.registerCallback({
+          taskId: effectiveTaskId,
+          hostId: trimmedHost,
+          command: trimmedCmd,
+          cwd: res.data.cwd || options.cwd,
+          startTime: res.data.startTime,
+          taskTimeoutMs: timeoutMs,
+          callback: options.callback,
+        });
+        callbackRegistered = true;
+      }
+
       return {
         success: true,
         taskId: effectiveTaskId,
         hostId: trimmedHost,
         ...res.data,
+        ...(callbackRegistered ? { callbackRegistered: true } : {}),
       };
     }
 
@@ -164,6 +181,28 @@ export class TerminalExecService {
       success: false,
       error: res?.error || 'Failed to list tasks from agent',
     };
+  }
+
+  public async handleAgentTaskFinished(hostId: string, data: any): Promise<void> {
+    if (!hostId || !data || !data.taskId) return;
+    const trimmedHost = hostId.trim();
+    const trimmedTaskId = String(data.taskId).trim();
+    const taskKey = `${trimmedHost}:${trimmedTaskId}`;
+
+    if (!this.loggedFinishedTasks.has(taskKey)) {
+      this.loggedFinishedTasks.add(taskKey);
+      if (this.loggedFinishedTasks.size > 2000) {
+        const firstKey = this.loggedFinishedTasks.values().next().value;
+        if (firstKey) this.loggedFinishedTasks.delete(firstKey);
+      }
+
+      const isSuccess = data.exitCode === 0 || data.status === 'completed';
+      const level = isSuccess ? 'info' : 'warn';
+      const finishMsg = `[Exec] Task ${trimmedTaskId} on [${trimmedHost}] finished: status=${data.status}, exitCode=${data.exitCode !== null && data.exitCode !== undefined ? data.exitCode : 'N/A'}, duration=${data.durationMs ?? 0}ms`;
+      terminalLogService.addLog(level, finishMsg);
+    }
+
+    await terminalExecCallbackService.handleTaskFinished(trimmedHost, data);
   }
 }
 

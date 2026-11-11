@@ -102,6 +102,21 @@ export interface TaskChunk {
   endOffset: number;
 }
 
+export interface TaskFinishedEvent {
+  taskId: string;
+  command: string;
+  cwd: string;
+  status: 'completed' | 'failed' | 'timeout' | 'killed';
+  exitCode: number | null;
+  startTime: number;
+  endTime: number;
+  durationMs: number;
+  stdout: string;
+  stderr: string;
+  output: string;
+  totalBytes: number;
+}
+
 export interface TaskRecord {
   taskId: string;
   command: string;
@@ -119,6 +134,8 @@ export interface TaskRecord {
   pid: number | null;
   timeoutTimer: NodeJS.Timeout | null;
   killTimer: NodeJS.Timeout | null;
+  notifiedFinish?: boolean;
+  onFinishCallbacks?: Array<(event: TaskFinishedEvent) => void>;
 }
 
 export interface TaskManagerOptions {
@@ -133,6 +150,47 @@ export class TaskManager {
   public TASK_TTL_MS: number;
   public storageDir: string | null = null;
   private reconcileTimers: Map<string, NodeJS.Timeout> = new Map();
+  private finishListeners: Set<(event: TaskFinishedEvent) => void> = new Set();
+
+  public onTaskFinished(listener: (event: TaskFinishedEvent) => void): () => void {
+    this.finishListeners.add(listener);
+    return () => {
+      this.finishListeners.delete(listener);
+    };
+  }
+
+  private emitTaskFinished(record: TaskRecord): void {
+    if (record.notifiedFinish || record.status === 'running') return;
+    record.notifiedFinish = true;
+    const endTime = record.endTime || Date.now();
+    record.endTime = endTime;
+    const event: TaskFinishedEvent = {
+      taskId: record.taskId,
+      command: record.command,
+      cwd: record.cwd,
+      status: record.status,
+      exitCode: record.exitCode,
+      startTime: record.startTime,
+      endTime,
+      durationMs: Math.max(0, endTime - record.startTime),
+      stdout: record.stdout,
+      stderr: record.stderr,
+      output: record.output,
+      totalBytes: record.totalBytes !== undefined ? record.totalBytes : Buffer.byteLength(record.output || '', 'utf-8'),
+    };
+    if (record.onFinishCallbacks && record.onFinishCallbacks.length > 0) {
+      for (const cb of record.onFinishCallbacks) {
+        try {
+          cb(event);
+        } catch {}
+      }
+    }
+    for (const listener of this.finishListeners) {
+      try {
+        listener(event);
+      } catch {}
+    }
+  }
 
   constructor(options?: TaskManagerOptions) {
     this.tasks = new Map();
@@ -293,6 +351,7 @@ export class TaskManager {
         }
         record.endTime = Date.now();
         this.saveToDisk();
+        this.emitTaskFinished(record);
       }
     }, 1500);
     if (timer.unref) timer.unref();
@@ -341,6 +400,7 @@ export class TaskManager {
     timeoutMs = 300000,
     env = {},
     stdin = null,
+    onFinish,
   }: {
     taskId: string;
     command: string;
@@ -348,11 +408,53 @@ export class TaskManager {
     timeoutMs?: number;
     env?: Record<string, any>;
     stdin?: string | null;
+    onFinish?: (event: TaskFinishedEvent) => void;
   }): any {
     this.pruneOldTasks();
 
     if (this.tasks.has(taskId)) {
       const existing = this.tasks.get(taskId)!;
+      if (onFinish) {
+        if (existing.status === 'running') {
+          if (!existing.onFinishCallbacks) {
+            existing.onFinishCallbacks = [];
+          }
+          existing.onFinishCallbacks.push(onFinish);
+        } else {
+          let stdout = existing.stdout;
+          let stderr = existing.stderr;
+          let output = existing.output;
+          if (!output && this.storageDir) {
+            const logPath = this.getLogFilePath(existing.taskId);
+            if (logPath && fs.existsSync(logPath)) {
+              try {
+                output = fs.readFileSync(logPath, 'utf-8');
+                stdout = output;
+              } catch {}
+            }
+          }
+          const endTime = existing.endTime || Date.now();
+          const event: TaskFinishedEvent = {
+            taskId: existing.taskId,
+            command: existing.command,
+            cwd: existing.cwd,
+            status: existing.status as any,
+            exitCode: existing.exitCode,
+            startTime: existing.startTime,
+            endTime,
+            durationMs: Math.max(0, endTime - existing.startTime),
+            stdout,
+            stderr,
+            output,
+            totalBytes: existing.totalBytes !== undefined ? existing.totalBytes : Buffer.byteLength(output || '', 'utf-8'),
+          };
+          queueMicrotask(() => {
+            try {
+              onFinish(event);
+            } catch {}
+          });
+        }
+      }
       return { success: true, taskId, status: existing.status, startTime: existing.startTime };
     }
 
@@ -445,6 +547,8 @@ export class TaskManager {
       pid: child ? child.pid || null : null,
       timeoutTimer: null,
       killTimer: null,
+      notifiedFinish: false,
+      onFinishCallbacks: onFinish ? [onFinish] : [],
     };
 
     const stdoutDecoder = new StringDecoder('utf8');
@@ -513,6 +617,9 @@ export class TaskManager {
       taskRecord.endTime = Date.now();
       if (taskRecord.timeoutTimer) clearTimeout(taskRecord.timeoutTimer);
       this.saveToDisk();
+      if (!taskRecord.child?.pid) {
+        this.emitTaskFinished(taskRecord);
+      }
     });
 
     child.on('close', (code, signal) => {
@@ -532,6 +639,7 @@ export class TaskManager {
         }
       }
       this.saveToDisk();
+      this.emitTaskFinished(taskRecord);
     });
 
     if (timeoutMs > 0) {

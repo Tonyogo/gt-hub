@@ -6,6 +6,7 @@ import logger from '../../utils/logger';
 import { safeCompareSecret, extractAdminKeyFromRequest } from '../../shared/utils/security';
 import { terminalHostManager, TerminalHostManager } from '../services/terminalHostManager';
 import { terminalExecBridge } from '../services/terminalExecBridge';
+import { terminalExecService } from '../services/terminalExecService';
 import { terminalProxyBridge } from '../services/terminalProxyBridge';
 import { ticketManager } from '../../server/modules/auth/ticketManager';
 import { terminalCronService } from '../services/terminalCronService';
@@ -247,6 +248,10 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
           }
           if (control.type === 'cmd_exec_res') {
             hostMgr.handleAgentCmdRpcResponse(control);
+            return;
+          }
+          if (control.type === 'cmd_task_finished') {
+            terminalExecService.handleAgentTaskFinished(hostId, control);
             return;
           }
           if (control.type === 'cmd_stream_data' || control.type === 'cmd_stream_exit') {

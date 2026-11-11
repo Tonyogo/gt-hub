@@ -1,13 +1,23 @@
 import { Request, Response } from 'express';
 import terminalExecService from '../services/terminalExecService';
+import { validateCallbackConfig } from '../services/terminalExecCallbackService';
 
 class TerminalExecController {
   public async startExec(req: Request, res: Response): Promise<any> {
     const hostId = Array.isArray(req.params.hostId) ? req.params.hostId[0] : req.params.hostId;
-    const { command, cwd, timeoutMs, env, stdin } = req.body || {};
+    const { command, cwd, timeoutMs, env, stdin, callback } = req.body || {};
 
     if (!command || typeof command !== 'string' || !command.trim()) {
       return res.status(400).json({ success: false, error: 'Field "command" is required' });
+    }
+
+    let callbackConfig;
+    if (callback !== undefined && callback !== null) {
+      const validation = validateCallbackConfig(callback);
+      if (!validation.valid) {
+        return res.status(400).json({ success: false, error: validation.error });
+      }
+      callbackConfig = validation.config;
     }
 
     const result = await terminalExecService.startExecution(hostId, {
@@ -16,6 +26,7 @@ class TerminalExecController {
       timeoutMs: timeoutMs !== undefined ? parseInt(String(timeoutMs), 10) : undefined,
       env: typeof env === 'object' && env !== null ? env : undefined,
       stdin: typeof stdin === 'string' ? stdin : undefined,
+      callback: callbackConfig,
     });
 
     if (!result.success) {

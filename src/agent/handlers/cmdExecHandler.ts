@@ -21,7 +21,15 @@ export function handleCmdExec(control: any, targetWs: any): void {
 
   try {
     if (action === 'start') {
-      const res = taskManager.startTask({ taskId, command, cwd, timeoutMs, env, stdin });
+      const onFinish = (event: any) => {
+        const isOpen = targetWs && (targetWs.readyState === 1 || targetWs.readyState === (targetWs.constructor?.OPEN ?? 1));
+        if (isOpen) {
+          try {
+            targetWs.send(`JSON:${JSON.stringify({ type: 'cmd_task_finished', ...event })}`);
+          } catch {}
+        }
+      };
+      const res = taskManager.startTask({ taskId, command, cwd, timeoutMs, env, stdin, onFinish });
       if (res.success) {
         return reply(true, res);
       }
