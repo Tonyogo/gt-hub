@@ -3,11 +3,13 @@ import WebSocket from 'ws';
 import express from 'express';
 import { TerminalHostManager } from '../src/terminal/services/terminalHostManager';
 import { setupTerminalWebSocket } from '../src/terminal/routes/terminalWs';
+import config from '../config/default';
 
 describe('Server-side Single Agent per Machine Enforcement', () => {
   let server: http.Server;
   let port: number;
   let hostManager: TerminalHostManager;
+  const authQuery = config.adminSecretKey ? `&key=${encodeURIComponent(config.adminSecretKey)}` : '';
 
   beforeAll((done) => {
     const app = express();
@@ -25,11 +27,11 @@ describe('Server-side Single Agent per Machine Enforcement', () => {
   });
 
   it('rejects second active agent connecting with the same machineId', (done) => {
-    const ws1 = new WebSocket(`ws://localhost:${port}/api/terminal/agent-ws?hostId=agent-1&name=node-1&machineId=machine-xyz`);
+    const ws1 = new WebSocket(`ws://localhost:${port}/api/terminal/agent-ws?hostId=agent-1&name=node-1&machineId=machine-xyz${authQuery}`);
 
     ws1.on('open', () => {
       // Connect second agent with same machineId but different hostId & name
-      const ws2 = new WebSocket(`ws://localhost:${port}/api/terminal/agent-ws?hostId=agent-2&name=node-2&machineId=machine-xyz`);
+      const ws2 = new WebSocket(`ws://localhost:${port}/api/terminal/agent-ws?hostId=agent-2&name=node-2&machineId=machine-xyz${authQuery}`);
 
       ws2.on('message', (data) => {
         const msg = JSON.parse(data.toString().replace(/^JSON:/, ''));
@@ -45,7 +47,7 @@ describe('Server-side Single Agent per Machine Enforcement', () => {
   });
 
   it('allows new agent with same machineId to connect after old agent goes offline', (done) => {
-    const ws1 = new WebSocket(`ws://localhost:${port}/api/terminal/agent-ws?hostId=agent-old&name=node-old&machineId=machine-takeover`);
+    const ws1 = new WebSocket(`ws://localhost:${port}/api/terminal/agent-ws?hostId=agent-old&name=node-old&machineId=machine-takeover${authQuery}`);
 
     ws1.on('open', () => {
       ws1.close(); // Disconnect agent 1 (becomes offline)
@@ -53,7 +55,7 @@ describe('Server-side Single Agent per Machine Enforcement', () => {
 
     ws1.on('close', () => {
       setTimeout(() => {
-        const ws2 = new WebSocket(`ws://localhost:${port}/api/terminal/agent-ws?hostId=agent-new&name=node-new&machineId=machine-takeover`);
+        const ws2 = new WebSocket(`ws://localhost:${port}/api/terminal/agent-ws?hostId=agent-new&name=node-new&machineId=machine-takeover${authQuery}`);
         ws2.on('message', (data) => {
           const msg = JSON.parse(data.toString().replace(/^JSON:/, ''));
           if (msg.type === 'registered') {

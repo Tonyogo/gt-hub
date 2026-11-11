@@ -304,7 +304,10 @@ export class SecondaryPanePtyManager {
     }
     if (pane.ptyProcess) {
       try {
-        pane.ptyProcess.kill('SIGTERM');
+        if (typeof pane.ptyProcess.destroy === 'function') {
+          pane.ptyProcess.destroy();
+        }
+        pane.ptyProcess.kill();
       } catch {}
     }
     pane.history.clear();

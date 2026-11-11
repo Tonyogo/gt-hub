@@ -3,11 +3,13 @@ import WebSocket from 'ws';
 import express from 'express';
 import { setupTerminalWebSocket } from '../src/terminal/routes/terminalWs';
 import { gracefulShutdown } from '../src/server/index';
+import config from '../config/default';
 
 describe('Server Graceful Shutdown & WebSocket Clean Disconnect', () => {
   let server: http.Server;
   let port: number;
   let wss: any;
+  const authQuery = config.adminSecretKey ? `&key=${encodeURIComponent(config.adminSecretKey)}` : '';
 
   beforeEach((done) => {
     const app = express();
@@ -31,7 +33,7 @@ describe('Server Graceful Shutdown & WebSocket Clean Disconnect', () => {
   });
 
   it('notifies all connected WebSocket clients with 1001 code when closing', async () => {
-    const client = new WebSocket(`ws://127.0.0.1:${port}/api/terminal/agent-ws?hostId=test-shutdown-agent`);
+    const client = new WebSocket(`ws://127.0.0.1:${port}/api/terminal/agent-ws?hostId=test-shutdown-agent${authQuery}`);
 
     await new Promise<void>((resolve) => {
       client.on('open', () => resolve());
