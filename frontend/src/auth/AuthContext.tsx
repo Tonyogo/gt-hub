@@ -13,12 +13,103 @@ export interface AuthContextValue {
   checkAuth: () => Promise<void>;
 }
 
+export interface MinimalHistoryWindowLike {
+  location?: {
+    pathname?: string;
+    search?: string;
+    hash?: string;
+  };
+  history?: {
+    replaceState?: (data: unknown, unused: string, url?: string | URL | null) => void;
+  };
+  parent?: {
+    postMessage?: (message: unknown, targetOrigin: string) => void;
+  } | null;
+}
+
+export function consumeHashAdminKey(
+  win?: MinimalHistoryWindowLike | Window | any,
+  storage?: Pick<Storage, 'setItem'> | null
+): string | null {
+  const w = win !== undefined ? win : typeof window !== 'undefined' ? window : null;
+  const rawHash: string = w?.location?.hash || '';
+  if (!rawHash || !rawHash.includes('admin_key=')) return null;
+
+  const content = rawHash.startsWith('#') ? rawHash.slice(1) : rawHash;
+  const qIdx = content.indexOf('?');
+  const hasRoutePrefix = content.startsWith('/') || qIdx !== -1;
+
+  const routePart = hasRoutePrefix ? (qIdx !== -1 ? content.slice(0, qIdx) : content) : '';
+  const queryPart = hasRoutePrefix ? (qIdx !== -1 ? content.slice(qIdx + 1) : '') : content;
+
+  const params = new URLSearchParams(queryPart);
+  const rawKey = params.get('admin_key');
+  if (!rawKey || !rawKey.trim()) return null;
+
+  const trimmedKey = rawKey.trim();
+  const s =
+    storage !== undefined ? storage : typeof localStorage !== 'undefined' ? localStorage : null;
+  if (s) {
+    try {
+      s.setItem('admin_secret_key', trimmedKey);
+    } catch {
+      // Ignore storage errors
+    }
+  }
+
+  params.delete('admin_key');
+  const remainingQuery = params.toString();
+  let nextHash = '';
+  if (hasRoutePrefix) {
+    nextHash = remainingQuery ? `#${routePart}?${remainingQuery}` : routePart ? `#${routePart}` : '';
+  } else {
+    nextHash = remainingQuery ? `#${remainingQuery}` : '';
+  }
+
+  try {
+    const pathname = w?.location?.pathname || '/';
+    const search = w?.location?.search || '';
+    w?.history?.replaceState?.(null, '', `${pathname}${search}${nextHash}`);
+  } catch {
+    // Ignore history replaceState errors
+  }
+
+  return trimmedKey;
+}
+
+export function parseAuthMessage(data: unknown): string | null {
+  if (!data || typeof data !== 'object') return null;
+  const payload = data as Record<string, unknown>;
+  if (payload.type !== 'app-hub:auth-init') return null;
+  if (typeof payload.adminKey === 'string' && payload.adminKey.trim()) {
+    return payload.adminKey.trim();
+  }
+  return null;
+}
+
+export function requestParentAuth(win?: MinimalHistoryWindowLike | Window | any): boolean {
+  const w = win !== undefined ? win : typeof window !== 'undefined' ? window : null;
+  try {
+    if (w?.parent && w.parent !== w && typeof w.parent.postMessage === 'function') {
+      w.parent.postMessage({ type: 'app-hub:auth-request' }, '*');
+      return true;
+    }
+  } catch {
+    // Ignore cross-origin errors
+  }
+  return false;
+}
+
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('checking');
   const [authRequired, setAuthRequired] = useState<boolean>(true);
   const [adminKey, setAdminKey] = useState<string>(() => {
+    const hashKey = consumeHashAdminKey();
+    if (hashKey) {
+      return hashKey;
+    }
     if (typeof window !== 'undefined') {
       return localStorage.getItem('admin_secret_key') || '';
     }
@@ -28,6 +119,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const checkAuth = useCallback(async () => {
     try {
+      consumeHashAdminKey();
       const storedKey = typeof window !== 'undefined' ? localStorage.getItem('admin_secret_key') || '' : '';
       const headers: HeadersInit = storedKey ? { 'x-admin-key': storedKey } : {};
       const res = await fetch('/api/auth/status', { headers });
@@ -52,6 +144,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     checkAuth();
+
+    const handleMessage = (event: MessageEvent) => {
+      const ssoKey = parseAuthMessage(event.data);
+      if (ssoKey) {
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem('admin_secret_key', ssoKey);
+          } catch {
+            // Ignore storage errors
+          }
+        }
+        setAdminKey(ssoKey);
+        void checkAuth();
+      }
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('message', handleMessage);
+      requestParentAuth();
+    }
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('message', handleMessage);
+      }
+    };
   }, [checkAuth]);
 
   const login = useCallback(async (key: string): Promise<boolean> => {
@@ -116,3 +234,4 @@ export function useAuth(): AuthContextValue {
   }
   return context;
 }
+
