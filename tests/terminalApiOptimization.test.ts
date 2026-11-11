@@ -75,6 +75,8 @@ describe('Task 1: Unified Params, HTTP Error Mapping & Response Envelopes', () =
     expect(mapRpcErrorToHttpStatus('No such file or directory')).toBe(404);
     expect(mapRpcErrorToHttpStatus('No such task: task-1')).toBe(404);
     expect(mapRpcErrorToHttpStatus('Invalid cron expression: "bad"')).toBe(400);
+    expect(mapRpcErrorToHttpStatus('Multipart boundary not found')).toBe(400);
+    expect(mapRpcErrorToHttpStatus('Unexpected end of multipart stream: closing boundary not found', 500)).toBe(500);
     expect(mapRpcErrorToHttpStatus('Unexpected internal failure', 500)).toBe(500);
   });
 

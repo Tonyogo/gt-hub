@@ -2,7 +2,7 @@
  * Maps RPC or internal error messages to semantic HTTP status codes.
  *
  * Matching priority (case-insensitive):
- * 1. 400 Bad Request: /invalid|required|cannot be empty|not a directory|is a directory|already exists|malformed|boundary not found|no files uploaded/i
+ * 1. 400 Bad Request: /invalid|required|cannot be empty|not a directory|is a directory|already exists|malformed|multipart boundary not found|no files uploaded/i
  * 2. 403 Forbidden: /permission denied|eacces|eperm|access denied|outside.*workspace|path traversal|sandbox|forbidden/i
  * 3. 404 Not Found: /not found|no such file|no such task|enoent|does not exist/i
  * 4. 503 Service Unavailable: /offline|unavailable|not connected|disconnected|reconnected.*cancelled/i
@@ -23,7 +23,7 @@ export function mapRpcErrorToHttpStatus(
   }
 
   // 1. 400 Bad Request
-  if (/invalid|required|cannot be empty|not a directory|is a directory|already exists|malformed|boundary not found|no files uploaded/i.test(msg)) {
+  if (/invalid|required|cannot be empty|not a directory|is a directory|already exists|malformed|multipart boundary not found|no files uploaded/i.test(msg)) {
     return 400;
   }
 
@@ -33,7 +33,7 @@ export function mapRpcErrorToHttpStatus(
   }
 
   // 3. 404 Not Found
-  if (/not found|no such file|no such task|enoent|does not exist/i.test(msg)) {
+  if (!/closing boundary/i.test(msg) && /not found|no such file|no such task|enoent|does not exist/i.test(msg)) {
     return 404;
   }
 
