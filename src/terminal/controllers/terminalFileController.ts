@@ -6,6 +6,8 @@ import terminalFileService from '../services/terminalFileService';
 import logger from '../../utils/logger';
 import { parseRangeHeader, applyRangeHeaders, applyUnsatisfiableHeaders } from '../utils/rangeParser';
 import { isAlreadyCompressedExtension } from '../../agent/handlers/fileRpcHandler';
+import { extractHostId } from '../utils/requestParams';
+import { mapRpcErrorToHttpStatus } from '../utils/httpErrorMapper';
 
 function isCompressibleFile(filename: string): boolean {
   return !isAlreadyCompressedExtension(filename);
@@ -246,130 +248,149 @@ async function parseAndUploadMultipart(
 class TerminalFileController {
   public async listFiles(req: Request, res: Response): Promise<void> {
     try {
-      const hostId = (req.query.hostId as string)?.trim();
+      const hostId = extractHostId(req);
       if (!hostId) {
         res.status(400).json({ success: false, error: 'hostId is required' });
         return;
       }
-      const targetPath = (req.query.path as string) || undefined;
+      const targetPath = (req.query.path as string) || (req.body?.path as string) || undefined;
       const result = await terminalFileService.listFiles(hostId, targetPath);
-      if (!result.success && result.error?.includes('not found')) {
-        res.status(404).json(result);
+      if (!result.success) {
+        res.status(mapRpcErrorToHttpStatus(result.error, 500)).json(result);
         return;
       }
-      res.status(result.success ? 200 : 500).json(result);
+      res.status(200).json(result);
     } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
+      res.status(mapRpcErrorToHttpStatus(err.message, 500)).json({ success: false, error: err.message });
     }
   }
 
   public async readFileContent(req: Request, res: Response): Promise<void> {
     try {
-      const hostId = (req.query.hostId as string)?.trim();
+      const hostId = extractHostId(req);
       if (!hostId) {
         res.status(400).json({ success: false, error: 'hostId is required' });
         return;
       }
-      const targetPath = req.query.path as string;
+      const targetPath = (req.query.path as string) || (req.body?.path as string);
       if (!targetPath) {
         res.status(400).json({ success: false, error: 'path query parameter is required' });
         return;
       }
       const result = await terminalFileService.readFileContent(hostId, targetPath);
-      if (!result.success && (result.error === 'File not found' || result.error?.includes('not found'))) {
-        res.status(404).json(result);
+      if (!result.success) {
+        res.status(mapRpcErrorToHttpStatus(result.error, 500)).json(result);
         return;
       }
-      res.status(result.success ? 200 : 500).json(result);
+      res.status(200).json(result);
     } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
+      res.status(mapRpcErrorToHttpStatus(err.message, 500)).json({ success: false, error: err.message });
     }
   }
 
   public async saveFileContent(req: Request, res: Response): Promise<void> {
     try {
-      const hostId = (req.body.hostId as string)?.trim();
+      const hostId = extractHostId(req);
       if (!hostId) {
         res.status(400).json({ success: false, error: 'hostId is required' });
         return;
       }
-      const { path: targetPath, content = '' } = req.body;
+      const targetPath = (req.body?.path as string) || (req.query?.path as string);
+      const content = req.body?.content !== undefined ? req.body.content : (req.query?.content as string || '');
       if (!targetPath) {
         res.status(400).json({ success: false, error: 'path is required' });
         return;
       }
       const result = await terminalFileService.saveFileContent(hostId, targetPath, content);
-      res.status(result.success ? 200 : 500).json(result);
+      if (!result.success) {
+        res.status(mapRpcErrorToHttpStatus(result.error, 500)).json(result);
+        return;
+      }
+      res.status(200).json(result);
     } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
+      res.status(mapRpcErrorToHttpStatus(err.message, 500)).json({ success: false, error: err.message });
     }
   }
 
   public async createDirectory(req: Request, res: Response): Promise<void> {
     try {
-      const hostId = (req.body.hostId as string)?.trim();
+      const hostId = extractHostId(req);
       if (!hostId) {
         res.status(400).json({ success: false, error: 'hostId is required' });
         return;
       }
-      const { path: targetPath, dirName } = req.body;
+      const targetPath = (req.body?.path as string) || (req.query?.path as string);
+      const dirName = (req.body?.dirName as string) || (req.query?.dirName as string);
       if (!targetPath || !dirName) {
         res.status(400).json({ success: false, error: 'path and dirName are required' });
         return;
       }
       const result = await terminalFileService.createDirectory(hostId, targetPath, dirName);
-      res.status(result.success ? 200 : 500).json(result);
+      if (!result.success) {
+        res.status(mapRpcErrorToHttpStatus(result.error, 500)).json(result);
+        return;
+      }
+      res.status(200).json(result);
     } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
+      res.status(mapRpcErrorToHttpStatus(err.message, 500)).json({ success: false, error: err.message });
     }
   }
 
   public async renameFile(req: Request, res: Response): Promise<void> {
     try {
-      const hostId = (req.body.hostId as string)?.trim();
+      const hostId = extractHostId(req);
       if (!hostId) {
         res.status(400).json({ success: false, error: 'hostId is required' });
         return;
       }
-      const { oldPath, newPath } = req.body;
+      const oldPath = (req.body?.oldPath as string) || (req.query?.oldPath as string);
+      const newPath = (req.body?.newPath as string) || (req.query?.newPath as string);
       if (!oldPath || !newPath) {
         res.status(400).json({ success: false, error: 'oldPath and newPath are required' });
         return;
       }
       const result = await terminalFileService.renameFile(hostId, oldPath, newPath);
-      res.status(result.success ? 200 : 500).json(result);
+      if (!result.success) {
+        res.status(mapRpcErrorToHttpStatus(result.error, 500)).json(result);
+        return;
+      }
+      res.status(200).json(result);
     } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
+      res.status(mapRpcErrorToHttpStatus(err.message, 500)).json({ success: false, error: err.message });
     }
   }
 
   public async deleteItem(req: Request, res: Response): Promise<void> {
     try {
-      const hostId = (req.query.hostId as string)?.trim();
+      const hostId = extractHostId(req);
       if (!hostId) {
         res.status(400).json({ success: false, error: 'hostId is required' });
         return;
       }
-      const targetPath = req.query.path as string;
+      const targetPath = (req.query?.path as string) || (req.body?.path as string);
       if (!targetPath) {
         res.status(400).json({ success: false, error: 'path query parameter is required' });
         return;
       }
       const result = await terminalFileService.deleteItem(hostId, targetPath);
-      res.status(result.success ? 200 : 500).json(result);
+      if (!result.success) {
+        res.status(mapRpcErrorToHttpStatus(result.error, 500)).json(result);
+        return;
+      }
+      res.status(200).json(result);
     } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
+      res.status(mapRpcErrorToHttpStatus(err.message, 500)).json({ success: false, error: err.message });
     }
   }
 
   public async downloadFile(req: Request, res: Response): Promise<void> {
     try {
-      const hostId = (req.query.hostId as string)?.trim();
+      const hostId = extractHostId(req);
       if (!hostId) {
         res.status(400).json({ success: false, error: 'hostId is required' });
         return;
       }
-      const targetPath = req.query.path as string;
+      const targetPath = (req.query?.path as string) || (req.body?.path as string);
       if (!targetPath) {
         res.status(400).json({ success: false, error: 'path query parameter is required' });
         return;
@@ -385,8 +406,7 @@ class TerminalFileController {
       if (rangeHeader) {
         const statRes = await terminalFileService.getFileStat(hostId, targetPath);
         if (!statRes.success || typeof statRes.size !== 'number') {
-          const isNotFound = statRes.error && (statRes.error.toLowerCase().includes('not found') || statRes.error.toLowerCase().includes('no such file'));
-          res.status(isNotFound ? 404 : 500).json({ success: false, error: statRes.error || 'Failed to stat file' });
+          res.status(mapRpcErrorToHttpStatus(statRes.error, 500)).json({ success: false, error: statRes.error || 'Failed to stat file' });
           return;
         }
 
@@ -411,7 +431,8 @@ class TerminalFileController {
             this.pipeStreamToResponse(sliceResult.stream, res);
             return;
           } else {
-            res.status(sliceResult.status).json({ success: false, error: sliceResult.error });
+            const status = (sliceResult.status && sliceResult.status !== 500) ? sliceResult.status : mapRpcErrorToHttpStatus(sliceResult.error, 500);
+            res.status(status).json({ success: false, error: sliceResult.error });
             return;
           }
         }
@@ -456,10 +477,11 @@ class TerminalFileController {
         }
         this.pipeStreamToResponse(result.stream, res);
       } else {
-        res.status(result.status).json({ success: false, error: result.error });
+        const status = (result.status && result.status !== 500) ? result.status : mapRpcErrorToHttpStatus(result.error, 500);
+        res.status(status).json({ success: false, error: result.error });
       }
     } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
+      res.status(mapRpcErrorToHttpStatus(err.message, 500)).json({ success: false, error: err.message });
     }
   }
 
@@ -495,12 +517,12 @@ class TerminalFileController {
 
   public async uploadFile(req: Request, res: Response): Promise<void> {
     try {
-      const hostId = (req.query.hostId as string)?.trim();
+      const hostId = extractHostId(req);
       if (!hostId) {
         res.status(400).json({ success: false, error: 'hostId is required' });
         return;
       }
-      const targetDir = (req.query.path as string) || '';
+      const targetDir = (req.query?.path as string) || (req.body?.path as string) || '';
       const contentType = req.headers['content-type'] || '';
 
       req.setTimeout(0);
@@ -516,7 +538,7 @@ class TerminalFileController {
 
         const result = await parseAndUploadMultipart(req, boundary, hostId, targetDir);
         if (!result.success) {
-          res.status(500).json({ success: false, error: result.error || 'Failed to upload files' });
+          res.status(mapRpcErrorToHttpStatus(result.error, 500)).json({ success: false, error: result.error || 'Failed to upload files' });
           return;
         }
         if (!result.uploaded || result.uploaded.length === 0) {
@@ -542,10 +564,10 @@ class TerminalFileController {
         ? safeFilename
         : `upload-${Date.now()}`;
       const saveRes = await terminalFileService.saveUploadedStream(hostId, targetDir, filename, req);
-      res.status(saveRes.success ? 200 : 500).json(saveRes);
+      res.status(saveRes.success ? 200 : mapRpcErrorToHttpStatus(saveRes.error, 500)).json(saveRes);
     } catch (err: any) {
       logger.error(`[TerminalFileController] upload processing error: ${err.message}`);
-      res.status(500).json({ success: false, error: err.message });
+      res.status(mapRpcErrorToHttpStatus(err.message, 500)).json({ success: false, error: err.message });
     }
   }
 }

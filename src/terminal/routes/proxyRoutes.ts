@@ -77,7 +77,7 @@ export function proxyAuthMiddleware(req: Request, res: Response, next: NextFunct
     return next();
   }
 
-  res.status(401).json({ error: 'Unauthorized: Invalid x-admin-key or proxy session' });
+  res.status(401).json({ success: false, error: 'Unauthorized: Invalid x-admin-key or proxy session' });
 }
 
 const router = Router();
@@ -90,11 +90,11 @@ router.get('/:hostId/ports', async (req: Request, res: Response) => {
 
   const result = await terminalProxyBridge.listListeningPorts(hostId, timeoutMs);
   if (!result.success) {
-    res.status(result.status || 500).json({ error: result.error || 'Failed to list ports' });
+    res.status(result.status || 500).json({ success: false, error: result.error || 'Failed to list ports' });
     return;
   }
 
-  res.status(200).json({ ports: result.ports || [] });
+  res.status(200).json({ success: true, ports: result.ports || [] });
 });
 
 async function parseJsonBody(req: Request): Promise<any> {
@@ -125,10 +125,11 @@ router.get('/:hostId/speedtest/ping', async (req: Request, res: Response) => {
   const timeoutMs = req.query.timeout ? parseInt(req.query.timeout as string, 10) : 10000;
   const result = await terminalProxyBridge.pingAgent(hostId, timeoutMs);
   if (!result.success) {
-    res.status(result.status || 500).json({ error: result.error || 'Ping failed' });
+    res.status(result.status || 500).json({ success: false, error: result.error || 'Ping failed' });
     return;
   }
   res.status(200).json({
+    success: true,
     hubAgentRttMs: result.hubAgentRttMs,
     timestamp: result.agentTimestamp || Date.now(),
   });
@@ -162,10 +163,10 @@ router.post('/:hostId/speedtest/probe', async (req: Request, res: Response) => {
 
   const result = await terminalProxyBridge.probeTargets(hostId, targets, timeoutMs);
   if (!result.success) {
-    res.status(result.status || 500).json({ error: result.error || 'Probe failed' });
+    res.status(result.status || 500).json({ success: false, error: result.error || 'Probe failed' });
     return;
   }
-  res.status(200).json({ results: result.results || [] });
+  res.status(200).json({ success: true, results: result.results || [] });
 });
 
 router.all(['/:hostId/port/:port', '/:hostId/port/:port/*'], (req: Request, res: Response) => {
@@ -174,7 +175,7 @@ router.all(['/:hostId/port/:port', '/:hostId/port/:port/*'], (req: Request, res:
   const port = parseInt(portStr || '', 10);
 
   if (isNaN(port) || port < 1 || port > 65535) {
-    res.status(400).json({ error: 'Invalid target port number' });
+    res.status(400).json({ success: false, error: 'Invalid target port number' });
     return;
   }
 
@@ -208,7 +209,7 @@ router.all(['/:hostId/port/:port', '/:hostId/port/:port/*'], (req: Request, res:
   }
 
   if (targetProto !== 'http' && targetProto !== 'https') {
-    res.status(400).json({ error: 'Target protocol must be http or https' });
+    res.status(400).json({ success: false, error: 'Target protocol must be http or https' });
     return;
   }
 
@@ -233,6 +234,7 @@ router.all('/:hostId/request', (req: Request, res: Response) => {
 
   if (!rawUrl) {
     res.status(400).json({
+      success: false,
       error: 'Target URL is required (via x-gt-target-url header or url query parameter)',
     });
     return;
@@ -242,12 +244,12 @@ router.all('/:hostId/request', (req: Request, res: Response) => {
   try {
     parsed = new URL(rawUrl);
   } catch {
-    res.status(400).json({ error: 'Invalid target URL format' });
+    res.status(400).json({ success: false, error: 'Invalid target URL format' });
     return;
   }
 
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    res.status(400).json({ error: 'Target URL must use http: or https: protocol' });
+    res.status(400).json({ success: false, error: 'Target URL must use http: or https: protocol' });
     return;
   }
 

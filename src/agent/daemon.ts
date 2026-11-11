@@ -18,7 +18,14 @@ import { handleCronControl } from './handlers/cronHandler';
 import { makeRequest } from '../client/utils/terminalUI';
 import { getVersionInfo } from '../shared/version';
 import { StreamBatcher } from '../shared/utils/streamBatcher';
-import { BIN_MSG_TYPE, decodeBinaryPacket, encodeBinaryPacket } from '../shared/protocol/binaryProtocol';
+import {
+  BIN_MSG_TYPE,
+  decodeBinaryPacket,
+  encodeBinaryPacket,
+  decodeControlJsonPacket,
+  encodeControlJsonPacket,
+  sendControlFrame,
+} from '../shared/protocol/binaryProtocol';
 import { ProxyHandler } from './handlers/proxyHandler';
 
 export const HANDSHAKE_TIMEOUT_MS = 15000;
@@ -1109,6 +1116,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       machineId,
       version: clientVersion,
       startTime: agentStartTime,
+      binaryControl: 1,
     });
     console.log(`[Agent] Connecting to ${targetWsUrl.split('?')[0]}...`);
 
@@ -1129,6 +1137,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
         serverNoContextTakeover: true,
       },
     });
+    (ws as any)._binaryControl = true;
 
     ws.on('pong', () => {
       lastPongReceived = Date.now();
@@ -1207,6 +1216,8 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     ws.on('message', (data: any, isBinary?: boolean) => {
       onHeartbeatActivity();
       try {
+        let control: any = null;
+
         if (
           isBinary ||
           (Buffer.isBuffer(data) &&
@@ -1214,29 +1225,33 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
             (data[0] === BIN_MSG_TYPE.STREAM_INPUT ||
               data[0] === BIN_MSG_TYPE.TERMINAL_RAW ||
               data[0] === BIN_MSG_TYPE.PROXY_HTTP_REQ_BODY ||
-              data[0] === BIN_MSG_TYPE.PROXY_TCP_DATA))
+              data[0] === BIN_MSG_TYPE.PROXY_TCP_DATA ||
+              data[0] === BIN_MSG_TYPE.CONTROL_JSON))
         ) {
           const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as any);
           const decoded = decodeBinaryPacket(buf);
           if (decoded) {
-            if (decoded.msgType === BIN_MSG_TYPE.STREAM_INPUT) {
+            if (decoded.msgType === BIN_MSG_TYPE.CONTROL_JSON) {
+              control = decodeControlJsonPacket(buf);
+            } else if (decoded.msgType === BIN_MSG_TYPE.STREAM_INPUT) {
               if (streamSessionManager) {
                 streamSessionManager.writeRawInput(decoded.id, decoded.payload);
               }
               return;
-            }
-            if (decoded.msgType === BIN_MSG_TYPE.TERMINAL_RAW) {
+            } else if (decoded.msgType === BIN_MSG_TYPE.TERMINAL_RAW) {
               secondaryPaneManager.write(decoded.id, decoded.payload);
               return;
-            }
-            if (proxyHandler && proxyHandler.handleBinaryFrame(decoded)) {
+            } else if (proxyHandler && proxyHandler.handleBinaryFrame(decoded)) {
               return;
             }
           }
         }
 
-        const msgStr = data.toString();
-        const control = parseControlMessage(msgStr);
+        const msgStr = typeof data === 'string' ? data : data.toString();
+        if (!control) {
+          control = parseControlMessage(msgStr);
+        }
+
         if (control) {
           if (proxyHandler && proxyHandler.handleControlMessage(control)) {
             return;

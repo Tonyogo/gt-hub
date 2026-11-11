@@ -1,3 +1,5 @@
+import { sendControlFrame } from '../../shared/protocol/binaryProtocol';
+
 export interface RpcCallbackEntry {
   hostId: string;
   resolver: (response: any) => void;
@@ -49,29 +51,33 @@ export class RpcDispatcher {
   public async executeCmdRpc(
     session: any,
     canonicalId: string,
-    payload: { action: string; [key: string]: any }
+    payload: { action: string; [key: string]: any },
+    timeoutMs: number = 30000
   ): Promise<any> {
-    if (session && typeof session.getAgentWs === 'function') {
-      const agentWs = session.getAgentWs();
+    const hasGetAgentWs = session && typeof session.getAgentWs === 'function';
+    const agentWs = hasGetAgentWs ? session.getAgentWs() : null;
+
+    if (hasGetAgentWs) {
       if (!agentWs || (agentWs.readyState !== 1 && agentWs.readyState !== (agentWs.constructor?.OPEN ?? 1))) {
         return { success: false, error: `Agent ${canonicalId} terminal session is not connected` };
       }
     }
 
     const reqId = `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const rpcMsg = `JSON:${JSON.stringify({
+    const rpcPayload = {
       type: 'cmd_exec',
       reqId,
       ...payload,
-    })}`;
+    };
 
     return new Promise((resolve) => {
       const timeoutTimer = setTimeout(() => {
         if (this.cmdRpcResolvers.has(reqId)) {
           this.cmdRpcResolvers.delete(reqId);
-          resolve({ success: false, error: 'Agent command RPC request timed out (30s)' });
+          resolve({ success: false, error: `Agent command RPC request timed out (${Math.round(timeoutMs / 1000)}s)` });
         }
-      }, 30000);
+      }, timeoutMs);
+      if (typeof timeoutTimer.unref === 'function') timeoutTimer.unref();
 
       this.cmdRpcResolvers.set(reqId, {
         hostId: canonicalId,
@@ -81,7 +87,11 @@ export class RpcDispatcher {
         },
       });
 
-      session.write(rpcMsg);
+      if (agentWs) {
+        sendControlFrame(agentWs, rpcPayload, canonicalId);
+      } else if (session && typeof session.write === 'function') {
+        session.write(`JSON:${JSON.stringify(rpcPayload)}`);
+      }
     });
   }
 
@@ -91,19 +101,21 @@ export class RpcDispatcher {
     payload: { action: string; path: string; params?: any },
     timeoutMs: number = 30000
   ): Promise<any> {
-    if (session && typeof session.getAgentWs === 'function') {
-      const agentWs = session.getAgentWs();
+    const hasGetAgentWs = session && typeof session.getAgentWs === 'function';
+    const agentWs = hasGetAgentWs ? session.getAgentWs() : null;
+
+    if (hasGetAgentWs) {
       if (!agentWs || (agentWs.readyState !== 1 && agentWs.readyState !== (agentWs.constructor?.OPEN ?? 1))) {
         return { success: false, error: `Agent ${canonicalId} terminal session is not connected` };
       }
     }
 
     const reqId = `rpc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const rpcMsg = `JSON:${JSON.stringify({
+    const rpcPayload = {
       type: 'file_rpc',
       reqId,
       ...payload,
-    })}`;
+    };
 
     return new Promise((resolve) => {
       const timeoutTimer = setTimeout(() => {
@@ -112,6 +124,7 @@ export class RpcDispatcher {
           resolve({ success: false, error: `Agent file request timed out (${Math.round(timeoutMs / 1000)}s)` });
         }
       }, timeoutMs);
+      if (typeof timeoutTimer.unref === 'function') timeoutTimer.unref();
 
       this.rpcResolvers.set(reqId, {
         hostId: canonicalId,
@@ -121,7 +134,11 @@ export class RpcDispatcher {
         },
       });
 
-      session.write(rpcMsg);
+      if (agentWs) {
+        sendControlFrame(agentWs, rpcPayload, canonicalId);
+      } else if (session && typeof session.write === 'function') {
+        session.write(`JSON:${JSON.stringify(rpcPayload)}`);
+      }
     });
   }
 }

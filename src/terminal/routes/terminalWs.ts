@@ -10,7 +10,13 @@ import { terminalExecService } from '../services/terminalExecService';
 import { terminalProxyBridge } from '../services/terminalProxyBridge';
 import { ticketManager } from '../../server/modules/auth/ticketManager';
 import { terminalCronService } from '../services/terminalCronService';
-import { BIN_MSG_TYPE, decodeBinaryPacket } from '../../shared/protocol/binaryProtocol';
+import {
+  BIN_MSG_TYPE,
+  decodeBinaryPacket,
+  decodeControlJsonPacket,
+  isValidControlPayload,
+  sendControlFrame,
+} from '../../shared/protocol/binaryProtocol';
 import { TERMINAL_WS_DEFLATE_OPTIONS } from '../../shared/protocol/wsOptions';
 
 export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?: any): WebSocketServer {
@@ -126,6 +132,10 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
     const startTimeParam = parsedUrl.searchParams.get('startTime');
     const parsedStartTime = startTimeParam ? parseInt(startTimeParam, 10) : undefined;
     const startTime = (parsedStartTime && !isNaN(parsedStartTime)) ? parsedStartTime : undefined;
+    const binaryControlParam = parsedUrl.searchParams.get('binaryControl');
+    if (binaryControlParam === '1' || binaryControlParam === 'true') {
+      (ws as any)._binaryControl = true;
+    }
     const agentMeta = { hostId, name, hostname, ip, platform, machineId, version, startTime };
     (ws as any)._agentMeta = agentMeta;
 
@@ -144,7 +154,7 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
     if (!regResult.success) {
       logger.warn(`[TerminalWS:Agent] Registration rejected for ${hostId} (${name}): ${regResult.error}`);
       try {
-        ws.send(`JSON:${JSON.stringify({ type: 'rejected', reason: regResult.error, code: 4009 })}`);
+        sendControlFrame(ws, { type: 'rejected', reason: regResult.error, code: 4009 }, hostId);
         ws.close(4009, regResult.error);
       } catch {}
       return;
@@ -152,10 +162,96 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
 
     const host = regResult.host!;
     logger.info(`[TerminalWS:Agent] Agent connected: ${hostId} (${host.name}) from ${ip}`);
-    ws.send(`JSON:${JSON.stringify({ type: 'registered', hostId, status: 'online' })}`);
+    sendControlFrame(ws, { type: 'registered', hostId, status: 'online' }, hostId);
     terminalCronService.syncOnConnect(hostId);
 
     let lastTouch = 0;
+
+    const dispatchAgentControl = (control: Record<string, any>, now: number): boolean => {
+      if (terminalProxyBridge.handleAgentControlMessage(hostId, control)) {
+        return true;
+      }
+      if (control.type === 'ping') {
+        lastTouch = now;
+        hostMgr.touchAgent(hostId, ws, agentMeta);
+        sendControlFrame(ws, { type: 'pong' }, hostId);
+        return true;
+      }
+      if (control.type === 'meta') {
+        const metaRes = hostMgr.registerAgent({
+          hostId,
+          name: control.name,
+          hostname: control.hostname,
+          ip: control.ip,
+          platform: control.platform,
+          machineId,
+          version: control.version || version,
+          startTime: control.startTime || startTime,
+          agentWs: ws,
+        });
+        if (metaRes.success) {
+          terminalCronService.syncOnConnect(hostId);
+        }
+        if (!metaRes.success) {
+          logger.warn(`[TerminalWS:Agent] Meta update rejected for ${hostId}: ${metaRes.error}`);
+          try {
+            sendControlFrame(ws, { type: 'rejected', reason: metaRes.error, code: 4009 }, hostId);
+            ws.close(4009, metaRes.error);
+          } catch {}
+        }
+        return true;
+      }
+      if (control.type === 'file_rpc_res') {
+        hostMgr.handleAgentRpcResponse(control);
+        return true;
+      }
+      if (control.type === 'cmd_exec_res') {
+        hostMgr.handleAgentCmdRpcResponse(control);
+        return true;
+      }
+      if (control.type === 'cmd_task_finished') {
+        terminalExecService.handleAgentTaskFinished(hostId, control);
+        return true;
+      }
+      if (control.type === 'cmd_stream_data' || control.type === 'cmd_stream_exit') {
+        if (typeof control.taskId === 'string' && control.taskId.startsWith('pane-')) {
+          const paneId = control.taskId.slice(5);
+          if (control.type === 'cmd_stream_data' && control.data) {
+            hostMgr.handleAgentPaneData(hostId, paneId, Buffer.from(control.data, 'base64'));
+          } else if (control.type === 'cmd_stream_exit') {
+            hostMgr.handleAgentPaneExit(hostId, paneId, control.exitCode);
+          }
+          return true;
+        }
+        terminalExecBridge.handleAgentStreamMessage(hostId, control);
+        return true;
+      }
+      if (control.type === 'history_sync') {
+        if (control.paneId && control.paneId !== 'main') {
+          hostMgr.handleAgentPaneHistorySync(hostId, control.paneId, control.history);
+        } else {
+          hostMgr.handleAgentHistorySync(hostId, control.history);
+        }
+        return true;
+      }
+      if (control.type === 'cron_report' && control.record) {
+        terminalCronService.recordExecution(hostId, control.record);
+        return true;
+      }
+      if (control.type === 'reset') {
+        const targetPane = control.paneId || 'main';
+        const session = hostMgr.getSession(hostId, targetPane);
+        if (session) {
+          session.reset(true, false);
+        }
+        return true;
+      }
+      if (control.type === 'pane_exit') {
+        hostMgr.handleAgentPaneExit(hostId, control.paneId || 'split', control.exitCode);
+        return true;
+      }
+      return true;
+    };
 
     ws.on('ping', () => {
       hostMgr.touchAgent(hostId, ws, agentMeta);
@@ -172,6 +268,13 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
         if (isBinary) {
           const buf = Buffer.isBuffer(message) ? message : Buffer.from(message as any);
           const decoded = decodeBinaryPacket(buf);
+          if (decoded && decoded.msgType === BIN_MSG_TYPE.CONTROL_JSON) {
+            const ctrl = decodeControlJsonPacket(buf);
+            if (ctrl) {
+              dispatchAgentControl(ctrl, now);
+              return;
+            }
+          }
           if (
             decoded &&
             (decoded.msgType === BIN_MSG_TYPE.PROXY_HTTP_RES_BODY ||
@@ -208,91 +311,14 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
 
         const msgStr = typeof message === 'string' ? message : message.toString('utf-8');
         if (msgStr.startsWith('JSON:')) {
-          const control = JSON.parse(msgStr.slice(5));
-          if (terminalProxyBridge.handleAgentControlMessage(hostId, control)) {
+          let control: any = null;
+          try {
+            control = JSON.parse(msgStr.slice(5));
+          } catch {}
+          if (isValidControlPayload(control)) {
+            dispatchAgentControl(control, now);
             return;
           }
-          if (control.type === 'ping') {
-            lastTouch = now;
-            hostMgr.touchAgent(hostId, ws, agentMeta);
-            ws.send(`JSON:${JSON.stringify({ type: 'pong' })}`);
-            return;
-          }
-          if (control.type === 'meta') {
-            const metaRes = hostMgr.registerAgent({
-              hostId,
-              name: control.name,
-              hostname: control.hostname,
-              ip: control.ip,
-              platform: control.platform,
-              machineId,
-              version: control.version || version,
-              startTime: control.startTime || startTime,
-              agentWs: ws,
-            });
-            if (metaRes.success) {
-              terminalCronService.syncOnConnect(hostId);
-            }
-            if (!metaRes.success) {
-              logger.warn(`[TerminalWS:Agent] Meta update rejected for ${hostId}: ${metaRes.error}`);
-              try {
-                ws.send(`JSON:${JSON.stringify({ type: 'rejected', reason: metaRes.error, code: 4009 })}`);
-                ws.close(4009, metaRes.error);
-              } catch {}
-            }
-            return;
-          }
-          if (control.type === 'file_rpc_res') {
-            hostMgr.handleAgentRpcResponse(control);
-            return;
-          }
-          if (control.type === 'cmd_exec_res') {
-            hostMgr.handleAgentCmdRpcResponse(control);
-            return;
-          }
-          if (control.type === 'cmd_task_finished') {
-            terminalExecService.handleAgentTaskFinished(hostId, control);
-            return;
-          }
-          if (control.type === 'cmd_stream_data' || control.type === 'cmd_stream_exit') {
-            if (typeof control.taskId === 'string' && control.taskId.startsWith('pane-')) {
-              const paneId = control.taskId.slice(5);
-              if (control.type === 'cmd_stream_data' && control.data) {
-                hostMgr.handleAgentPaneData(hostId, paneId, Buffer.from(control.data, 'base64'));
-              } else if (control.type === 'cmd_stream_exit') {
-                hostMgr.handleAgentPaneExit(hostId, paneId, control.exitCode);
-              }
-              return;
-            }
-            terminalExecBridge.handleAgentStreamMessage(hostId, control);
-            return;
-          }
-          if (control.type === 'history_sync') {
-            if (control.paneId && control.paneId !== 'main') {
-              hostMgr.handleAgentPaneHistorySync(hostId, control.paneId, control.history);
-            } else {
-              hostMgr.handleAgentHistorySync(hostId, control.history);
-            }
-            return;
-          }
-          if (control.type === 'cron_report' && control.record) {
-            terminalCronService.recordExecution(hostId, control.record);
-            return;
-          }
-          if (control.type === 'reset') {
-            const targetPane = control.paneId || 'main';
-            const session = hostMgr.getSession(hostId, targetPane);
-            if (session) {
-              session.reset(true, false);
-            }
-            return;
-          }
-          if (control.type === 'pane_exit') {
-            hostMgr.handleAgentPaneExit(hostId, control.paneId || 'split', control.exitCode);
-            return;
-          }
-          // Any other control frame is consumed here
-          return;
         }
         hostMgr.handleAgentData(hostId, msgStr);
       } catch (err: any) {
@@ -326,6 +352,10 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
     }
     const parsedUrl = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
     const hostId = (parsedUrl.searchParams.get('hostId') || '').trim();
+    const binaryControl = parsedUrl.searchParams.get('binaryControl');
+    if (binaryControl === '1' || binaryControl === 'true') {
+      (ws as any)._binaryControl = true;
+    }
     const paneId = (hostMgr && typeof (hostMgr.constructor as typeof TerminalHostManager).normalizePaneId === 'function')
       ? (hostMgr.constructor as typeof TerminalHostManager).normalizePaneId(parsedUrl.searchParams.get('paneId'))
       : TerminalHostManager.normalizePaneId(parsedUrl.searchParams.get('paneId'));
@@ -349,11 +379,25 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
 
     session.attach(ws);
 
-    ws.on('message', (message: RawData) => {
+    ws.on('message', (message: RawData, isBinary: boolean) => {
       try {
-        const msgStr = message.toString();
-        if (msgStr.startsWith('JSON:')) {
-          const control = JSON.parse(msgStr.slice(5));
+        let control: any = null;
+        if (isBinary || (Buffer.isBuffer(message) && message.length > 0 && message[0] === BIN_MSG_TYPE.CONTROL_JSON)) {
+          const buf = Buffer.isBuffer(message) ? message : Buffer.from(message as any);
+          control = decodeControlJsonPacket(buf);
+        }
+
+        const msgStr = typeof message === 'string' ? message : message.toString('utf-8');
+        if (!control && msgStr.startsWith('JSON:')) {
+          try {
+            const parsed = JSON.parse(msgStr.slice(5));
+            if (isValidControlPayload(parsed)) {
+              control = parsed;
+            }
+          } catch {}
+        }
+
+        if (control) {
           logger.debug(`[TerminalWS:${hostId}:${paneId}] Control frame: ${JSON.stringify(control)}`);
           if (
             control.type === 'resize' &&
@@ -378,9 +422,10 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
             return;
           }
           if (control.type === 'ping') {
-            ws.send(`JSON:${JSON.stringify({ type: 'pong' })}`);
+            sendControlFrame(ws, { type: 'pong' }, hostId);
             return;
           }
+          return;
         }
 
         if (config.logLevel === 'debug') {

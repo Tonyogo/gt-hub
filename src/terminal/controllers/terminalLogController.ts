@@ -30,7 +30,7 @@ class TerminalLogController {
         terminalLogService.off('log', onLog);
       });
     } else {
-      res.json({ logs: terminalLogService.getHistory() });
+      res.json({ success: true, logs: terminalLogService.getHistory() });
     }
   }
 }

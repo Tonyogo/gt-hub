@@ -2,6 +2,7 @@ import http from 'http';
 import https from 'https';
 import url from 'url';
 import { quoteShellArg } from '../../shared/utils/shell';
+import { isValidControlPayload } from '../../shared/protocol/binaryProtocol';
 
 export { quoteShellArg };
 
@@ -179,7 +180,11 @@ export function parseControlMessage(msgStr: string): any {
   const trimmed = msgStr.trim();
   if (trimmed.startsWith('JSON:')) {
     try {
-      return JSON.parse(trimmed.slice(5));
+      const parsed = JSON.parse(trimmed.slice(5));
+      if (isValidControlPayload(parsed)) {
+        return parsed;
+      }
+      return null;
     } catch {
       return null;
     }

@@ -9,6 +9,7 @@ class TerminalHostController {
     const serverUptimeMs = Math.floor(process.uptime() * 1000);
     const serverStartTime = Date.now() - serverUptimeMs;
     res.json({
+      success: true,
       hosts,
       timezone: config.timeZone,
       serverStartTime,
@@ -26,7 +27,7 @@ class TerminalHostController {
   }
 
   public async getVersion(req: Request, res: Response): Promise<void> {
-    res.json({ ...getVersionInfo(), timezone: config.timeZone });
+    res.json({ success: true, ...getVersionInfo(), timezone: config.timeZone });
   }
 }
 

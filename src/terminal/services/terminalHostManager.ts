@@ -1,6 +1,7 @@
 import logger from '../../utils/logger';
 import { rpcDispatcher, RpcDispatcher } from './rpcDispatcher';
 import { StreamBatcher } from '../../shared/utils/streamBatcher';
+import { isValidControlPayload } from '../../shared/protocol/binaryProtocol';
 
 export interface ManagedHost {
   id: string;
@@ -507,7 +508,12 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
 
   public handleData(data: string | Buffer): void {
     if (typeof data === 'string' && data.startsWith('JSON:')) {
-      return;
+      try {
+        const parsed = JSON.parse(data.slice(5).trim());
+        if (isValidControlPayload(parsed)) {
+          return;
+        }
+      } catch {}
     }
     const text = typeof data === 'string'
       ? data

@@ -24,6 +24,16 @@ router.delete('/files/delete', (req, res) => terminalFileController.deleteItem(r
 router.get('/files/download', (req, res) => terminalFileController.downloadFile(req, res));
 router.post('/files/upload', (req, res) => terminalFileController.uploadFile(req, res));
 
+// Remote File Management (RESTful Path Aliases)
+router.get('/files/:hostId/list', (req, res) => terminalFileController.listFiles(req, res));
+router.get('/files/:hostId/content', (req, res) => terminalFileController.readFileContent(req, res));
+router.post('/files/:hostId/save', (req, res) => terminalFileController.saveFileContent(req, res));
+router.post('/files/:hostId/mkdir', (req, res) => terminalFileController.createDirectory(req, res));
+router.post('/files/:hostId/rename', (req, res) => terminalFileController.renameFile(req, res));
+router.delete('/files/:hostId/delete', (req, res) => terminalFileController.deleteItem(req, res));
+router.get('/files/:hostId/download', (req, res) => terminalFileController.downloadFile(req, res));
+router.post('/files/:hostId/upload', (req, res) => terminalFileController.uploadFile(req, res));
+
 // Standalone Command Execution
 router.post('/exec/:hostId', (req, res) => terminalExecController.startExec(req, res));
 router.get('/exec/:hostId/:taskId', (req, res) => terminalExecController.getExecStatus(req, res));
