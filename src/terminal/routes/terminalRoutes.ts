@@ -4,6 +4,7 @@ import terminalFileController from '../controllers/terminalFileController';
 import terminalExecController from '../controllers/terminalExecController';
 import terminalLogController from '../controllers/terminalLogController';
 import terminalCronController from '../controllers/terminalCronController';
+import terminalMcpController from '../controllers/terminalMcpController';
 import adminAuthMiddleware from '../../admin/middlewares/adminAuth';
 
 const router = Router();
@@ -53,5 +54,9 @@ router.get('/logs', (req, res) => terminalLogController.getTerminalLogs(req, res
 
 // System Info
 router.get('/version', (req, res) => terminalHostController.getVersion(req, res));
+
+// Model Context Protocol (MCP) Endpoint
+router.get('/mcp', (req, res) => terminalMcpController.handleGet(req, res));
+router.post('/mcp', (req, res) => terminalMcpController.handlePost(req, res));
 
 export default router;

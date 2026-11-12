@@ -32,6 +32,7 @@ export * from '../client/commands/cp';
 export * from '../client/commands/exec';
 export * from '../client/interactive/interactiveExec';
 export * from '../client/commands/cron';
+export * from '../client/commands/mcp';
 export * from '../agent/tasks/taskManager';
 export * from '../agent/pty/drivers';
 export * from '../agent/pty/sessionManager';

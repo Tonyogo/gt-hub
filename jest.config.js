@@ -12,7 +12,16 @@ module.exports = {
         },
       },
     ],
+    'node_modules/commander/.+\\.js$': [
+      'ts-jest',
+      {
+        tsconfig: {
+          allowJs: true,
+        },
+      },
+    ],
   },
+  transformIgnorePatterns: ['/node_modules/(?!commander)/'],
   clearMocks: true,
   testTimeout: 30000,
   forceExit: true,
