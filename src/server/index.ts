@@ -77,8 +77,11 @@ if (process.env.NODE_ENV !== 'test') {
     secretKey: String(config.adminSecretKey || ''),
   });
 
-  server.listen(config.port, () => {
-    logger.info(`gt-hub server is running on port ${config.port}`);
+  const listenPort = Number(config.port) || 8000;
+  const listenHost = String(config.host || '0.0.0.0');
+
+  server.listen(listenPort, listenHost, () => {
+    logger.info(`gt-hub server is running on http://${listenHost}:${listenPort}`);
     logger.info(`[Config] Server timezone configured as: ${config.timeZone}`);
     logger.info(`WebSocket endpoints enabled: /api/terminal/ws, /api/terminal/agent-ws, /api/terminal/exec-ws`);
   });

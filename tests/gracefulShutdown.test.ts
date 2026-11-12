@@ -57,4 +57,10 @@ describe('Server Graceful Shutdown & WebSocket Clean Disconnect', () => {
   it('gracefully shuts down server instance without throwing', async () => {
     await expect(gracefulShutdown('SIGTERM', 2000)).resolves.toBeUndefined();
   });
+
+  it('configures 0.0.0.0 host binding in ecosystem.config.js and default config', () => {
+    const ecosystem = require('../ecosystem.config.js');
+    expect(ecosystem.apps[0].env.HOST).toBe('0.0.0.0');
+    expect(config.host).toBe('0.0.0.0');
+  });
 });

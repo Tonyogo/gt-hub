@@ -3,6 +3,7 @@ import { isValidTimezone } from '../src/shared/utils/cronParser';
 dotenv.config();
 
 export interface HubConfig {
+  host: string;
   port: number | string;
   adminSecretKey: string;
   logLevel: string;
@@ -45,6 +46,7 @@ export function resolveAdminSecretKey(env: NodeJS.ProcessEnv = process.env): str
 }
 
 export const config: HubConfig = {
+  host: process.env.HOST || '0.0.0.0',
   port: process.env.PORT ? (Number(process.env.PORT) || 8000) : 8000,
   adminSecretKey: resolveAdminSecretKey(process.env),
   logLevel: process.env.LOG_LEVEL || 'info',
