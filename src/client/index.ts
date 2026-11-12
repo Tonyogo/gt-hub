@@ -53,6 +53,7 @@ import {
   runSpeedtestBenchmark,
   handleSpeedtestCommand,
 } from './commands/proxy';
+import { handleMcpCommand, RestApiClientAdapter } from './commands/mcp';
 
 const versionInfo = getVersionInfo();
 export const VERSION = versionInfo.version;
@@ -95,6 +96,8 @@ export {
   SpeedtestReport,
   runSpeedtestBenchmark,
   handleSpeedtestCommand,
+  handleMcpCommand,
+  RestApiClientAdapter,
 };
 
 export function createProgram(rawArgs: string[] = []): Command {
@@ -812,6 +815,36 @@ Command Shortcuts:
     .action((opts: Record<string, any>) => {
       const eff = resolveEffective(opts);
       handleConfigList(eff.server);
+    });
+
+  // --- Model Context Protocol (MCP) Server: gt mcp ---
+  program
+    .command('mcp')
+    .description('Run Model Context Protocol (MCP) JSON-RPC 2.0 server over stdio')
+    .option('--read-only', 'Run in read-only mode (only exposes read tools)')
+    .option('--nodes <nodes>', 'Comma-separated allowlist of permitted node IDs or names')
+    .option('--max-output <chars>', 'Maximum output characters before truncation (default: 32768)')
+    .option('-s, --server <url>', 'Hub server URL')
+    .option('-k, --key <secret>', 'Admin secret key')
+    .option('-c, --context <name>', 'Target Hub context')
+    .action(async (opts: Record<string, any>) => {
+      const eff = resolveEffective(opts);
+      const nodes =
+        typeof opts.nodes === 'string'
+          ? opts.nodes
+              .split(',')
+              .map((s: string) => s.trim())
+              .filter(Boolean)
+          : undefined;
+      const maxOutputChars =
+        opts.maxOutput !== undefined ? parseInt(String(opts.maxOutput), 10) : undefined;
+      await handleMcpCommand({
+        server: eff.server,
+        key: eff.key,
+        readOnly: Boolean(opts.readOnly),
+        nodes,
+        maxOutputChars: isNaN(maxOutputChars as number) ? undefined : maxOutputChars,
+      });
     });
 
   return program;
