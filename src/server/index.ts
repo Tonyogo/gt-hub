@@ -4,6 +4,7 @@ import config from './config/default';
 import logger from '../utils/logger';
 import { setupTerminalWebSocket } from '../terminal/routes/terminalWs';
 import { validateSecurityConfig } from './config/securityValidator';
+import { getLocalIp } from '../agent/daemon';
 
 const server = http.createServer(app);
 const wss = setupTerminalWebSocket(server);
@@ -81,7 +82,10 @@ if (process.env.NODE_ENV !== 'test') {
   const listenHost = String(config.host || '0.0.0.0');
 
   server.listen(listenPort, listenHost, () => {
+    const lanIp = getLocalIp();
     logger.info(`gt-hub server is running on http://${listenHost}:${listenPort}`);
+    logger.info(`[Server] Local:   http://127.0.0.1:${listenPort}`);
+    logger.info(`[Server] Network: http://${lanIp}:${listenPort}`);
     logger.info(`[Config] Server timezone configured as: ${config.timeZone}`);
     logger.info(`WebSocket endpoints enabled: /api/terminal/ws, /api/terminal/agent-ws, /api/terminal/exec-ws`);
   });

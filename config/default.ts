@@ -46,7 +46,7 @@ export function resolveAdminSecretKey(env: NodeJS.ProcessEnv = process.env): str
 }
 
 export const config: HubConfig = {
-  host: process.env.HOST || '0.0.0.0',
+  host: process.env.GT_HOST || '0.0.0.0',
   port: process.env.PORT ? (Number(process.env.PORT) || 8000) : 8000,
   adminSecretKey: resolveAdminSecretKey(process.env),
   logLevel: process.env.LOG_LEVEL || 'info',

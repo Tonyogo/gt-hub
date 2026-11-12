@@ -10,6 +10,7 @@ module.exports = {
       max_memory_restart: '500M',
       env: {
         NODE_ENV: 'production',
+        GT_HOST: '0.0.0.0',
         HOST: '0.0.0.0'
       }
     }

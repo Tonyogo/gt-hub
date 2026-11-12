@@ -46,7 +46,7 @@ echo "===> [3/5] Building frontend, backend, and CLI..."
 npm run build
 
 echo "===> [4/5] Reloading PM2 process..."
-pm2 reload ecosystem.config.js || pm2 start ecosystem.config.js
+pm2 reload ecosystem.config.js --update-env || pm2 start ecosystem.config.js --update-env
 
 echo "===> Process Status:"
 pm2 status gt-hub || true
