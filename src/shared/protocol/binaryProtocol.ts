@@ -79,10 +79,15 @@ const VALID_CONTROL_TYPES = new Set([
   'exec_started',
   'exec_exit',
   'cron_sync',
+  'cron_sync_res',
   'cron_trigger',
+  'cron_trigger_res',
   'cron_report',
   'cron_list',
+  'cron_list_res',
   'cron_history',
+  'cron_history_res',
+  'cron_error',
 ]);
 
 export function isValidControlPayload(obj: unknown): obj is Record<string, any> {

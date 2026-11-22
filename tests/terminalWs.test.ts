@@ -2,6 +2,8 @@ import http from 'http';
 import WebSocket from 'ws';
 import express from 'express';
 import { setupTerminalWebSocket } from '../src/terminal/routes/terminalWs';
+import { terminalHostManager } from '../src/terminal/services/terminalHostManager';
+import { encodeControlJsonPacket } from '../src/shared/protocol/binaryProtocol';
 import config from '../config/default';
 
 describe('Terminal WebSocket Gateway', () => {
@@ -220,5 +222,99 @@ describe('Terminal WebSocket Gateway', () => {
         }
       });
     });
+  });
+
+  it('consumes cron response/error control frames without leaking to live web terminal or replay history', async () => {
+    const originalKey = config.adminSecretKey;
+    config.adminSecretKey = 'valid-key';
+    const testHostId = 'agent-cron-leak-test';
+
+    let agentWs: WebSocket | null = null;
+    let client1: WebSocket | null = null;
+    let client2: WebSocket | null = null;
+
+    try {
+      agentWs = new WebSocket(
+        `ws://127.0.0.1:${port}/api/admin/terminal/agent-ws?hostId=${testHostId}&name=CronLeakNode&key=valid-key`
+      );
+      await new Promise<void>((resolve, reject) => {
+        agentWs!.once('open', () => resolve());
+        agentWs!.once('error', reject);
+      });
+
+      client1 = new WebSocket(
+        `ws://127.0.0.1:${port}/api/admin/terminal/ws?hostId=${testHostId}&key=valid-key`
+      );
+      await new Promise<void>((resolve, reject) => {
+        client1!.once('open', () => resolve());
+        client1!.once('error', reject);
+      });
+
+      let client1Output = '';
+      const client1Done = new Promise<void>((resolve) => {
+        client1!.on('message', (msg) => {
+          const chunk = msg.toString();
+          client1Output += chunk;
+          if (client1Output.includes('REAL_PTY_OUTPUT_MARKER')) {
+            resolve();
+          }
+        });
+      });
+
+      // Agent sends cron control response/error frames (text JSON: and binary CONTROL_JSON) plus real PTY output
+      agentWs.send(`JSON:${JSON.stringify({ type: 'cron_sync_res', success: true, count: 1 })}`);
+      agentWs.send(
+        `JSON:${JSON.stringify({
+          type: 'cron_trigger_res',
+          success: true,
+          record: { executionId: 'exec-1', jobId: 'job-1', status: 'completed' },
+        })}`
+      );
+      agentWs.send(`JSON:${JSON.stringify({ type: 'cron_list_res', requestId: 'r1', summaries: [] })}`);
+      agentWs.send(`JSON:${JSON.stringify({ type: 'cron_history_res', requestId: 'r2', history: [] })}`);
+      agentWs.send(`JSON:${JSON.stringify({ type: 'cron_error', error: 'some error' })}`);
+      agentWs.send(encodeControlJsonPacket({ type: 'cron_sync_res', success: true, count: 2 }, testHostId));
+      agentWs.send('REAL_PTY_OUTPUT_MARKER\r\n');
+
+      await client1Done;
+      // Wait slightly beyond StreamBatcher 16ms window to ensure no delayed batch arrives
+      await new Promise((r) => setTimeout(r, 40));
+
+      expect(client1Output).toContain('REAL_PTY_OUTPUT_MARKER');
+      expect(client1Output).not.toContain('cron_sync_res');
+      expect(client1Output).not.toContain('cron_trigger_res');
+      expect(client1Output).not.toContain('cron_list_res');
+      expect(client1Output).not.toContain('cron_history_res');
+      expect(client1Output).not.toContain('cron_error');
+
+      const session = terminalHostManager.getSession(testHostId);
+      expect(session).not.toBeNull();
+      const history = session!.getHistory();
+      expect(history).toBe('REAL_PTY_OUTPUT_MARKER\r\n');
+
+      // Attach a second browser client to verify replayed history does not contain concatenated JSON:{...} frames
+      client2 = new WebSocket(
+        `ws://127.0.0.1:${port}/api/admin/terminal/ws?hostId=${testHostId}&key=valid-key`
+      );
+      const client2Output = await new Promise<string>((resolve, reject) => {
+        let buf = '';
+        client2!.on('message', (msg) => {
+          buf += msg.toString();
+          if (buf.includes('REAL_PTY_OUTPUT_MARKER')) {
+            setTimeout(() => resolve(buf), 30);
+          }
+        });
+        client2!.once('error', reject);
+      });
+
+      expect(client2Output).toBe('\x1b[0m\x1b[?25hREAL_PTY_OUTPUT_MARKER\r\n');
+      expect(client2Output).not.toContain('JSON:');
+      expect(client2Output).not.toContain('cron_');
+    } finally {
+      if (client1) try { client1.terminate(); } catch {}
+      if (client2) try { client2.terminate(); } catch {}
+      if (agentWs) try { agentWs.terminate(); } catch {}
+      config.adminSecretKey = originalKey;
+    }
   });
 });

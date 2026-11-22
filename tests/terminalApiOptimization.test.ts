@@ -162,9 +162,28 @@ describe('Task 2: Binary CONTROL_JSON (0x08), JSON: Whitelist & RpcDispatcher De
     expect(isValidControlPayload({ type: 'ping' })).toBe(true);
     expect(isValidControlPayload({ type: 'cmd_task_finished', taskId: 't1' })).toBe(true);
     expect(isValidControlPayload({ type: 'proxy_http_res_headers' })).toBe(true);
+    expect(isValidControlPayload({ type: 'cron_sync_res', success: true, count: 1 })).toBe(true);
+    expect(isValidControlPayload({ type: 'cron_trigger_res', success: true })).toBe(true);
+    expect(isValidControlPayload({ type: 'cron_list_res', summaries: [] })).toBe(true);
+    expect(isValidControlPayload({ type: 'cron_history_res', history: [] })).toBe(true);
+    expect(isValidControlPayload({ type: 'cron_error', error: 'boom' })).toBe(true);
     expect(isValidControlPayload({ type: 'unknown_random_user_field' })).toBe(false);
     expect(isValidControlPayload('not-an-object')).toBe(false);
     expect(isValidControlPayload(null)).toBe(false);
+  });
+
+  test('RemoteAgentTerminalSession.handleData drops cron control response frames without polluting history', () => {
+    const session = new RemoteAgentTerminalSession('host-cron', null, 'main');
+    session.handleData('JSON:{"type":"cron_sync_res","success":true,"count":1}');
+    session.handleData('JSON:{"type":"cron_trigger_res","success":true,"record":{"executionId":"e1"}}');
+    session.handleData('JSON:{"type":"cron_list_res","summaries":[]}');
+    session.handleData('JSON:{"type":"cron_history_res","history":[]}');
+    session.handleData('JSON:{"type":"cron_error","error":"failed"}');
+    session.handleData('real-pty-output\r\n');
+
+    const history = session.getHistory();
+    expect(history).toBe('real-pty-output\r\n');
+    session.destroy();
   });
 
   test('RemoteAgentTerminalSession.handleData does not swallow terminal output starting with JSON: when not a valid control payload', () => {
