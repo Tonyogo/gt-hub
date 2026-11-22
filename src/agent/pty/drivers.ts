@@ -1,10 +1,41 @@
 import os from 'os';
 import path from 'path';
+import fs from 'fs';
 import { spawn, execSync, ChildProcess } from 'child_process';
 import { killProcessTree } from '../tasks/taskManager';
 
+export function ensureSpawnHelperPermissions(): void {
+  if (os.platform() === 'win32') return;
+  try {
+    const candidateDirs = [
+      path.resolve(__dirname, '../../../node_modules/node-pty/prebuilds'),
+      path.resolve(__dirname, '../../../../node_modules/node-pty/prebuilds'),
+      path.resolve(__dirname, '../../node_modules/node-pty/prebuilds'),
+      path.resolve(process.cwd(), 'node_modules/node-pty/prebuilds'),
+    ];
+
+    for (const prebuildsDir of candidateDirs) {
+      if (fs.existsSync(prebuildsDir)) {
+        const archDirs = fs.readdirSync(prebuildsDir);
+        for (const arch of archDirs) {
+          const helper = path.join(prebuildsDir, arch, 'spawn-helper');
+          if (fs.existsSync(helper)) {
+            const stat = fs.statSync(helper);
+            if ((stat.mode & 0o111) === 0) {
+              fs.chmodSync(helper, 0o755);
+            }
+          }
+        }
+      }
+    }
+  } catch {
+    // Silently continue
+  }
+}
+
 export function tryRequirePty(): any {
   if (process.env.GT_DISABLE_NODE_PTY) return null;
+  ensureSpawnHelperPermissions();
   try {
     return require('node-pty');
   } catch {}

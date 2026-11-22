@@ -256,3 +256,81 @@ describe('Deploy Script Incremental Plan & Contract', () => {
     });
   });
 });
+
+describe('GitHub Actions CI/CD Workflows', () => {
+  const deployYmlPath = path.join(ROOT_DIR, '.github/workflows/deploy.yml');
+  const ciYmlPath = path.join(ROOT_DIR, '.github/workflows/ci.yml');
+
+  describe('deploy.yml', () => {
+    it('implements fast gt download with local fallback, proper triggers, and valid remote bash script', () => {
+      expect(fs.existsSync(deployYmlPath)).toBe(true);
+      const content = fs.readFileSync(deployYmlPath, 'utf8');
+
+      // Triggers & concurrency
+      expect(content).toContain('push:');
+      expect(content).toContain('branches:');
+      expect(content).toContain('main');
+      expect(content).toContain('workflow_dispatch:');
+      expect(content).toContain('group: deploy');
+      expect(content).toContain('cancel-in-progress: false');
+
+      // Env defaults
+      expect(content).toContain("DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '~/gt-hub' }}");
+      expect(content).toContain("TARGET_HOST: ${{ secrets.GT_HOST || 'gt-hub' }}");
+
+      // No unconditional install step
+      expect(content).not.toContain('Install dependencies & Build local gt CLI');
+
+      // Fast-path download and verification
+      expect(content).toContain('${GT_SERVER%/}/gt');
+      expect(content).toContain('./gt.cjs');
+      expect(content).toContain("grep -q 'gt (Gemini Terminal)' ./gt.cjs");
+
+      // Local build fallback
+      expect(content).toContain('npm install --no-audit --no-fund --prefer-offline');
+      expect(content).toContain('npm run build:gt');
+      expect(content).toContain('cp ./dist/gt.js ./gt.cjs');
+
+      // Execution via node ./gt.cjs exec
+      expect(content).toContain('node ./gt.cjs exec');
+      expect(content).toContain('npm run deploy');
+
+      // Remote bash script syntax check
+      const bashMatch = content.match(/bash -c '([\s\S]*?)'\s*(\n|$)/);
+      expect(bashMatch).toBeTruthy();
+      const remoteBash = bashMatch![1];
+      expect(remoteBash).toContain('npm run deploy');
+      execFileSync('bash', ['-n', '-c', remoteBash]);
+    });
+  });
+
+  describe('ci.yml', () => {
+    it('scopes triggers to PR and workflow_dispatch, enables dual-lockfile caching, and uses single-pass installs', () => {
+      expect(fs.existsSync(ciYmlPath)).toBe(true);
+      const content = fs.readFileSync(ciYmlPath, 'utf8');
+
+      // Triggers: pull_request & workflow_dispatch, NO push trigger on main
+      expect(content).toContain('pull_request:');
+      expect(content).toContain('workflow_dispatch:');
+      expect(content).not.toMatch(/push:\s*branches:\s*-\s*main/);
+
+      // Concurrency
+      expect(content).toContain('group: ci-${{ github.ref }}');
+      expect(content).toContain('cancel-in-progress: true');
+
+      // Caching
+      expect(content).toContain("cache: 'npm'");
+      expect(content).toContain('package-lock.json');
+      expect(content).toContain('frontend/package-lock.json');
+
+      // Single-pass dependencies install
+      expect(content).toContain('npm install --no-audit --no-fund --prefer-offline');
+      expect(content).toContain('npm --prefix frontend install --no-audit --no-fund --prefer-offline');
+
+      // Test, typecheck, build
+      expect(content).toContain('npm test');
+      expect(content).toContain('npm run typecheck');
+      expect(content).toContain('npm run build');
+    });
+  });
+});

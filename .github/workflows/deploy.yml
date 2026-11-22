@@ -25,17 +25,41 @@ jobs:
           node-version: 20
           cache: 'npm'
 
-      - name: Install dependencies & Build local gt CLI
+      - name: Acquire gt CLI
+        env:
+          GT_SERVER: ${{ secrets.GT_SERVER }}
         run: |
-          npm install --no-audit --no-fund
-          npm run build:gt
+          DOWNLOAD_SUCCESS=0
+          if [ -n "$GT_SERVER" ]; then
+            echo "Attempting fast-path download of gt CLI from ${GT_SERVER%/}/gt..."
+            if curl -fsSL -m 15 "${GT_SERVER%/}/gt" -o ./gt.cjs 2>/dev/null && grep -q 'gt (Gemini Terminal)' ./gt.cjs; then
+              chmod +x ./gt.cjs
+              echo "✓ Fast-path download succeeded and signature verified."
+              DOWNLOAD_SUCCESS=1
+            else
+              echo "⚠️ Fast-path download failed or signature invalid. Falling back to local build..."
+            fi
+          fi
+
+          if [ "$DOWNLOAD_SUCCESS" != "1" ]; then
+            echo "Building gt CLI locally..."
+            npm install --no-audit --no-fund --prefer-offline
+            npm run build:gt
+            cp ./dist/gt.js ./gt.cjs
+            chmod +x ./gt.cjs
+            if ! grep -q 'gt (Gemini Terminal)' ./gt.cjs; then
+              echo "::error::Built gt CLI signature check failed."
+              exit 1
+            fi
+            echo "✓ Local build completed and signature verified."
+          fi
 
       - name: Validate configuration & Deploy via gt
         env:
-          GT_SERVER: ${{ secrets.GT_SERVER}}
+          GT_SERVER: ${{ secrets.GT_SERVER }}
           GT_KEY: ${{ secrets.GT_KEY }}
-          DEPLOY_PATH: '~/gt-hub'
-          TARGET_HOST: 'gt-hub'
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '~/gt-hub' }}
+          TARGET_HOST: ${{ secrets.GT_HOST || 'gt-hub' }}
         run: |
           # 1. Validate required GitHub Secrets
           MISSING=""
@@ -56,8 +80,8 @@ jobs:
           echo "Deploy Path : $DEPLOY_PATH"
           echo "=========================================="
 
-          # 2. Trigger deployment command via freshly built local gt CLI
-          node ./dist/gt.js exec \
+          # 2. Trigger deployment command via gt CLI
+          node ./gt.cjs exec \
             --poll \
             --verbose \
             -e DEPLOY_PATH="$DEPLOY_PATH" \
