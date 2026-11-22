@@ -730,4 +730,102 @@ describe('gt agent singleton daemon lifecycle and parameter guards', () => {
       AgentDaemonManager.clearStatus();
     }
   });
+
+  it('prevents concurrent saveStatus writes from producing truncated/corrupt reads in getStatus', async () => {
+    process.env.GT_CONFIG_DIR = testConfigDir;
+    const { AgentDaemonManager } = require('../scripts/gt.js');
+    const dummy = spawn('node', ['-e', 'setInterval(()=>{}, 1000)']);
+
+    try {
+      AgentDaemonManager.saveStatus({
+        pid: dummy.pid,
+        name: 'atomic-read-node',
+        server: 'http://127.0.0.1:3000',
+      });
+
+      // Spawn a child writer that repeatedly overwrites agent.json with valid live PID state
+      const writerCode = `
+        const { AgentDaemonManager } = require(${JSON.stringify(gtPath)});
+        process.env.GT_CONFIG_DIR = ${JSON.stringify(testConfigDir)};
+        for (let i = 0; i < 400; i++) {
+          AgentDaemonManager.saveStatus({
+            pid: ${dummy.pid},
+            name: 'atomic-read-node',
+            server: 'http://127.0.0.1:3000',
+            seq: i,
+          });
+        }
+      `;
+      const writer = spawn(process.execPath, ['-e', writerCode], {
+        env: { ...process.env, GT_CONFIG_DIR: testConfigDir },
+        stdio: 'ignore',
+      });
+
+      let failedReads = 0;
+      let totalReads = 0;
+      await new Promise<void>((resolve, reject) => {
+        let stopped = false;
+        writer.on('error', reject);
+        writer.on('close', () => {
+          stopped = true;
+          resolve();
+        });
+
+        const poll = () => {
+          if (stopped) return;
+          for (let j = 0; j < 20; j++) {
+            totalReads++;
+            const st = AgentDaemonManager.getStatus();
+            if (!st || !st.running || st.pid !== dummy.pid) {
+              failedReads++;
+            }
+          }
+          setImmediate(poll);
+        };
+        setImmediate(poll);
+      });
+
+      expect(totalReads).toBeGreaterThan(0);
+      expect(failedReads).toBe(0);
+    } finally {
+      try { if (dummy.pid) process.kill(dummy.pid, 'SIGKILL'); } catch {}
+      AgentDaemonManager.clearStatus();
+    }
+  });
+
+  it('guards updateStatusForPid and clearStatusForPid against stale PID TOCTOU overwrites during restart handover', () => {
+    process.env.GT_CONFIG_DIR = testConfigDir;
+    const { AgentDaemonManager } = require('../scripts/gt.js');
+
+    const oldDummy = spawn('node', ['-e', 'setInterval(()=>{}, 1000)']);
+    const newDummy = spawn('node', ['-e', 'setInterval(()=>{}, 1000)']);
+    try {
+      // Simulate handover where agent.json now belongs to newDummy.pid
+      AgentDaemonManager.saveStatus({
+        pid: newDummy.pid,
+        name: 'handover-guard-node',
+        server: 'http://127.0.0.1:3000',
+        connectionState: 'connecting',
+      });
+
+      // Stale old daemon attempts state update and exit cleanup
+      const updated = AgentDaemonManager.updateStatusForPid(oldDummy.pid!, {
+        connectionState: 'reconnecting',
+        reconnectAttempts: 1,
+      });
+      expect(updated).toBe(false);
+
+      const cleared = AgentDaemonManager.clearStatusForPid(oldDummy.pid!);
+      expect(cleared).toBe(false);
+
+      const current = AgentDaemonManager.getStatus();
+      expect(current.running).toBe(true);
+      expect(current.pid).toBe(newDummy.pid);
+      expect(current.connectionState).toBe('connecting');
+    } finally {
+      try { if (oldDummy.pid) process.kill(oldDummy.pid, 'SIGKILL'); } catch {}
+      try { if (newDummy.pid) process.kill(newDummy.pid, 'SIGKILL'); } catch {}
+      AgentDaemonManager.clearStatus();
+    }
+  });
 });

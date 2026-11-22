@@ -1,6 +1,7 @@
 import os from 'os';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { spawn } from 'child_process';
 import { StringDecoder } from 'string_decoder';
 import { ConfigStore } from '../client/config/configStore';
@@ -125,6 +126,90 @@ export class AgentDaemonManager {
     }
   }
 
+  private static withStatusLockSync<T>(fn: () => T): T {
+    const file = this.getStatusFile();
+    const dir = path.dirname(file);
+    if (!fs.existsSync(dir)) {
+      try { fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); } catch {}
+    }
+    const lockFile = `${file}.lock`;
+    const maxWaitMs = 500;
+    const staleLockMs = 2000;
+    const start = Date.now();
+    let acquired = false;
+    let lockFd: number | null = null;
+
+    while (Date.now() - start < maxWaitMs) {
+      try {
+        lockFd = fs.openSync(lockFile, 'wx', 0o600);
+        acquired = true;
+        break;
+      } catch (err: any) {
+        if (err && err.code === 'EEXIST') {
+          try {
+            const stat = fs.statSync(lockFile);
+            if (Date.now() - stat.mtimeMs > staleLockMs) {
+              try { fs.unlinkSync(lockFile); } catch {}
+              continue;
+            }
+          } catch {}
+          try {
+            const sab = new SharedArrayBuffer(4);
+            Atomics.wait(new Int32Array(sab), 0, 0, 5);
+          } catch {}
+          continue;
+        }
+        break;
+      }
+    }
+
+    try {
+      return fn();
+    } finally {
+      if (lockFd !== null) {
+        try { fs.closeSync(lockFd); } catch {}
+      }
+      if (acquired) {
+        try { fs.unlinkSync(lockFile); } catch {}
+      }
+    }
+  }
+
+  private static writeStatusAtomicUnlocked(file: string, state: any): void {
+    const dir = path.dirname(file);
+    if (!fs.existsSync(dir)) {
+      try { fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); } catch {}
+    }
+    const payload = JSON.stringify(state, null, 2);
+    const tmpFile = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
+    try {
+      fs.writeFileSync(tmpFile, payload, { encoding: 'utf-8', mode: 0o600 });
+      if (os.platform() !== 'win32') {
+        try { fs.chmodSync(tmpFile, 0o600); } catch {}
+        try { fs.chmodSync(dir, 0o700); } catch {}
+      }
+      fs.renameSync(tmpFile, file);
+    } catch {
+      try {
+        if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile);
+      } catch {}
+      fs.writeFileSync(file, payload, { encoding: 'utf-8', mode: 0o600 });
+      if (os.platform() !== 'win32') {
+        try { fs.chmodSync(file, 0o600); } catch {}
+        try { fs.chmodSync(dir, 0o700); } catch {}
+      }
+    }
+  }
+
+  private static readRawStatusUnlocked(file: string): any | null {
+    if (!fs.existsSync(file)) return null;
+    try {
+      return JSON.parse(fs.readFileSync(file, 'utf-8'));
+    } catch {
+      return null;
+    }
+  }
+
   static saveStatus(nameOrState: any, maybeState?: any): void {
     let state: any;
     if (typeof nameOrState === 'string') {
@@ -133,22 +218,68 @@ export class AgentDaemonManager {
       state = nameOrState || {};
     }
     const file = this.getStatusFile();
-    const dir = path.dirname(file);
-    if (!fs.existsSync(dir)) {
-      try { fs.mkdirSync(dir, { recursive: true, mode: 0o700 }); } catch {}
-    }
-    fs.writeFileSync(file, JSON.stringify(state, null, 2), { encoding: 'utf-8', mode: 0o600 });
-    if (os.platform() !== 'win32') {
-      try { fs.chmodSync(file, 0o600); } catch {}
-      try { fs.chmodSync(dir, 0o700); } catch {}
-    }
+    this.withStatusLockSync(() => {
+      this.writeStatusAtomicUnlocked(file, state);
+    });
+  }
+
+  static updateStatusForPid(pid: number, patch: Record<string, any>): boolean {
+    if (!pid || typeof pid !== 'number') return false;
+    const file = this.getStatusFile();
+    return this.withStatusLockSync(() => {
+      const current = this.readRawStatusUnlocked(file);
+      if (!current || current.pid !== pid || !this.isProcessAlive(current.pid)) {
+        return false;
+      }
+      this.writeStatusAtomicUnlocked(file, {
+        ...current,
+        ...patch,
+      });
+      return true;
+    });
+  }
+
+  static clearStatusForPid(pid: number): boolean {
+    if (!pid || typeof pid !== 'number') return false;
+    const file = this.getStatusFile();
+    return this.withStatusLockSync(() => {
+      const current = this.readRawStatusUnlocked(file);
+      if (!current || current.pid !== pid) {
+        return false;
+      }
+      try {
+        if (fs.existsSync(file)) fs.unlinkSync(file);
+      } catch {}
+      return true;
+    });
+  }
+
+  static ensureStatusForPid(pid: number, fallbackState: Record<string, any>): boolean {
+    if (!pid || typeof pid !== 'number') return false;
+    const file = this.getStatusFile();
+    return this.withStatusLockSync(() => {
+      const current = this.readRawStatusUnlocked(file);
+      if (current && current.pid === pid) {
+        return true;
+      }
+      if (current && current.pid && current.pid !== pid && this.isProcessAlive(current.pid)) {
+        return false;
+      }
+      this.writeStatusAtomicUnlocked(file, {
+        ...fallbackState,
+        pid,
+      });
+      return true;
+    });
   }
 
   static clearStatus(): void {
-    try {
-      const file = this.getStatusFile();
-      if (fs.existsSync(file)) fs.unlinkSync(file);
-    } catch {}
+    const file = this.getStatusFile();
+    this.withStatusLockSync(() => {
+      try {
+        if (fs.existsSync(file)) fs.unlinkSync(file);
+      } catch {}
+    });
   }
 
   static async terminatePid(pid: number, timeoutMs: number = 3000): Promise<boolean> {
@@ -175,7 +306,7 @@ export class AgentDaemonManager {
     const pid = current.pid;
     const agentName = current.name || 'agent';
     const cleanlyStopped = await this.terminatePid(pid, 3000);
-    this.clearStatus();
+    this.clearStatusForPid(pid);
     if (cleanlyStopped) {
       return { success: true, pid, name: agentName, message: `Agent daemon (PID: ${pid}) stopped successfully.` };
     } else {
@@ -602,16 +733,12 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
   function updateDaemonState(patch: Record<string, any>) {
     if (isExiting) return;
     try {
-      const s = AgentDaemonManager.getStatus();
-      if (s && s.running && s.pid === process.pid) {
-        const { running, stale, ...rest } = s;
-        AgentDaemonManager.saveStatus({
-          ...rest,
-          ...patch,
-        });
-      }
+      AgentDaemonManager.updateStatusForPid(process.pid, patch);
     } catch {}
   }
+
+  let sigintDelegate: (() => void) | null = null;
+  let sigtermDelegate: (() => void) | null = null;
 
   if (!isDaemon && !isInternalDaemon) {
     AgentDaemonManager.saveStatus({
@@ -625,24 +752,24 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       connectionState: 'connecting',
     });
     const cleanupFg = () => {
-      const s = AgentDaemonManager.getStatus();
-      if (s && s.pid === process.pid) {
-        AgentDaemonManager.clearStatus();
-      }
+      AgentDaemonManager.clearStatusForPid(process.pid);
     };
     process.on('exit', cleanupFg);
     process.on('SIGINT', cleanupFg);
     process.on('SIGTERM', cleanupFg);
   } else if (isInternalDaemon) {
     const cleanupDaemon = () => {
-      const s = AgentDaemonManager.getStatus();
-      if (s && s.pid === process.pid) {
-        AgentDaemonManager.clearStatus();
-      }
+      AgentDaemonManager.clearStatusForPid(process.pid);
     };
+    const earlyExit = () => {
+      cleanupDaemon();
+      process.exit(0);
+    };
+    sigintDelegate = earlyExit;
+    sigtermDelegate = earlyExit;
     process.on('exit', cleanupDaemon);
-    process.on('SIGINT', cleanupDaemon);
-    process.on('SIGTERM', cleanupDaemon);
+    process.on('SIGINT', () => sigintDelegate?.());
+    process.on('SIGTERM', () => sigtermDelegate?.());
 
     const envReplacePid = process.env.GT_REPLACE_PID ? parseInt(process.env.GT_REPLACE_PID, 10) : 0;
     delete process.env.GT_REPLACE_PID;
@@ -656,8 +783,8 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
         } catch {}
         process.exit(0);
       };
-      process.on('SIGTERM', handoverSignalHandler);
-      process.on('SIGINT', handoverSignalHandler);
+      sigintDelegate = handoverSignalHandler;
+      sigtermDelegate = handoverSignalHandler;
 
       // Wait 50ms so parent CLI process can flush stdout and exit cleanly before old daemon teardown
       await new Promise((r) => setTimeout(r, 50));
@@ -665,24 +792,21 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       try {
         await AgentDaemonManager.terminatePid(envReplacePid, 3000);
       } finally {
-        process.off('SIGTERM', handoverSignalHandler);
-        process.off('SIGINT', handoverSignalHandler);
+        sigintDelegate = earlyExit;
+        sigtermDelegate = earlyExit;
       }
 
-      // Re-verify agent.json still has pid: process.pid
-      const currentStatus = AgentDaemonManager.getStatus();
-      if (!currentStatus || currentStatus.pid !== process.pid) {
-        AgentDaemonManager.saveStatus({
-          pid: process.pid,
-          name: hostName,
-          id: hostId,
-          server: serverArg,
-          startTime: new Date().toISOString(),
-          logFile: AgentDaemonManager.getLogFile(),
-          version: getVersionInfo().version,
-          connectionState: 'connecting',
-        });
-      }
+      // Re-verify agent.json still has pid: process.pid (without clobbering a newer live daemon)
+      AgentDaemonManager.ensureStatusForPid(process.pid, {
+        pid: process.pid,
+        name: hostName,
+        id: hostId,
+        server: serverArg,
+        startTime: new Date().toISOString(),
+        logFile: AgentDaemonManager.getLogFile(),
+        version: getVersionInfo().version,
+        connectionState: 'connecting',
+      });
     }
   }
 
@@ -1465,10 +1589,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
   function cleanup(signalName?: string) {
     if (isExiting) return;
     isExiting = true;
-    const s = AgentDaemonManager.getStatus();
-    if (s && s.pid === process.pid) {
-      AgentDaemonManager.clearStatus();
-    }
+    AgentDaemonManager.clearStatusForPid(process.pid);
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
@@ -1505,8 +1626,13 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     setTimeout(() => process.exit(0), 600);
   }
 
-  process.on('SIGINT', () => cleanup('SIGINT'));
-  process.on('SIGTERM', () => cleanup('SIGTERM'));
+  if (isInternalDaemon) {
+    sigintDelegate = () => cleanup('SIGINT');
+    sigtermDelegate = () => cleanup('SIGTERM');
+  } else {
+    process.on('SIGINT', () => cleanup('SIGINT'));
+    process.on('SIGTERM', () => cleanup('SIGTERM'));
+  }
   process.on('SIGQUIT', () => cleanup('SIGQUIT'));
   process.on('uncaughtException', (err: any) => {
     console.error('\n[Agent] Uncaught exception:', err);
