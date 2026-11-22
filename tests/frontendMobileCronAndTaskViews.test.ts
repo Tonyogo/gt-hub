@@ -43,12 +43,29 @@ describe('Frontend Mobile Optimization for Cron & Tasks', () => {
   describe('TerminalTaskView Mobile Adaptations', () => {
     it('contains dual-mode rendering with sm:hidden card list and hidden sm:block table', () => {
       expect(taskViewContent).toMatch(/sm:hidden/);
-      expect(taskViewContent).toMatch(/hidden sm:block|hidden sm:table/);
+      expect(taskViewContent).toMatch(/hidden sm:(?:block|flex|table)/);
     });
 
     it('compacts stat cards on mobile to preserve vertical space', () => {
       // The 4-grid stats should be hidden on small screens: hidden sm:grid
       expect(taskViewContent).toMatch(/hidden sm:grid/);
+    });
+
+    it('enforces min-h-0 and overscroll-contain on root and workspace scroll containers', () => {
+      expect(taskViewContent).toMatch(/min-h-0[^"]*bg-\[var\(--bg-canvas\)\]/);
+      expect(taskViewContent).toMatch(/min-h-0\s+overflow-y-auto\s+overscroll-contain/);
+    });
+
+    it('uses independent flex-col scroll container for desktop table with min-h-[260px] fallback and sticky header', () => {
+      expect(taskViewContent).toMatch(/hidden sm:flex sm:flex-col flex-1 min-h-\[260px\]/);
+      expect(taskViewContent).toMatch(/flex-1 min-h-0 overflow-auto overscroll-contain/);
+      expect(taskViewContent).toMatch(/<thead[^>]*sticky top-0 z-10 bg-\[var\(--bg-surface-sub\)\]/);
+      expect(taskViewContent).toMatch(/shadow-\[inset_0_-1px_0_var\(--border-subtle\)\]/);
+      expect(taskViewContent).not.toMatch(/hidden sm:block flex-1[^>]*overflow-hidden/);
+    });
+
+    it('prevents mobile card list from flex shrinking and preserves bottom scroll padding', () => {
+      expect(taskViewContent).toMatch(/sm:hidden space-y-3 shrink-0 pb-4/);
     });
   });
 

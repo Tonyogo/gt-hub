@@ -306,7 +306,7 @@ export const TerminalTaskView = React.forwardRef<TerminalTaskHandle, TerminalTas
     });
 
     return (
-      <div className="flex-1 flex flex-col h-full bg-[var(--bg-canvas)] text-[var(--text-primary)] overflow-hidden relative">
+      <div className="flex-1 flex flex-col h-full min-h-0 bg-[var(--bg-canvas)] text-[var(--text-primary)] overflow-hidden relative">
         {/* Top Toolbar */}
         <div className="px-4 py-3 border-b border-[var(--border-subtle)] bg-[var(--bg-surface)] flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div className="flex items-center space-x-3">
@@ -378,7 +378,7 @@ export const TerminalTaskView = React.forwardRef<TerminalTaskHandle, TerminalTas
         )}
 
         {/* Workspace Body */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-5 flex flex-col space-y-4">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-5 flex flex-col space-y-4">
           {/* No Node Selected State */}
           {!activeHostId ? (
             <div className="flex-1 flex flex-col items-center justify-center text-center p-8 max-w-md mx-auto">
@@ -515,7 +515,7 @@ export const TerminalTaskView = React.forwardRef<TerminalTaskHandle, TerminalTas
               ) : (
                 <>
                   {/* Mobile Task Card List (< sm) */}
-                  <div className="sm:hidden space-y-3">
+                  <div className="sm:hidden space-y-3 shrink-0 pb-4">
                     {filteredTasks.map((task) => {
                       const isCopied = copiedTaskId === task.taskId;
                       return (
@@ -654,21 +654,21 @@ export const TerminalTaskView = React.forwardRef<TerminalTaskHandle, TerminalTas
                     })}
                   </div>
 
-                  {/* Desktop Table (hidden sm:block) */}
-                  <div className="hidden sm:block flex-1 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-2xl overflow-hidden">
-                  <div className="overflow-x-auto flex-1">
-                    <table className="w-full text-left text-xs border-collapse">
-                      <thead>
-                        <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-surface-sub)] text-[var(--text-secondary)] text-[11px] select-none font-medium">
-                          <th className="py-2.5 px-4 font-normal">{t('tasks.colTaskId', '任务 ID')}</th>
-                          <th className="py-2.5 px-4 font-normal">{t('tasks.colCommand', '执行命令')}</th>
-                          <th className="py-2.5 px-4 font-normal">{t('tasks.colStatus', '状态')}</th>
-                          <th className="py-2.5 px-4 font-normal">{t('tasks.colExitCode', '退出码')}</th>
-                          <th className="py-2.5 px-4 font-normal">{t('tasks.colDuration', '耗时')}</th>
-                          <th className="py-2.5 px-4 font-normal hidden md:table-cell">{t('tasks.colStartTime', '启动时间')}</th>
-                          <th className="py-2.5 px-4 font-normal text-right">{t('tasks.colActions', '操作')}</th>
-                        </tr>
-                      </thead>
+                  {/* Desktop Table (hidden sm:flex) */}
+                  <div className="hidden sm:flex sm:flex-col flex-1 min-h-[260px] bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-2xl overflow-hidden">
+                    <div className="flex-1 min-h-0 overflow-auto overscroll-contain">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead className="sticky top-0 z-10 bg-[var(--bg-surface-sub)] shadow-[inset_0_-1px_0_var(--border-subtle)]">
+                          <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-surface-sub)] text-[var(--text-secondary)] text-[11px] select-none font-medium">
+                            <th className="py-2.5 px-4 font-normal whitespace-nowrap">{t('tasks.colTaskId', '任务 ID')}</th>
+                            <th className="py-2.5 px-4 font-normal whitespace-nowrap">{t('tasks.colCommand', '执行命令')}</th>
+                            <th className="py-2.5 px-4 font-normal whitespace-nowrap">{t('tasks.colStatus', '状态')}</th>
+                            <th className="py-2.5 px-4 font-normal whitespace-nowrap">{t('tasks.colExitCode', '退出码')}</th>
+                            <th className="py-2.5 px-4 font-normal whitespace-nowrap">{t('tasks.colDuration', '耗时')}</th>
+                            <th className="py-2.5 px-4 font-normal whitespace-nowrap hidden md:table-cell">{t('tasks.colStartTime', '启动时间')}</th>
+                            <th className="py-2.5 px-4 font-normal whitespace-nowrap text-right">{t('tasks.colActions', '操作')}</th>
+                          </tr>
+                        </thead>
                       <tbody className="divide-y divide-[var(--border-subtle)]">
                         {filteredTasks.map((task) => {
                           const isCopied = copiedTaskId === task.taskId;
@@ -811,9 +811,9 @@ export const TerminalTaskView = React.forwardRef<TerminalTaskHandle, TerminalTas
                           );
                         })}
                       </tbody>
-                    </table>
+                      </table>
+                    </div>
                   </div>
-                </div>
               </>
               )}
             </>
