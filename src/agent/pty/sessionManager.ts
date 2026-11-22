@@ -81,11 +81,7 @@ export class StreamSessionManager {
 
     const onData = (chunk: any) => {
       const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, 'utf-8');
-      const packet: any = encodeBinaryPacket(BIN_MSG_TYPE.STREAM_OUTPUT, taskId, buf);
-      packet.type = 'cmd_stream_data';
-      packet.taskId = taskId;
-      packet.data = buf.toString('base64');
-      this.send(packet);
+      this.send(encodeBinaryPacket(BIN_MSG_TYPE.STREAM_OUTPUT, taskId, buf));
     };
 
     const onExit = (code: number | null, signal: string | null) => {

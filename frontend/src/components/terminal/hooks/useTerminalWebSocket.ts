@@ -206,8 +206,8 @@ export function useTerminalWebSocket({
         if (!safeFit(true)) {
           setTimeout(() => safeFit(true), 80);
         }
-        setTimeout(() => safeFit(true), 250);
-        setTimeout(() => safeFit(true), 600);
+        setTimeout(() => safeFit(false), 250);
+        setTimeout(() => safeFit(false), 600);
       };
 
       ws.onmessage = (event) => {
@@ -215,7 +215,7 @@ export function useTerminalWebSocket({
         const term = xtermRef.current;
         if (!hasFirstDataFittedRef.current || (term && (term.cols <= 2 || term.rows <= 1))) {
           hasFirstDataFittedRef.current = true;
-          safeFit(true);
+          safeFit(lastSentColsRef.current === 0);
         }
         const data = event.data;
         if (typeof data === 'string') {

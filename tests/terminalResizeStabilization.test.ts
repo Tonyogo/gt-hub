@@ -61,4 +61,18 @@ describe('Terminal Fullscreen Resize Repaint Stabilization', () => {
     const wsRouteContent = fs.readFileSync(wsRoutePath, 'utf-8');
     expect(wsRouteContent).toMatch(/setKeepAlive\(true,\s*10000\)/);
   });
+
+  it('WebTerminalView does not force SIGWINCH nudge (safeFit(true)) on window focus, visibility restore, or subTab activation', () => {
+    const visStart = webTerminalContent.indexOf('const handleVisibilityOrOnline = () => {');
+    const visEnd = webTerminalContent.indexOf("document.addEventListener('visibilitychange'", visStart);
+    const visAndFocusBlock = webTerminalContent.slice(visStart, visEnd);
+    expect(visAndFocusBlock).not.toContain('safeFit(true)');
+    expect(visAndFocusBlock).toContain('safeFit(false)');
+
+    const isActiveStart = webTerminalContent.indexOf('// Background buffer flush when transitioning to active tab');
+    const isActiveEnd = webTerminalContent.indexOf('}, [isActive, safeFit]);', isActiveStart);
+    const isActiveBlock = webTerminalContent.slice(isActiveStart, isActiveEnd);
+    expect(isActiveBlock).not.toContain('safeFit(true)');
+    expect(isActiveBlock).toContain('safeFit(false)');
+  });
 });

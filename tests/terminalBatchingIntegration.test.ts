@@ -9,7 +9,7 @@ describe('Terminal Batching Integration (RemoteAgentTerminalSession)', () => {
     jest.useRealTimers();
   });
 
-  it('batches rapid handleData pushes to client WebSocket within 16ms', () => {
+  it('flushes first small idle packet immediately (0ms) and batches subsequent burst within 8ms cooldown', () => {
     const mockAgentWs = { readyState: 1, send: jest.fn() };
     const session = new RemoteAgentTerminalSession('test-batch-host', mockAgentWs);
 
@@ -21,21 +21,44 @@ describe('Terminal Batching Integration (RemoteAgentTerminalSession)', () => {
 
     session.attach(mockClientWs as any);
 
+    // First small non-TUI chunk takes the 0ms fast-path for instant keystroke echo
     session.handleData('part1 ');
+    expect(clientSent).toEqual(['part1 ']);
+
+    // Subsequent chunks arriving during the 8ms cooldown window are batched
     session.handleData('part2 ');
     session.handleData('part3\r\n');
 
     // History is updated synchronously
     expect(session.getHistory()).toBe('part1 part2 part3\r\n');
+    expect(clientSent).toEqual(['part1 ']);
 
-    // Active sockets have not received the batched data yet
-    expect(clientSent).toEqual([]);
-
-    // Advance 16ms
-    jest.advanceTimersByTime(16);
+    // Advance 8ms
+    jest.advanceTimersByTime(8);
 
     // Active sockets receive the combined batched frame
-    expect(clientSent).toEqual(['part1 part2 part3\r\n']);
+    expect(clientSent).toEqual(['part1 ', 'part2 part3\r\n']);
+  });
+
+  it('coalesces TUI erase chunk with redraw chunk instead of flushing erase at 0ms', () => {
+    const mockAgentWs = { readyState: 1, send: jest.fn() };
+    const session = new RemoteAgentTerminalSession('test-tui-batch-host', mockAgentWs);
+
+    const clientSent: string[] = [];
+    const mockClientWs = {
+      readyState: 1,
+      send: (data: string) => clientSent.push(data),
+    };
+
+    session.attach(mockClientWs as any);
+
+    session.handleData('\x1b[2K\r');
+    expect(clientSent).toEqual([]);
+
+    session.handleData('Redrawn line\r\n');
+    jest.advanceTimersByTime(8);
+
+    expect(clientSent).toEqual(['\x1b[2K\rRedrawn line\r\n']);
   });
 
   it('immediately flushes to client when batch reaches 64KB threshold', () => {
@@ -73,12 +96,18 @@ describe('Terminal Batching Integration (RemoteAgentTerminalSession)', () => {
 
     session.attach(mockClientWs as any);
 
+    // Trigger cooldown with initial small frame so subsequent writes buffer
+    session.handleData('init');
+    expect(clientSent).toEqual(['init']);
+
     session.handleData('data before reset');
-    expect(clientSent.length).toBe(0);
+    expect(clientSent).toEqual(['init']);
 
     session.reset(true);
     expect(clientSent).toContain('data before reset');
 
+    // Re-enter cooldown so next write stays buffered until destroy
+    session.handleData('init2');
     session.handleData('data before destroy');
     expect(clientSent).not.toContain('data before destroy');
 

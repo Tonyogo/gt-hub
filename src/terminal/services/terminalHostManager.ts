@@ -95,7 +95,7 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
       for (const dead of deadSockets) {
         this.activeSockets.delete(dead);
       }
-    }, 16);
+    }, 8, 64 * 1024, 4096);
   }
 
   public getStreamTaskId(): string {

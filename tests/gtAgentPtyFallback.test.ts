@@ -1,5 +1,24 @@
 // @ts-ignore
 import { StreamSessionManager, hasSystemPython3, PosixPtyDriver, InteractivePipeDriver, NodePtyDriver, tryRequirePty, getDefaultShell } from '../scripts/gt.js';
+import { BIN_MSG_TYPE, decodeBinaryPacket } from '../src/shared/protocol/binaryProtocol';
+
+function collectStreamOutput(messages: any[], taskId: string): string {
+  return messages
+    .map((m) => {
+      if (Buffer.isBuffer(m)) {
+        const decoded = decodeBinaryPacket(m);
+        if (decoded && decoded.msgType === BIN_MSG_TYPE.STREAM_OUTPUT && decoded.id === taskId) {
+          return decoded.payload.toString('utf-8');
+        }
+        return '';
+      }
+      if (m && m.type === 'cmd_stream_data' && m.taskId === taskId && m.data) {
+        return Buffer.from(m.data, 'base64').toString('utf-8');
+      }
+      return '';
+    })
+    .join('');
+}
 
 describe('StreamSessionManager PTY Fallback & Interactive Execution', () => {
   jest.setTimeout(25000);
@@ -20,10 +39,7 @@ describe('StreamSessionManager PTY Fallback & Interactive Execution', () => {
     const mgr = new StreamSessionManager((msg: any) => {
       messages.push(msg);
       if (msg.taskId === taskId && msg.type === 'cmd_stream_exit') {
-        const fullOutput = messages
-          .filter(m => m.type === 'cmd_stream_data' && m.taskId === taskId)
-          .map(m => Buffer.from(m.data, 'base64').toString('utf-8'))
-          .join('');
+        const fullOutput = collectStreamOutput(messages, taskId);
 
         expect(fullOutput).toContain('NODE_PTY_OK');
         expect(msg.exitCode).toBe(0);
@@ -47,10 +63,7 @@ describe('StreamSessionManager PTY Fallback & Interactive Execution', () => {
     const mgr = new StreamSessionManager((msg: any) => {
       messages.push(msg);
       if (msg.taskId === taskId && msg.type === 'cmd_stream_exit') {
-        const fullOutput = messages
-          .filter(m => m.type === 'cmd_stream_data' && m.taskId === taskId)
-          .map(m => Buffer.from(m.data, 'base64').toString('utf-8'))
-          .join('');
+        const fullOutput = collectStreamOutput(messages, taskId);
 
         expect(fullOutput).toContain('POSIX_PTY_WORKS');
         expect(msg.exitCode).toBe(0);
@@ -93,10 +106,7 @@ describe('StreamSessionManager PTY Fallback & Interactive Execution', () => {
     const mgr = new StreamSessionManager((msg: any) => {
       messages.push(msg);
       if (msg.taskId === taskId && msg.type === 'cmd_stream_exit') {
-        const fullOutput = messages
-          .filter(m => m.type === 'cmd_stream_data' && m.taskId === taskId)
-          .map(m => Buffer.from(m.data, 'base64').toString('utf-8'))
-          .join('');
+        const fullOutput = collectStreamOutput(messages, taskId);
 
         expect(msg.exitCode).toBe(0);
         // Expect stty size to reflect new dimensions (rows cols => 18 45)
@@ -137,10 +147,7 @@ describe('StreamSessionManager PTY Fallback & Interactive Execution', () => {
     const mgr = new StreamSessionManager((msg: any) => {
       messages.push(msg);
       if (msg.taskId === taskId && msg.type === 'cmd_stream_exit') {
-        const fullOutput = messages
-          .filter(m => m.type === 'cmd_stream_data' && m.taskId === taskId)
-          .map(m => Buffer.from(m.data, 'base64').toString('utf-8'))
-          .join('');
+        const fullOutput = collectStreamOutput(messages, taskId);
 
         expect(fullOutput).toContain('[Warning] node-pty not available on agent; running in interactive pipe mode.');
         expect(fullOutput).toContain('PIPE_WORKS');

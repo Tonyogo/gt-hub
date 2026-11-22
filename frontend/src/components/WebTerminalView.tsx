@@ -704,7 +704,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         if (!safeFit(true)) {
           setTimeout(() => safeFit(true), 80);
         }
-        setTimeout(() => safeFit(true), 250);
+        setTimeout(() => safeFit(false), 250);
         setTimeout(() => safeFit(false), 600);
       };
 
@@ -713,7 +713,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         const term = xtermRef.current;
         if (!hasFirstDataFittedRef.current || (term && (term.cols <= 2 || term.rows <= 1))) {
           hasFirstDataFittedRef.current = true;
-          safeFit(true);
+          safeFit(lastSentColsRef.current === 0);
         }
         const data = event.data;
         if (typeof data === 'string') {
@@ -1840,15 +1840,15 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           wsRef.current.send(`JSON:${JSON.stringify({ type: 'ping' })}`);
         } catch {}
         if (isActiveRef.current) {
-          safeFit(true);
-          setTimeout(() => safeFit(true), 120);
+          safeFit(false);
+          setTimeout(() => safeFit(false), 120);
         }
       }
     };
 
     const handleWindowFocus = () => {
       if (isActiveRef.current && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        safeFit(true);
+        safeFit(false);
       }
     };
 
@@ -2166,26 +2166,29 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         if (bufferedData) {
           if (writeSchedulerRef.current) {
             writeSchedulerRef.current.push(bufferedData);
-            safeFit(true);
+            safeFit(false);
             if (xtermRef.current) {
+              xtermRef.current.refresh(0, Math.max(0, xtermRef.current.rows - 1));
               scrollToBottomSafe(xtermRef.current);
             }
           } else if (xtermRef.current) {
             xtermRef.current.write(bufferedData, () => {
-              safeFit(true);
+              safeFit(false);
               if (xtermRef.current) {
+                xtermRef.current.refresh(0, Math.max(0, xtermRef.current.rows - 1));
                 scrollToBottomSafe(xtermRef.current);
               }
             });
           }
         }
       } else {
-        safeFit(true);
+        safeFit(false);
         if (xtermRef.current) {
+          xtermRef.current.refresh(0, Math.max(0, xtermRef.current.rows - 1));
           scrollToBottomSafe(xtermRef.current);
         }
       }
-      const t1 = setTimeout(() => safeFit(true), 120);
+      const t1 = setTimeout(() => safeFit(false), 120);
       return () => clearTimeout(t1);
     }
   }, [isActive, safeFit]);
