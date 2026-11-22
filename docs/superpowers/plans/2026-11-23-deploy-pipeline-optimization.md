@@ -64,7 +64,7 @@
   - `scripts.prestart`: `"([ -d dist/frontend ] || npm run build:frontend) && npm run build:backend && npm run build:gt"`
   - Absence of `scripts.postinstall`.
 
-- [ ] **Step 1: Write failing tests in `tests/deployPipeline.test.ts` for `buildServer` and `package.json` contracts**
+- [x] **Step 1: Write failing tests in `tests/deployPipeline.test.ts` for `buildServer` and `package.json` contracts**
 
 ```ts
 import fs from 'fs';
@@ -153,12 +153,12 @@ describe('Deploy Pipeline Optimization - Build & Package Contracts', () => {
 });
 ```
 
-- [ ] **Step 2: Run targeted test to verify it fails**
+- [x] **Step 2: Run targeted test to verify it fails**
 
 Run: `npm test -- tests/deployPipeline.test.ts`
 Expected: FAIL because `pkg.scripts.postinstall` still exists and `buildGtModule.buildServer` is `undefined`.
 
-- [ ] **Step 3: Implement `buildServer()` + `--server` flag in `scripts/build-gt.js`, update `package.json`, and update `CLAUDE.md`**
+- [x] **Step 3: Implement `buildServer()` + `--server` flag in `scripts/build-gt.js`, update `package.json`, and update `CLAUDE.md`**
 
 In `scripts/build-gt.js`:
 - Add `buildServer(options = {})` reusing `generateVersionData({ rootDir })` and `getEsbuild().buildSync(...)` with `entryPoints: [path.join(rootDir, 'src/index.ts')]`, `bundle: true`, `platform: 'node'`, `target: 'node18'`, `format: 'cjs'`, `packages: 'external'`, `outfile: options.outfile || path.join(rootDir, 'dist/src/index.js')`, and `define` for `__GT_VERSION__`, `__GT_GIT_COMMIT__`, `__GT_BUILD_TIME__`.
@@ -170,7 +170,7 @@ In `package.json`:
 In `CLAUDE.md`:
 - Document `npm run install:all`, `npm run typecheck`, and note `npm run build:backend` bundles `src/index.ts` via `esbuild` into `dist/src/index.js`.
 
-- [ ] **Step 4: Run tests, typecheck, and build verification**
+- [x] **Step 4: Run tests, typecheck, and build verification**
 
 Run:
 ```bash
@@ -181,7 +181,7 @@ npm run build:gt
 ```
 Expected: All targeted tests PASS, `typecheck` exits 0, `dist/src/index.js` and `dist/gt.js` build cleanly.
 
-- [ ] **Step 5: Commit Task 1**
+- [x] **Step 5: Commit Task 1**
 
 ```bash
 git add scripts/build-gt.js package.json CLAUDE.md tests/deployPipeline.test.ts
@@ -203,7 +203,7 @@ git commit -m "perf(build): bundle backend with esbuild and remove redundant pos
   - `compute_deploy_plan(prev_commit: string, new_commit: string, force_install?: string, force_build?: string)`: sets and exports/populates `DIFF_AVAILABLE`, `CHANGED_FILES`, `ROOT_INSTALL_NEEDED`, `FRONTEND_INSTALL_NEEDED`, `FRONTEND_BUILD_NEEDED` (`0` or `1`).
   - `main()`: runs `[1/5]` Git Sync & Version Derivation -> `[2/5]` Smart Dependency Installation -> `[3/5]` Incremental Build & Type Verification (`build:frontend` if needed, then `typecheck`, `build:backend`, `build:gt`) -> `[4/5]` PM2 Reload -> `[5/5]` Health Check via `resolve_env_port`.
 
-- [ ] **Step 1: Add failing tests for `scripts/deploy.sh` contract and incremental plan logic in `tests/deployPipeline.test.ts`**
+- [x] **Step 1: Add failing tests for `scripts/deploy.sh` contract and incremental plan logic in `tests/deployPipeline.test.ts`**
 
 Add a `describe('Deploy Script Incremental Plan & Contract', ...)` block to `tests/deployPipeline.test.ts`:
 - Static contract checks:
@@ -219,12 +219,12 @@ Add a `describe('Deploy Script Incremental Plan & Contract', ...)` block to `tes
   7. Root `package.json` modified: sets `ROOT_INSTALL_NEEDED=1` while `FRONTEND_INSTALL_NEEDED=0` and `FRONTEND_BUILD_NEEDED=0`.
   8. `FORCE_INSTALL=1` and `FORCE_BUILD=1` overrides: force all expected flags to `1`.
 
-- [ ] **Step 2: Run targeted test to verify it fails**
+- [x] **Step 2: Run targeted test to verify it fails**
 
 Run: `npm test -- tests/deployPipeline.test.ts`
 Expected: FAIL because `resolve_env_port` and `compute_deploy_plan` do not exist in `scripts/deploy.sh`.
 
-- [ ] **Step 3: Implement modular incremental deployment pipeline in `scripts/deploy.sh`**
+- [x] **Step 3: Implement modular incremental deployment pipeline in `scripts/deploy.sh`**
 
 Update `scripts/deploy.sh`:
 - Implement `ensure_pm2`, `resolve_env_port`, `compute_deploy_plan`, and `main`.
@@ -238,12 +238,12 @@ Update `scripts/deploy.sh`:
   fi
   ```
 
-- [ ] **Step 4: Run targeted tests to verify pass**
+- [x] **Step 4: Run targeted tests to verify pass**
 
 Run: `npm test -- tests/deployPipeline.test.ts tests/deployScriptVersion.test.ts`
 Expected: PASS across all tests in both files.
 
-- [ ] **Step 5: Commit Task 2**
+- [x] **Step 5: Commit Task 2**
 
 ```bash
 git add scripts/deploy.sh tests/deployPipeline.test.ts
@@ -272,7 +272,7 @@ git commit -m "perf(deploy): add incremental install and frontend build checks t
   - `actions/setup-node@v4` with `cache: 'npm'` and `cache-dependency-path` listing `package-lock.json` and `frontend/package-lock.json`.
   - Installs root and frontend once each (`--no-audit --no-fund --prefer-offline`), then runs `npm test`, `npm run typecheck`, `npm run build`.
 
-- [ ] **Step 1: Add failing tests for `deploy.yml` and `ci.yml` in `tests/deployPipeline.test.ts`**
+- [x] **Step 1: Add failing tests for `deploy.yml` and `ci.yml` in `tests/deployPipeline.test.ts`**
 
 Add a `describe('GitHub Actions CI/CD Workflows', ...)` block to `tests/deployPipeline.test.ts`:
 - `deploy.yml`:
@@ -285,16 +285,16 @@ Add a `describe('GitHub Actions CI/CD Workflows', ...)` block to `tests/deployPi
   - Configures `cache: 'npm'` and `cache-dependency-path` referencing both `package-lock.json` and `frontend/package-lock.json`.
   - Runs single root install (`npm install --no-audit --no-fund --prefer-offline`) and single frontend install (`npm --prefix frontend install --no-audit --no-fund --prefer-offline`), then `npm test`, `npm run typecheck`, `npm run build`.
 
-- [ ] **Step 2: Run targeted test to verify it fails**
+- [x] **Step 2: Run targeted test to verify it fails**
 
 Run: `npm test -- tests/deployPipeline.test.ts`
 Expected: FAIL on `deploy.yml` and `ci.yml` assertions.
 
-- [ ] **Step 3: Update `.github/workflows/deploy.yml` and `.github/workflows/ci.yml`**
+- [x] **Step 3: Update `.github/workflows/deploy.yml` and `.github/workflows/ci.yml`**
 
 Edit both workflow files to match the exact specifications in **Interfaces** above.
 
-- [ ] **Step 4: Run full verification suite**
+- [x] **Step 4: Run full verification suite**
 
 Run:
 ```bash
@@ -305,7 +305,7 @@ npm test
 ```
 Expected: All tests pass, `typecheck` passes with exit code 0, full `npm run build` succeeds, and full Jest suite passes.
 
-- [ ] **Step 5: Commit Task 3**
+- [x] **Step 5: Commit Task 3**
 
 ```bash
 git add .github/workflows/deploy.yml .github/workflows/ci.yml tests/deployPipeline.test.ts
