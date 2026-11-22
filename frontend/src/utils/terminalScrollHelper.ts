@@ -469,8 +469,11 @@ export function stepAlternateScreenScroll(options: StepAlternateScrollOptions): 
     }
 
     const rawSteps = Math.trunc(totalPx / threshold);
-    const remainder = totalPx - rawSteps * threshold;
     const clampedSteps = Math.min(maxLineStepsPerEvent, Math.abs(rawSteps));
+    const signedClampedSteps = rawSteps < 0 ? -clampedSteps : clampedSteps;
+    const rawRemainder = totalPx - signedClampedSteps * threshold;
+    const maxCarryPx = threshold * maxLineStepsPerEvent;
+    const remainder = Math.max(-maxCarryPx, Math.min(maxCarryPx, rawRemainder));
     const seq = rawSteps < 0 ? '\x1b[<64;1;1M' : '\x1b[<65;1;1M';
     return {
       payload: seq.repeat(clampedSteps),

@@ -660,7 +660,8 @@ describe('terminalScrollHelper', () => {
         expect(res.nextState.accumulatedPx).toBe(10);
         state = res.nextState;
 
-        // +200px: 10 + 200 = 210px -> 5 steps, but capped at maxLineStepsPerEvent = 3
+        // +200px: 10 + 200 = 210px -> 5 steps, capped at maxLineStepsPerEvent = 3
+        // Consumes 3 * 40 = 120px and preserves remaining 90px instead of discarding distance
         res = stepAlternateScreenScroll({
           state,
           deltaY: 200,
@@ -668,8 +669,38 @@ describe('terminalScrollHelper', () => {
           mouseTrackingActive: true,
         });
         expect(res.payload).toBe('\x1b[<65;1;1M\x1b[<65;1;1M\x1b[<65;1;1M');
-        // rawSteps = Math.trunc(210 / 40) = 5, remainder = 210 - 5 * 40 = 10
-        expect(res.nextState.accumulatedPx).toBe(10);
+        expect(res.nextState.accumulatedPx).toBe(90);
+        state = res.nextState;
+
+        // Next small same-direction delta (+10px) combines with preserved 90px -> 100px -> 2 steps, remainder 20px
+        res = stepAlternateScreenScroll({
+          state,
+          deltaY: 10,
+          nowMs: 1056,
+          mouseTrackingActive: true,
+        });
+        expect(res.payload).toBe('\x1b[<65;1;1M\x1b[<65;1;1M');
+        expect(res.nextState.accumulatedPx).toBe(20);
+      });
+
+      it('caps preserved remainder on huge single-event spikes and supports mobile lineThresholdPx/maxLineStepsPerEvent', () => {
+        const initial: AlternateScrollState = {
+          accumulatedPx: 0,
+          lastEventTimeMs: 0,
+          lastDispatchTimeMs: 0,
+        };
+
+        // Huge spike: threshold=18, maxLineStepsPerEvent=5 -> max carry = 18 * 5 = 90
+        const spike = stepAlternateScreenScroll({
+          state: initial,
+          deltaY: -1000,
+          nowMs: 2000,
+          mouseTrackingActive: true,
+          lineThresholdPx: 18,
+          maxLineStepsPerEvent: 5,
+        });
+        expect(spike.payload).toBe('\x1b[<64;1;1M'.repeat(5));
+        expect(spike.nextState.accumulatedPx).toBe(-90);
       });
 
       it('resets accumulated delta on direction reversal or idle gap > 250ms', () => {

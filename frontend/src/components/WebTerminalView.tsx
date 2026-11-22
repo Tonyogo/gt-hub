@@ -1366,12 +1366,16 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           return true;
         }
         const mouseTrackingActive = Boolean(term.modes?.mouseTrackingMode && term.modes.mouseTrackingMode !== 'none');
+        const touchLineHeight = getTouchLineHeight();
+        const mobileLineThresholdPx = Math.max(16, Math.round(touchLineHeight * 1.15));
         const stepRes = stepAlternateScreenScroll({
           state: altScrollState,
           deltaY: deltaPx,
           deltaMode: 0,
           nowMs: getNow(),
           mouseTrackingActive,
+          lineThresholdPx: mobileLineThresholdPx,
+          maxLineStepsPerEvent: 5,
         });
         altScrollState = stepRes.nextState;
         if (stepRes.payload && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -1434,14 +1438,29 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       }
     };
 
-    const startMomentumScroll = (initialVelocity: number) => {
+    const startMomentumScroll = (
+      initialVelocity: number,
+      opts?: { friction?: number; minVelocity?: number; isAltScreen?: boolean }
+    ) => {
       if (typeof requestAnimationFrame === 'undefined') return;
       isTouchScrollingActiveRef.current = true;
       let velocity = initialVelocity;
       let lastFrameTime = getNow();
+      const friction = opts?.friction ?? 0.96;
+      const minVelocity = opts?.minVelocity ?? 0.16;
+      const startedInAltScreen = Boolean(opts?.isAltScreen);
 
       const stepFrame = () => {
         if (!isMountedRef.current || isSelectModeRef.current) {
+          momentumRaf = null;
+          syncAtBottomAfterTouchScroll();
+          return;
+        }
+        const currentlyAlt = term.buffer?.active?.type === 'alternate';
+        if (
+          startedInAltScreen !== currentlyAlt ||
+          (startedInAltScreen && !(term.modes?.mouseTrackingMode && term.modes.mouseTrackingMode !== 'none'))
+        ) {
           momentumRaf = null;
           syncAtBottomAfterTouchScroll();
           return;
@@ -1450,7 +1469,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         const dt = Math.max(8, Math.min(48, now - lastFrameTime));
         lastFrameTime = now;
 
-        velocity = stepMomentumVelocity(velocity, dt);
+        velocity = stepMomentumVelocity(velocity, dt, friction, minVelocity);
         if (velocity === 0) {
           momentumRaf = null;
           syncAtBottomAfterTouchScroll();
@@ -1645,7 +1664,11 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
       // STANDARD MODE: terminal scrolling with velocity tracking and RAF coalescing
       touchVelocityY = computeTouchVelocity(touchVelocityY, frameDeltaY, dt);
-      scheduleTouchScrollFlush(frameDeltaY);
+      if (term.buffer?.active?.type === 'alternate') {
+        applyScrollDelta(frameDeltaY);
+      } else {
+        scheduleTouchScrollFlush(frameDeltaY);
+      }
       // Fallback path via applyScrollDelta / term.scrollLines(linesToScroll) when .xterm-viewport is not scrollable
     };
 
@@ -1673,8 +1696,17 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           e.preventDefault();
         }
         const timeSinceLastMove = now - lastTouchMoveTime;
-        if (timeSinceLastMove < 80 && Math.abs(touchVelocityY) >= 0.12 && term.buffer?.active?.type !== 'alternate') {
-          startMomentumScroll(touchVelocityY);
+        const isAltBuffer = term.buffer?.active?.type === 'alternate';
+        const isAltMouseTracking =
+          isAltBuffer &&
+          isRemoteAltScreenRef.current &&
+          Boolean(term.modes?.mouseTrackingMode && term.modes.mouseTrackingMode !== 'none');
+
+        if (timeSinceLastMove < 80 && Math.abs(touchVelocityY) >= 0.12 && (!isAltBuffer || isAltMouseTracking)) {
+          startMomentumScroll(
+            touchVelocityY,
+            isAltBuffer ? { friction: 0.91, minVelocity: 0.24, isAltScreen: true } : undefined
+          );
         } else {
           touchVelocityY = 0;
           syncAtBottomAfterTouchScroll();
