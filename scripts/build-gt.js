@@ -131,12 +131,45 @@ function buildGt(options = {}) {
   return { versionData, outfile, buildResult };
 }
 
+function buildServer(options = {}) {
+  const rootDir = options.rootDir || ROOT_DIR;
+  const versionData = options.versionData || generateVersionData({ rootDir });
+  const outfile = options.outfile || path.join(rootDir, 'dist/src/index.js');
+
+  const esbuildOptions = options.esbuildOptions || {};
+  const define = {
+    '__GT_VERSION__': JSON.stringify(versionData.version),
+    '__GT_GIT_COMMIT__': JSON.stringify(versionData.gitCommit),
+    '__GT_BUILD_TIME__': JSON.stringify(versionData.buildTime),
+    ...(esbuildOptions.define || {}),
+  };
+
+  const buildResult = getEsbuild().buildSync({
+    entryPoints: [path.join(rootDir, 'src/index.ts')],
+    bundle: true,
+    platform: 'node',
+    target: 'node18',
+    format: 'cjs',
+    packages: 'external',
+    outfile,
+    ...esbuildOptions,
+    define,
+  });
+
+  if (!options.silent) {
+    console.log(`[build:server] Built dist/src/index.js v${versionData.version} (${versionData.gitCommit}) built at ${versionData.buildTime}`);
+  }
+
+  return { versionData, outfile, buildResult };
+}
+
 if (require.main === module) {
   const args = process.argv.slice(2);
   if (args.includes('--help') || args.includes('-h')) {
     console.log(`Usage: node scripts/build-gt.js [options]
 
 Options:
+  --server        Build backend server (dist/src/index.js) via esbuild
   --version-only  Only generate version metadata (src/shared/version.json)
   --silent        Suppress standard build log output
   --root <path>   Specify repository root directory (default: current project root)
@@ -147,6 +180,7 @@ Options:
 
   const isSilent = args.includes('--silent');
   const isVersionOnly = args.includes('--version-only');
+  const isServer = args.includes('--server');
   let customRootDir = process.env.GT_ROOT_DIR || null;
   const rootIndex = args.indexOf('--root');
   if (rootIndex !== -1 && args[rootIndex + 1]) {
@@ -158,6 +192,8 @@ Options:
     if (!isSilent) {
       console.log(`[version] Generated src/shared/version.json: ${data.version} (${data.gitCommit}) built at ${data.buildTime}`);
     }
+  } else if (isServer) {
+    buildServer({ rootDir: customRootDir || undefined, silent: isSilent });
   } else {
     buildGt({ rootDir: customRootDir || undefined, silent: isSilent });
   }
@@ -166,6 +202,7 @@ Options:
 module.exports = {
   generateVersionData,
   buildGt,
+  buildServer,
   getGitCommit,
   getCommitCount,
   getGitDescribe,

@@ -5,10 +5,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commonly Used Commands
 
 ### Build Commands
-- Full project build: `npm run build` (generates version metadata, builds frontend, compiles backend TypeScript, and bundles CLI)
-- Build backend only: `npm run build:backend`
+- Full project build: `npm run build` (builds frontend, compiles backend with esbuild, and bundles CLI)
+- Build backend only: `npm run build:backend` (bundles `src/index.ts` -> `dist/src/index.js` via esbuild with `packages: 'external'`)
 - Build frontend only: `npm run build:frontend`
 - Build CLI executable only: `npm run build:gt` (bundles `src/bin/gt.ts` into `dist/gt.js` via esbuild)
+- Type check: `npm run typecheck` (`tsc --noEmit`)
+- Install all dependencies: `npm run install:all` (root and frontend dependencies)
 - Generate version data: `npm run version:gen` (writes to `src/shared/version.json`)
 - Clean build outputs: `npm run clean`
 
