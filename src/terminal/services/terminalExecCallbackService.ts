@@ -1,10 +1,219 @@
 import http from 'http';
 import https from 'https';
 import crypto from 'crypto';
+import dns from 'dns';
+import net from 'net';
 import { URL } from 'url';
 import { sliceBufferUtf8Safe } from '../../agent/tasks/taskManager';
 import { terminalHostManager } from './terminalHostManager';
 import terminalLogService from './terminalLogService';
+
+function checkIPv4(ip: string, blockPrivateIp: boolean): string | null {
+  const parts = ip.split('.').map((p) => parseInt(p, 10));
+  if (parts.length !== 4 || parts.some((p) => isNaN(p) || p < 0 || p > 255)) {
+    return 'Invalid IPv4 address';
+  }
+  const [a, b] = parts;
+
+  // 169.254.0.0/16 (Link-local / Cloud metadata: 169.254.169.254, 169.254.170.2)
+  if (a === 169 && b === 254) {
+    return `Link-local/metadata IP (${ip}) is not allowed`;
+  }
+
+  // 0.0.0.0/8
+  if (a === 0) {
+    return `Current network IP (${ip}) is not allowed`;
+  }
+
+  if (blockPrivateIp) {
+    // 127.0.0.0/8 (Loopback)
+    if (a === 127) {
+      return `Loopback IP (${ip}) is blocked by private IP policy`;
+    }
+    // 10.0.0.0/8 (Private)
+    if (a === 10) {
+      return `Private IP (${ip}) is blocked by private IP policy`;
+    }
+    // 172.16.0.0/12 (Private)
+    if (a === 172 && b >= 16 && b <= 31) {
+      return `Private IP (${ip}) is blocked by private IP policy`;
+    }
+    // 192.168.0.0/16 (Private)
+    if (a === 192 && b === 168) {
+      return `Private IP (${ip}) is blocked by private IP policy`;
+    }
+  }
+
+  return null;
+}
+
+function expandIPv6(ip: string): number[] | null {
+  let cleanIp = ip;
+  const lastColon = cleanIp.lastIndexOf(':');
+  if (lastColon !== -1) {
+    const possibleIpv4 = cleanIp.slice(lastColon + 1);
+    if (net.isIPv4(possibleIpv4)) {
+      const parts = possibleIpv4.split('.').map((p) => parseInt(p, 10));
+      const hex1 = ((parts[0] << 8) | parts[1]).toString(16);
+      const hex2 = ((parts[2] << 8) | parts[3]).toString(16);
+      cleanIp = cleanIp.slice(0, lastColon) + `:${hex1}:${hex2}`;
+    }
+  }
+
+  const doubleColon = cleanIp.indexOf('::');
+  let leftPart: string[] = [];
+  let rightPart: string[] = [];
+
+  if (doubleColon !== -1) {
+    const left = cleanIp.slice(0, doubleColon);
+    const right = cleanIp.slice(doubleColon + 2);
+    leftPart = left ? left.split(':') : [];
+    rightPart = right ? right.split(':') : [];
+    const missing = 8 - (leftPart.length + rightPart.length);
+    if (missing < 0) return null;
+    const middle = new Array(missing).fill('0');
+    const full = [...leftPart, ...middle, ...rightPart];
+    if (full.length !== 8) return null;
+    return full.map((h) => parseInt(h || '0', 16));
+  } else {
+    const parts = cleanIp.split(':');
+    if (parts.length !== 8) return null;
+    return parts.map((h) => parseInt(h || '0', 16));
+  }
+}
+
+function checkIPv6(ip: string, blockPrivateIp: boolean): string | null {
+  const normalized = ip.toLowerCase();
+
+  const lastColon = normalized.lastIndexOf(':');
+  if (lastColon !== -1) {
+    const embeddedIpv4 = normalized.slice(lastColon + 1);
+    if (net.isIPv4(embeddedIpv4)) {
+      const v4Blocked = checkIPv4(embeddedIpv4, blockPrivateIp);
+      if (v4Blocked) return v4Blocked;
+    }
+  }
+
+  const hextets = expandIPv6(normalized);
+  if (!hextets) {
+    return 'Invalid IPv6 address';
+  }
+
+  // Unspecified address (:: or 0:0:0:0:0:0:0:0)
+  if (hextets.every((h) => h === 0)) {
+    return `Unspecified IPv6 (${ip}) is not allowed`;
+  }
+
+  // AWS IPv6 metadata: fd00:ec2::254
+  if (
+    hextets[0] === 0xfd00 &&
+    hextets[1] === 0x0ec2 &&
+    hextets[2] === 0 &&
+    hextets[3] === 0 &&
+    hextets[4] === 0 &&
+    hextets[5] === 0 &&
+    hextets[6] === 0 &&
+    hextets[7] === 0x0254
+  ) {
+    return `Cloud metadata IPv6 (${ip}) is not allowed`;
+  }
+
+  // Link-local: fe80::/10 (0xfe80 - 0xfebf)
+  if (hextets[0] >= 0xfe80 && hextets[0] <= 0xfebf) {
+    return `Link-local IPv6 (${ip}) is not allowed`;
+  }
+
+  // IPv4-mapped in hex form: ::ffff:a9fe:a9fe (169.254.169.254)
+  if (
+    hextets[0] === 0 &&
+    hextets[1] === 0 &&
+    hextets[2] === 0 &&
+    hextets[3] === 0 &&
+    hextets[4] === 0 &&
+    hextets[5] === 0xffff
+  ) {
+    const a = (hextets[6] >> 8) & 0xff;
+    const b = hextets[6] & 0xff;
+    const c = (hextets[7] >> 8) & 0xff;
+    const d = hextets[7] & 0xff;
+    const v4Blocked = checkIPv4(`${a}.${b}.${c}.${d}`, blockPrivateIp);
+    if (v4Blocked) return v4Blocked;
+  }
+
+  if (blockPrivateIp) {
+    // Loopback: ::1
+    const isLoopback =
+      hextets[0] === 0 &&
+      hextets[1] === 0 &&
+      hextets[2] === 0 &&
+      hextets[3] === 0 &&
+      hextets[4] === 0 &&
+      hextets[5] === 0 &&
+      hextets[6] === 0 &&
+      hextets[7] === 1;
+    if (isLoopback) {
+      return `Loopback IPv6 (${ip}) is blocked by private IP policy`;
+    }
+
+    // Unique Local Address: fc00::/7 (0xfc00 - 0xfdff)
+    if ((hextets[0] & 0xfe00) === 0xfc00) {
+      return `Unique local IPv6 (${ip}) is blocked by private IP policy`;
+    }
+  }
+
+  return null;
+}
+
+export function isBlockedCallbackHost(
+  hostname: string,
+  blockPrivateIp = process.env.GT_WEBHOOK_BLOCK_PRIVATE_IP === 'true',
+): string | null {
+  if (!hostname || typeof hostname !== 'string') {
+    return 'Empty or invalid host';
+  }
+
+  const raw = hostname
+    .trim()
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.+$/, '')
+    .replace(/%.*$/, '')
+    .toLowerCase();
+
+  if (!raw) {
+    return 'Empty or invalid host';
+  }
+
+  // Cloud metadata hostnames
+  if (
+    raw === 'metadata.google.internal' ||
+    raw === 'metadata.goog' ||
+    raw === 'instance-data' ||
+    raw.endsWith('.metadata.google.internal') ||
+    raw.endsWith('.metadata.goog')
+  ) {
+    return `Cloud metadata hostname (${raw}) is not allowed`;
+  }
+
+  // Localhost
+  if (raw === 'localhost' || raw.endsWith('.localhost')) {
+    if (blockPrivateIp) {
+      return `Localhost (${raw}) is blocked by private IP policy`;
+    }
+    return null;
+  }
+
+  // Check IPv4
+  if (net.isIPv4(raw)) {
+    return checkIPv4(raw, blockPrivateIp);
+  }
+
+  // Check IPv6
+  if (net.isIPv6(raw)) {
+    return checkIPv6(raw, blockPrivateIp);
+  }
+
+  return null;
+}
 
 export interface ExecCallbackConfig {
   url: string;
@@ -48,7 +257,10 @@ export interface ExecCallbackPayload {
   context: any;
 }
 
-export function validateCallbackConfig(raw: unknown): {
+export function validateCallbackConfig(
+  raw: unknown,
+  options?: { blockPrivateIp?: boolean }
+): {
   valid: boolean;
   config?: ExecCallbackConfig;
   error?: string;
@@ -72,6 +284,11 @@ export function validateCallbackConfig(raw: unknown): {
 
   if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
     return { valid: false, error: 'Field "callback.url" must use http or https protocol' };
+  }
+
+  const blockReason = isBlockedCallbackHost(parsedUrl.hostname, options?.blockPrivateIp);
+  if (blockReason) {
+    return { valid: false, error: `Field "callback.url" targets a blocked host: ${blockReason}` };
   }
 
   let method: 'POST' | 'PUT' = 'POST';
@@ -363,7 +580,12 @@ export class TerminalExecCallbackService {
         this.retryDelaysMs[attempt - 1] ??
         this.retryDelaysMs[this.retryDelaysMs.length - 1] ??
         1000;
-      await new Promise((resolve) => setTimeout(resolve, delay));
+      await new Promise((resolve) => {
+        const timer = setTimeout(resolve, delay);
+        if (typeof timer.unref === 'function') {
+          timer.unref();
+        }
+      });
     }
 
     return false;
@@ -382,18 +604,35 @@ export class TerminalExecCallbackService {
         const isHttps = urlObj.protocol === 'https:';
         const client = isHttps ? https : http;
 
-        const reqOptions = {
+        const reqOptions: http.RequestOptions = {
           method,
           hostname: urlObj.hostname,
           port: urlObj.port ? parseInt(urlObj.port, 10) : isHttps ? 443 : 80,
           path: urlObj.pathname + urlObj.search,
           headers,
           timeout: timeoutMs,
+          lookup: (hostname: string, opts: any, callback: any) => {
+            dns.lookup(hostname, opts, (err, address, family) => {
+              if (err) {
+                return callback(err, address, family);
+              }
+              const addrs = Array.isArray(address) ? address : [{ address, family }];
+              for (const item of addrs) {
+                const targetIp = typeof item === 'string' ? item : item?.address;
+                if (targetIp) {
+                  const blocked = isBlockedCallbackHost(targetIp);
+                  if (blocked) {
+                    return callback(new Error(`Webhook host resolved to blocked IP (${targetIp}): ${blocked}`));
+                  }
+                }
+              }
+              callback(null, address, family);
+            });
+          },
         };
 
         const req = client.request(reqOptions, (res) => {
-          const chunks: Buffer[] = [];
-          res.on('data', (c) => chunks.push(c));
+          res.resume();
           res.on('end', () => {
             const statusCode = res.statusCode || 0;
             if (statusCode >= 200 && statusCode < 300) {

@@ -4,6 +4,7 @@ import config from '../../../config/default';
 import { safeCompareSecret, extractAdminKeyFromRequest } from '../../shared/utils/security';
 import { ticketManager } from '../../server/modules/auth/ticketManager';
 import { terminalProxyBridge } from '../services/terminalProxyBridge';
+import { loginRateLimiter, extractClientIp } from '../../server/modules/auth/rateLimiter';
 
 export function createProxySessionToken(secretKey: string, ttlMs = 12 * 3600 * 1000): string {
   const expiresAt = Date.now() + ttlMs;
@@ -49,15 +50,31 @@ export function proxyAuthMiddleware(req: Request, res: Response, next: NextFunct
     return next();
   }
 
+  const clientIp = extractClientIp(req);
+  const rateStatus = loginRateLimiter.isRateLimited(clientIp);
+  if (rateStatus.limited) {
+    res.setHeader('Retry-After', String(rateStatus.retryAfterSec));
+    res.status(429).json({
+      success: false,
+      error: `Too many failed attempts. Please try again in ${rateStatus.retryAfterSec} seconds.`,
+    });
+    return;
+  }
+
+  const cookiePath = req.baseUrl || '/api/proxy';
+  const isHttps = req.secure || String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase() === 'https';
+  const secureFlag = isHttps ? '; Secure' : '';
+
   // 1. Check direct admin key (header x-admin-key, Bearer token, query admin_key/x-admin-key/key)
   const candidateKey = extractAdminKeyFromRequest(req);
   if (candidateKey && safeCompareSecret(candidateKey, secretKey)) {
+    loginRateLimiter.clear(clientIp);
     const isFromQuery = Boolean(
       (req.query && (req.query.admin_key || req.query['x-admin-key'] || req.query.key))
     );
     if (isFromQuery) {
       const token = createProxySessionToken(secretKey);
-      res.setHeader('Set-Cookie', `gt_proxy_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200`);
+      res.setHeader('Set-Cookie', `gt_proxy_session=${token}; Path=${cookiePath}; HttpOnly; SameSite=Lax; Max-Age=43200${secureFlag}`);
     }
     return next();
   }
@@ -65,8 +82,9 @@ export function proxyAuthMiddleware(req: Request, res: Response, next: NextFunct
   // 3. Check query ticket
   const ticket = req.query.ticket as string;
   if (ticket && ticketManager.consumeTicket(ticket)) {
+    loginRateLimiter.clear(clientIp);
     const token = createProxySessionToken(secretKey);
-    res.setHeader('Set-Cookie', `gt_proxy_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=43200`);
+    res.setHeader('Set-Cookie', `gt_proxy_session=${token}; Path=${cookiePath}; HttpOnly; SameSite=Lax; Max-Age=43200${secureFlag}`);
     return next();
   }
 
@@ -74,9 +92,11 @@ export function proxyAuthMiddleware(req: Request, res: Response, next: NextFunct
   const cookies = parseCookieHeader(req.headers.cookie);
   const sessionToken = cookies['gt_proxy_session'];
   if (sessionToken && verifyProxySessionToken(sessionToken, secretKey)) {
+    loginRateLimiter.clear(clientIp);
     return next();
   }
 
+  loginRateLimiter.recordFailure(clientIp);
   res.status(401).json({ success: false, error: 'Unauthorized: Invalid x-admin-key or proxy session' });
 }
 

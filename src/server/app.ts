@@ -8,8 +8,33 @@ import staticMiddleware from './modules/static/staticMiddleware';
 import errorHandlerMiddleware from './middlewares/errorHandler';
 import compressionMiddleware from './middlewares/compressionMiddleware';
 import { getVersionInfo } from '../shared/version';
+import { parseTrustProxySetting } from './modules/auth/rateLimiter';
+
+export { parseTrustProxySetting };
 
 const app = express();
+
+const trustProxySetting = parseTrustProxySetting(process.env.TRUST_PROXY);
+if (trustProxySetting) {
+  app.set('trust proxy', trustProxySetting);
+}
+app.disable('x-powered-by');
+
+// Security headers middleware
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  const rawAncestors = process.env.GT_FRAME_ANCESTORS?.trim();
+  const isStrict = process.env.GT_STRICT_FRAME_ANCESTORS === 'true';
+  if (rawAncestors) {
+    const extraTokens = rawAncestors.split(/[\s,]+/).filter(Boolean).join(' ');
+    const extraAncestors = extraTokens ? ` ${extraTokens}` : '';
+    res.setHeader('Content-Security-Policy', `frame-ancestors 'self'${extraAncestors}`);
+  } else if (isStrict) {
+    res.setHeader('Content-Security-Policy', "frame-ancestors 'self'");
+  }
+  next();
+});
 
 // Proxy API endpoints (mounted before express.json to preserve request stream)
 app.use('/api/proxy', proxyRoutes);

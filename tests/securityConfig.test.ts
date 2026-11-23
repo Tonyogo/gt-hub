@@ -15,6 +15,47 @@ describe('validateSecurityConfig', () => {
     expect(exitCode).toBe(1);
   });
 
+  it('fails in production mode when secretKey is default gt-hub and allowInsecure is not set', () => {
+    let exitCode: number | null = null;
+    const res = validateSecurityConfig({
+      nodeEnv: 'production',
+      secretKey: 'gt-hub',
+      allowInsecure: false,
+      exitHandler: (code: number) => { exitCode = code; },
+    });
+
+    expect(res.valid).toBe(false);
+    expect(res.error).toMatch(/default.*gt-hub|not allowed in production/i);
+    expect(exitCode).toBe(1);
+  });
+
+  it('allows default gt-hub in production if allowInsecure is true and emits warning', () => {
+    let exitCode: number | null = null;
+    const res = validateSecurityConfig({
+      nodeEnv: 'production',
+      secretKey: 'gt-hub',
+      allowInsecure: true,
+      exitHandler: (code: number) => { exitCode = code; },
+    });
+
+    expect(res.valid).toBe(true);
+    expect(res.warning).toMatch(/GT_ALLOW_INSECURE_NO_AUTH/i);
+    expect(exitCode).toBeNull();
+  });
+
+  it('allows default gt-hub in development mode', () => {
+    let exitCode: number | null = null;
+    const res = validateSecurityConfig({
+      nodeEnv: 'development',
+      secretKey: 'gt-hub',
+      allowInsecure: false,
+      exitHandler: (code: number) => { exitCode = code; },
+    });
+
+    expect(res.valid).toBe(true);
+    expect(exitCode).toBeNull();
+  });
+
   it('allows empty secretKey in production if allowInsecure is true and emits warning', () => {
     let exitCode: number | null = null;
     const res = validateSecurityConfig({

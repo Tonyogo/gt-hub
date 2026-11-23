@@ -2,22 +2,77 @@ import { Request, Response } from 'express';
 import config from '../../config/default';
 import { safeCompareSecret, extractAdminKeyFromRequest } from '../../../shared/utils/security';
 import { ticketManager } from './ticketManager';
-import { loginRateLimiter } from './rateLimiter';
+import { loginRateLimiter, extractClientIp } from './rateLimiter';
+
+export function resolveAllowedParentOrigins(): string[] {
+  const sources = [
+    process.env.GT_FRAME_ANCESTORS,
+    process.env.GT_ALLOWED_PARENT_ORIGINS,
+  ];
+  const result: string[] = [];
+  for (const source of sources) {
+    if (!source || typeof source !== 'string') continue;
+    const tokens = source.split(/[\s,]+/).map((t) => t.trim()).filter(Boolean);
+    for (const token of tokens) {
+      if (token === "'self'" || token === "'none'") continue;
+      try {
+        const url = new URL(token);
+        if (url.origin && url.origin !== 'null' && !result.includes(url.origin)) {
+          result.push(url.origin);
+        }
+      } catch {
+        // Skip invalid URL / token format
+      }
+    }
+  }
+  return result;
+}
 
 export class AuthController {
   static getStatus(req: Request, res: Response): void {
     const secretKey = config.adminSecretKey;
+    const allowedParentOrigins = resolveAllowedParentOrigins();
+
     if (!secretKey) {
-      res.status(200).json({ authRequired: false, authenticated: true });
+      res.status(200).json({
+        authRequired: false,
+        authenticated: true,
+        allowedParentOrigins,
+      });
       return;
     }
 
     const providedKey = extractAdminKeyFromRequest(req);
-    const authenticated = safeCompareSecret(providedKey, secretKey);
+    if (providedKey) {
+      const clientIp = extractClientIp(req);
+      const rateStatus = loginRateLimiter.isRateLimited(clientIp);
+      if (rateStatus.limited) {
+        res.setHeader('Retry-After', String(rateStatus.retryAfterSec));
+        res.status(429).json({
+          error: `Too many failed attempts. Please try again in ${rateStatus.retryAfterSec} seconds.`,
+        });
+        return;
+      }
+
+      const authenticated = safeCompareSecret(providedKey, secretKey);
+      if (authenticated) {
+        loginRateLimiter.clear(clientIp);
+      } else {
+        loginRateLimiter.recordFailure(clientIp);
+      }
+
+      res.status(200).json({
+        authRequired: true,
+        authenticated,
+        allowedParentOrigins,
+      });
+      return;
+    }
 
     res.status(200).json({
       authRequired: true,
-      authenticated,
+      authenticated: false,
+      allowedParentOrigins,
     });
   }
 
@@ -28,7 +83,7 @@ export class AuthController {
       return;
     }
 
-    const clientIp = req.ip || req.socket?.remoteAddress || 'unknown';
+    const clientIp = extractClientIp(req);
     const rateStatus = loginRateLimiter.isRateLimited(clientIp);
     if (rateStatus.limited) {
       res.setHeader('Retry-After', String(rateStatus.retryAfterSec));

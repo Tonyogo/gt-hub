@@ -37,11 +37,31 @@ function sanitizeProto(raw?: string): string {
 
 function sanitizeHost(raw?: string): string {
   const cleaned = (raw || '').trim().replace(/\/+$/, '');
-  // Reject shell metacharacters, quotes, backticks, newlines, spaces, or semicolons
-  if (!cleaned || /["'`\\\r\n\s;|&<>()]/.test(cleaned)) {
+  if (!cleaned) {
     return 'localhost';
   }
-  return cleaned;
+
+  // IPv6 bracketed host: ^\[[0-9a-fA-F:]+\](?::\d{1,5})?$
+  const ipv6Match = cleaned.match(/^\[([0-9a-fA-F:]+)\](?::(\d{1,5}))?$/);
+  if (ipv6Match) {
+    const port = ipv6Match[2] ? parseInt(ipv6Match[2], 10) : undefined;
+    if (port !== undefined && (port < 1 || port > 65535)) {
+      return 'localhost';
+    }
+    return cleaned;
+  }
+
+  // Standard hostname / IPv4: ^[a-zA-Z0-9._-]+(?::\d{1,5})?$
+  const hostMatch = cleaned.match(/^([a-zA-Z0-9._-]+)(?::(\d{1,5}))?$/);
+  if (hostMatch) {
+    const port = hostMatch[2] ? parseInt(hostMatch[2], 10) : undefined;
+    if (port !== undefined && (port < 1 || port > 65535)) {
+      return 'localhost';
+    }
+    return cleaned;
+  }
+
+  return 'localhost';
 }
 
 export class DownloadController {
@@ -55,17 +75,35 @@ export class DownloadController {
     try {
       const content = fs.readFileSync(scriptPath, 'utf8');
 
-      // Dynamic Host and Protocol detection
-      const protoHeader = req.headers['x-forwarded-proto'];
-      const rawProto = Array.isArray(protoHeader) ? protoHeader[0] : protoHeader;
-      const proto = sanitizeProto(rawProto?.split(',')[0]?.trim() || req.protocol || 'http');
+      const publicUrlEnv = process.env.GT_PUBLIC_URL ? process.env.GT_PUBLIC_URL.trim() : '';
+      let hubUrl: string | null = null;
 
-      const hostHeader = req.headers['x-forwarded-host'];
-      const rawHost = Array.isArray(hostHeader) ? hostHeader[0] : hostHeader;
-      const fallbackHost = Array.isArray(req.headers.host) ? req.headers.host[0] : req.headers.host;
-      const host = sanitizeHost(rawHost?.split(',')[0]?.trim() || fallbackHost?.split(',')[0]?.trim() || 'localhost');
+      if (publicUrlEnv && !/["'`\\$\s]/.test(publicUrlEnv)) {
+        try {
+          const parsed = new URL(publicUrlEnv);
+          if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+            hubUrl = publicUrlEnv.replace(/\/+$/, '');
+          }
+        } catch {
+          // Ignore invalid URL and fall through
+        }
+      }
 
-      const hubUrl = `${proto}://${host}`;
+      if (!hubUrl) {
+        res.setHeader('Cache-Control', 'no-store');
+
+        // Dynamic Host and Protocol detection
+        const protoHeader = req.headers['x-forwarded-proto'];
+        const rawProto = Array.isArray(protoHeader) ? protoHeader[0] : protoHeader;
+        const proto = sanitizeProto(rawProto?.split(',')[0]?.trim() || req.protocol || 'http');
+
+        const hostHeader = req.headers['x-forwarded-host'];
+        const rawHost = Array.isArray(hostHeader) ? hostHeader[0] : hostHeader;
+        const fallbackHost = Array.isArray(req.headers.host) ? req.headers.host[0] : req.headers.host;
+        const host = sanitizeHost(rawHost?.split(',')[0]?.trim() || fallbackHost?.split(',')[0]?.trim() || 'localhost');
+
+        hubUrl = `${proto}://${host}`;
+      }
 
       // Dynamically inject the Hub URL into INJECTED_HUB_URL="..."
       const injectedContent = content.replace(

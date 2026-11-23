@@ -57,13 +57,20 @@ describe('Public gt CLI and installer download endpoints', () => {
     expect(res.status).toBe(200);
     expect(res.text).toContain('INJECTED_HUB_URL="https://edge.example.com:8443"');
 
-    // Test with dollar signs in host without regex replacement substitution corruption
+    // Reject dollar signs and shell expansion in host
     const resDollar = await request(app)
       .get('/install.sh')
       .set('Host', 'my-$1-host.internal');
 
     expect(resDollar.status).toBe(200);
-    expect(resDollar.text).toContain('INJECTED_HUB_URL="http://my-$1-host.internal"');
+    expect(resDollar.text).toContain('INJECTED_HUB_URL="http://localhost"');
+
+    const resIfs = await request(app)
+      .get('/install.sh')
+      .set('X-Forwarded-Host', 'evil.com/${IFS}x');
+
+    expect(resIfs.status).toBe(200);
+    expect(resIfs.text).toContain('INJECTED_HUB_URL="http://localhost"');
 
     // Reject shell injection payloads in X-Forwarded-Host and X-Forwarded-Proto
     const resInjected = await request(app)
@@ -73,6 +80,43 @@ describe('Public gt CLI and installer download endpoints', () => {
 
     expect(resInjected.status).toBe(200);
     expect(resInjected.text).toContain('INJECTED_HUB_URL="http://localhost"');
+  });
+
+  it('sets Cache-Control: no-store when GT_PUBLIC_URL is unset', async () => {
+    const originalUrl = process.env.GT_PUBLIC_URL;
+    delete process.env.GT_PUBLIC_URL;
+    try {
+      const res = await request(app).get('/install.sh');
+      expect(res.status).toBe(200);
+      expect(res.headers['cache-control']).toBe('no-store');
+    } finally {
+      if (originalUrl === undefined) delete process.env.GT_PUBLIC_URL;
+      else process.env.GT_PUBLIC_URL = originalUrl;
+    }
+  });
+
+  it('honors GT_PUBLIC_URL override and ignores spoofed Host / X-Forwarded headers', async () => {
+    const originalUrl = process.env.GT_PUBLIC_URL;
+    process.env.GT_PUBLIC_URL = 'https://pinned.example.com/';
+    try {
+      const res = await request(app)
+        .get('/install.sh')
+        .set('Host', 'spoofed.evil')
+        .set('X-Forwarded-Host', 'attacker.evil');
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('INJECTED_HUB_URL="https://pinned.example.com"');
+    } finally {
+      if (originalUrl === undefined) delete process.env.GT_PUBLIC_URL;
+      else process.env.GT_PUBLIC_URL = originalUrl;
+    }
+  });
+
+  it('preserves valid IPv6 host format [::1]:8000', async () => {
+    const res = await request(app)
+      .get('/install.sh')
+      .set('Host', '[::1]:8000');
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('INJECTED_HUB_URL="http://[::1]:8000"');
   });
 
   it('contains strict Node.js >= 18 check and multi-OS installation guide in installer script', async () => {

@@ -18,6 +18,7 @@ import {
   sendControlFrame,
 } from '../../shared/protocol/binaryProtocol';
 import { TERMINAL_WS_DEFLATE_OPTIONS } from '../../shared/protocol/wsOptions';
+import { loginRateLimiter, extractClientIp } from '../../server/modules/auth/rateLimiter';
 
 export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?: any): WebSocketServer {
   const hostMgr = hostManagerInstance || terminalHostManager;
@@ -37,9 +38,25 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
       return;
     }
 
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(reqUrl, `http://${req.headers.host || 'localhost'}`);
+    } catch {
+      socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+
+    const clientIp = extractClientIp(req);
+    const rateStatus = loginRateLimiter.isRateLimited(clientIp);
+    if (rateStatus.limited) {
+      socket.write(`HTTP/1.1 429 Too Many Requests\r\nRetry-After: ${rateStatus.retryAfterSec}\r\n\r\n`);
+      socket.destroy();
+      return;
+    }
+
     const secretKey = config.adminSecretKey;
     if (secretKey) {
-      const parsedUrl = new URL(reqUrl, `http://${req.headers.host || 'localhost'}`);
       const ticketParam = parsedUrl.searchParams.get('ticket');
       let isAuthorized = false;
 
@@ -60,11 +77,14 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
       }
 
       if (!isAuthorized) {
+        loginRateLimiter.recordFailure(clientIp);
         logger.warn(`[TerminalWS] Unauthorized WebSocket connection attempt rejected (${reqUrl})`);
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
         socket.destroy();
         return;
       }
+
+      loginRateLimiter.clear(clientIp);
     }
 
     if (isAgentWs) {
