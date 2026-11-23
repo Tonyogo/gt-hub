@@ -112,4 +112,76 @@ describe('Markdown Renderer & File Type Helpers', () => {
     expect(clean).not.toContain('<style');
     expect(clean).toContain('<p>Keep me</p>');
   });
+
+  test('prevents nested tag reconstruction bypasses in Node and browser runtimes', () => {
+    const nested = '<scr<script>ipt>alert(1)</scr</script>ipt>';
+    const clean = sanitizeMarkdownHtml(nested);
+    expect(clean).not.toContain('<script');
+    expect(clean).not.toContain('alert(1)');
+
+    const rendered = renderMarkdownToHtml(nested);
+    expect(rendered).not.toContain('<script');
+    expect(rendered).not.toContain('alert(1)');
+  });
+
+  test('neutralizes slash-delimited and whitespace-separated event handlers and dangerous tags', () => {
+    const payloads = [
+      '<img/src=x/onerror=alert(1)>',
+      '<svg/onload=alert(1)>',
+      '<math><mtext><table><mglyph><style><!--</style><img src=x onerror=alert(2)>',
+    ];
+
+    for (const payload of payloads) {
+      const clean = sanitizeMarkdownHtml(payload);
+      expect(clean).not.toContain('onerror');
+      expect(clean).not.toContain('onload');
+      expect(clean).not.toContain('<svg');
+      expect(clean).not.toContain('<math');
+
+      const rendered = renderMarkdownToHtml(payload);
+      expect(rendered).not.toContain('onerror');
+      expect(rendered).not.toContain('onload');
+      expect(rendered).not.toContain('<svg');
+      expect(rendered).not.toContain('<math');
+    }
+  });
+
+  test('neutralizes HTML-entity and control-character obfuscated javascript: URLs', () => {
+    const obfuscated = [
+      '<a href="&#106;avascript:alert(1)">x1</a>',
+      '<a href="&#x6a;avascript:alert(1)">x2</a>',
+      '<a href="java&#x09;script:alert(1)">x3</a>',
+      '<a href="jav&#x00;ascript:alert(1)">x4</a>',
+      '[entity](&#106;avascript:alert(1))',
+      '[hex](&#x6A;avascript:alert(1))',
+    ];
+
+    for (const item of obfuscated) {
+      const rendered = renderMarkdownToHtml(item);
+      expect(rendered).not.toMatch(/href\s*=\s*["']?\s*javascript:/i);
+      expect(rendered).toContain('href="#"');
+    }
+  });
+
+  test('escapes raw HTML in Markdown link text to prevent inline XSS', () => {
+    const rawLinkText = '[<img/src=x/onerror=alert(1)>](https://example.com)';
+    const rendered = renderMarkdownToHtml(rawLinkText);
+    expect(rendered).not.toContain('<img');
+    expect(rendered).not.toMatch(/<[^>]+onerror/i);
+    expect(rendered).toContain('&lt;img/src=x/onerror=alert(1)&gt;');
+  });
+
+  test('frontend/package.json contains dompurify in dependencies and source imports DOMPurify', () => {
+    const pkgPath = require('path').resolve(__dirname, '../frontend/package.json');
+    const pkg = JSON.parse(require('fs').readFileSync(pkgPath, 'utf8'));
+    expect(pkg.dependencies).toBeDefined();
+    expect(pkg.dependencies.dompurify).toBeDefined();
+
+    const rendererSource = require('fs').readFileSync(
+      require('path').resolve(__dirname, '../frontend/src/utils/markdownRenderer.ts'),
+      'utf8'
+    );
+    expect(rendererSource).toMatch(/import\s+(?:\*\s+as\s+DOMPurify|DOMPurify)\s+from\s+['"]dompurify['"]/);
+    expect(rendererSource).toContain('DOMPurify');
+  });
 });

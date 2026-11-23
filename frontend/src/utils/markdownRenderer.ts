@@ -2,6 +2,7 @@
  * Pure, dependency-free GFM Markdown rendering and XSS sanitization utility.
  * Designed to execute cleanly in both Browser and Node (Jest) test environments.
  */
+import DOMPurify from 'dompurify';
 
 export function isMarkdownExtension(ext?: string | null): boolean {
   if (!ext) return false;
@@ -24,46 +25,105 @@ export function escapeHtml(text: string): string {
     .replace(/'/g, '&#39;');
 }
 
+export function decodeHtmlEntitiesForUrl(val: string): string {
+  let decoded = val;
+  // Decode decimal entities like &#106; or &#106
+  decoded = decoded.replace(/&#(\d+);?/g, (_, dec) => {
+    const code = parseInt(dec, 10);
+    return !isNaN(code) && code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : '';
+  });
+  // Decode hex entities like &#x6a; or &#x6a
+  decoded = decoded.replace(/&#x([0-9a-f]+);?/gi, (_, hex) => {
+    const code = parseInt(hex, 16);
+    return !isNaN(code) && code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : '';
+  });
+  // Decode common named entities that can be used to hide colons/tabs
+  decoded = decoded
+    .replace(/&colon;?/gi, ':')
+    .replace(/&tab;?/gi, '\t')
+    .replace(/&newline;?/gi, '\n');
+  // Strip control chars and ascii whitespace (0x00 - 0x20)
+  return decoded.replace(/[\u0000-\u0020]/g, '');
+}
+
 export function sanitizeUrl(url: string): string {
   const trimmed = url.trim();
-  if (/^(?:javascript|vbscript|data):/i.test(trimmed)) {
+  const normalized = decodeHtmlEntitiesForUrl(trimmed);
+  if (/^(?:javascript|vbscript|data):/i.test(normalized)) {
     return '#';
   }
   return trimmed;
 }
 
+const DANGEROUS_TAGS = [
+  'script',
+  'style',
+  'iframe',
+  'object',
+  'embed',
+  'form',
+  'svg',
+  'math',
+  'base',
+  'meta',
+  'link',
+];
+
 /**
- * Strips dangerous HTML tags (<script>, <iframe>, <object>, <embed>, <style>, <form>),
- * inline event handlers (onclick, onerror, etc.), and unsafe URL protocols (javascript:, vbscript:, data:).
+ * Strips dangerous HTML tags (<script>, <iframe>, <object>, <embed>, <style>, <form>, <svg>, <math>, <base>, <meta>, <link>),
+ * inline event handlers (onclick, onerror, onload, etc. including slash-delimited), and unsafe URL protocols (javascript:, vbscript:, data:).
+ * Employs fixed-point iterative passes in Node and DOMPurify in browser DOM contexts.
  */
 export function sanitizeMarkdownHtml(html: string): string {
   let clean = html;
+  const tagPattern = DANGEROUS_TAGS.join('|');
+  const blockRegex = new RegExp(`<(${tagPattern})\\b[^>]*>[\\s\\S]*?<\\/\\1>`, 'gi');
+  const openCloseRegex = new RegExp(`<\\/?(${tagPattern})\\b[^>]*\\/?>`, 'gi');
+  const eventRegex = /[\s/]+on[a-z0-9_-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi;
+  const protocolAttrRegex = /(href|src|xlink:href|action)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi;
 
-  // 1. Strip dangerous tags and their contents
-  const dangerousTags = ['script', 'style', 'iframe', 'object', 'embed', 'form'];
-  for (const tag of dangerousTags) {
-    const blockRegex = new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?<\\/${tag}>`, 'gi');
+  for (let iter = 0; iter < 10; iter++) {
+    const prev = clean;
+
+    // 1. Strip dangerous tags and their contents
     clean = clean.replace(blockRegex, '');
-    const selfClosingRegex = new RegExp(`<${tag}\\b[^>]*\\/?>`, 'gi');
-    clean = clean.replace(selfClosingRegex, '');
-  }
-  // Strip any remaining unclosed or closing tags
-  clean = clean.replace(/<\/?(?:script|style|iframe|object|embed|form)\b[^>]*>/gi, '');
+    clean = clean.replace(openCloseRegex, '');
 
-  // 2. Strip inline event attributes like onerror, onclick, onload, etc.
-  clean = clean.replace(/\s+on[a-z0-9_-]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+    // 2. Clean attributes within HTML tags
+    clean = clean.replace(/<[a-zA-Z0-9_-]+(?:[^>"']|"[^"]*"|'[^']*')*>/g, (tag) => {
+      // Strip inline event attributes (space or slash delimited)
+      let cleanedTag = tag.replace(eventRegex, '');
+      // Neutralize dangerous protocols in href, src, xlink:href, action
+      cleanedTag = cleanedTag.replace(protocolAttrRegex, (match, attr, val) => {
+        const unquoted = val.replace(/^["']|["']$/g, '').trim();
+        const normalized = decodeHtmlEntitiesForUrl(unquoted);
+        if (/^(?:javascript|vbscript|data):/i.test(normalized)) {
+          return `${attr}="#"`;
+        }
+        return match;
+      });
+      return cleanedTag;
+    });
 
-  // 3. Neutralize dangerous protocols in href or src attributes
-  clean = clean.replace(/(href|src)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, (match, attr, val) => {
-    const unquoted = val.replace(/^["']|["']$/g, '').trim();
-    if (/^(?:javascript|vbscript|data):/i.test(unquoted)) {
-      return `${attr}="#"`;
+    if (clean === prev) {
+      break;
     }
-    return match;
-  });
+  }
 
-  // 4. Remove empty paragraphs left behind by tag removals
+  // Remove empty paragraphs left behind by tag removals
   clean = clean.replace(/<p[^>]*>\s*<\/p>/gi, '');
+
+  // Browser DOMPurify pass
+  const purify =
+    typeof DOMPurify === 'function' && typeof (DOMPurify as any).sanitize !== 'function' && typeof window !== 'undefined'
+      ? (DOMPurify as any)(window)
+      : DOMPurify;
+  if (typeof window !== 'undefined' && typeof document !== 'undefined' && purify && typeof purify.sanitize === 'function') {
+    clean = purify.sanitize(clean, {
+      FORBID_TAGS: DANGEROUS_TAGS,
+      ADD_ATTR: ['target', 'rel', 'data-copy-code', 'disabled', 'checked', 'type'],
+    });
+  }
 
   return clean;
 }
@@ -105,7 +165,7 @@ function renderInline(str: string): string {
   text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, linkText, url) => {
     const idx = links.length;
     const safeUrl = sanitizeUrl(url);
-    links.push(`<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer" class="text-indigo-600 dark:text-indigo-400 hover:underline underline-offset-2">${linkText}</a>`);
+    links.push(`<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer" class="text-indigo-600 dark:text-indigo-400 hover:underline underline-offset-2">${escapeHtml(linkText)}</a>`);
     return `@@LINK${idx}@@`;
   });
 

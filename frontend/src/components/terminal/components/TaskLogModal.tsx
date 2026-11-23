@@ -25,7 +25,21 @@ export interface TaskLogModalProps {
   task: TaskSummary | null;
   activeHostId: string;
   adminKey?: string;
-  onKillTask?: (taskId: string) => Promise<void>;
+  onKillTask?: (taskId: string) => Promise<boolean | void>;
+}
+
+export function shouldAcceptTaskLogResponse(state: {
+  isOpen: boolean;
+  currentSeq: number;
+  requestSeq: number;
+  activeTaskId: string | null;
+  requestTaskId: string;
+}): boolean {
+  return (
+    state.isOpen &&
+    state.currentSeq === state.requestSeq &&
+    state.activeTaskId === state.requestTaskId
+  );
 }
 
 const MAX_LOG_CHARS = 500 * 1024; // 500KB cap for browser DOM memory protection
@@ -56,6 +70,13 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
   const logContainerRef = useRef<HTMLDivElement>(null);
   const isPollingRef = useRef<boolean>(false);
   const activeTaskIdRef = useRef<string>('');
+  const isOpenRef = useRef<boolean>(isOpen);
+  isOpenRef.current = isOpen;
+  const requestSeqRef = useRef<number>(0);
+  const activeFetchIdRef = useRef<number>(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const logTextRef = useRef<string>(logText);
+  logTextRef.current = logText;
 
   const getHeaders = useCallback(() => {
     const headers: Record<string, string> = {};
@@ -75,10 +96,21 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
 
   const fetchLogChunk = useCallback(
     async (isManualRefresh = false) => {
-      if (!task || !activeHostId || isPollingRef.current) return;
+      if (!task || !activeHostId) return;
+      if (isPollingRef.current && !isManualRefresh) return;
+
+      const seq = requestSeqRef.current;
+      const reqTaskId = task.taskId;
+      const fetchId = ++activeFetchIdRef.current;
+
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
 
       isPollingRef.current = true;
-      if (isManualRefresh && !logText) {
+      if (isManualRefresh && !logTextRef.current) {
         setIsLoading(true);
       }
 
@@ -88,7 +120,7 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
           `/api/terminal/exec/${encodeURIComponent(activeHostId)}/${encodeURIComponent(
             task.taskId
           )}?offset=${offset}`,
-          { headers: getHeaders() }
+          { headers: getHeaders(), signal: controller.signal }
         );
 
         if (!res.ok) {
@@ -96,6 +128,20 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
         }
 
         const data: TaskLogResponse = await res.json();
+
+        // Check if response should still be accepted
+        if (
+          !shouldAcceptTaskLogResponse({
+            isOpen: isOpenRef.current,
+            currentSeq: requestSeqRef.current,
+            requestSeq: seq,
+            activeTaskId: activeTaskIdRef.current,
+            requestTaskId: reqTaskId,
+          })
+        ) {
+          return;
+        }
+
         if (data.success) {
           if (data.status) {
             setCurrentStatus(data.status);
@@ -119,7 +165,7 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
           }
 
           // If still running and modal is open, schedule next poll
-          if (data.status === 'running' && isOpen) {
+          if (data.status === 'running' && isOpenRef.current) {
             clearTimer();
             pollTimerRef.current = setTimeout(() => {
               fetchLogChunk(false);
@@ -131,17 +177,40 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
           setErrorMessage(data.error || 'Failed to fetch task logs');
         }
       } catch (err: any) {
+        if (err.name === 'AbortError') return;
+        if (
+          !shouldAcceptTaskLogResponse({
+            isOpen: isOpenRef.current,
+            currentSeq: requestSeqRef.current,
+            requestSeq: seq,
+            activeTaskId: activeTaskIdRef.current,
+            requestTaskId: reqTaskId,
+          })
+        ) {
+          return;
+        }
         setErrorMessage(err.message || 'Network error fetching task log');
       } finally {
-        isPollingRef.current = false;
-        setIsLoading(false);
+        if (activeFetchIdRef.current === fetchId) {
+          isPollingRef.current = false;
+          setIsLoading(false);
+        }
       }
     },
-    [task, activeHostId, getHeaders, isOpen, logText]
+    [task, activeHostId, getHeaders]
   );
 
   // Initialize or reset when modal opens or task changes
   useEffect(() => {
+    requestSeqRef.current++;
+    activeFetchIdRef.current++;
+    isPollingRef.current = false;
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    clearTimer();
+
     if (isOpen && task) {
       activeTaskIdRef.current = task.taskId;
       offsetRef.current = 0;
@@ -150,10 +219,9 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
       setCurrentExitCode(task.exitCode ?? null);
       setErrorMessage(null);
       setIsCopied(false);
-      clearTimer();
       fetchLogChunk(true);
     } else {
-      clearTimer();
+      activeTaskIdRef.current = '';
       setLogText('');
       setErrorMessage(null);
       setIsCopied(false);
@@ -161,9 +229,16 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
     }
 
     return () => {
+      requestSeqRef.current++;
+      activeFetchIdRef.current++;
+      isPollingRef.current = false;
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
       clearTimer();
     };
-  }, [isOpen, task?.taskId]);
+  }, [isOpen, task?.taskId, fetchLogChunk]);
 
   // Handle auto-scroll to bottom
   useEffect(() => {
@@ -194,27 +269,31 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
       setIsKilling(true);
       clearTimer();
 
-      const res = await apiFetch(
-        `/api/terminal/exec/${encodeURIComponent(activeHostId)}/${encodeURIComponent(
-          task.taskId
-        )}/kill`,
-        {
-          method: 'POST',
-          headers: {
-            ...getHeaders(),
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ signal: 'SIGTERM' }),
-        }
-      );
-
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-      }
-
-      setCurrentStatus('killed');
       if (onKillTask) {
-        await onKillTask(task.taskId);
+        const ok = await onKillTask(task.taskId);
+        if (ok !== false) {
+          setCurrentStatus('killed');
+        }
+      } else {
+        const res = await apiFetch(
+          `/api/terminal/exec/${encodeURIComponent(activeHostId)}/${encodeURIComponent(
+            task.taskId
+          )}/kill`,
+          {
+            method: 'POST',
+            headers: {
+              ...getHeaders(),
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ signal: 'SIGTERM' }),
+          }
+        );
+
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+        }
+
+        setCurrentStatus('killed');
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'Failed to kill task');

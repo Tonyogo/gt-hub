@@ -4,6 +4,11 @@ import {
   consumeHashAdminKey,
   parseAuthMessage,
   requestParentAuth,
+  parseAllowedParentOrigins,
+  isTrustedAuthEvent,
+  getEffectiveBaseDomain,
+  isRelatedSiteOrigin,
+  matchOriginPattern,
   MinimalHistoryWindowLike,
 } from '../frontend/src/auth/AuthContext';
 import {
@@ -171,6 +176,112 @@ describe('SSO Helpers in AuthContext', () => {
     expect(targetOrigin).toBe('*');
   });
 
+  it('requestParentAuth targets same-origin when window.location.origin is present', () => {
+    let postedMessage: unknown = null;
+    let targetOrigin = '';
+
+    const mockParent = {
+      postMessage: (msg: unknown, origin: string) => {
+        postedMessage = msg;
+        targetOrigin = origin;
+      },
+    };
+
+    const mockWin: MinimalHistoryWindowLike = {
+      parent: mockParent,
+      location: {
+        origin: 'https://hub.example.com',
+      },
+    };
+
+    const requested = requestParentAuth(mockWin);
+    expect(requested).toBe(true);
+    expect(postedMessage).toEqual({ type: 'app-hub:auth-request' });
+    expect(targetOrigin).toBe('https://hub.example.com');
+  });
+
+  it('parseAllowedParentOrigins parses and normalizes origin URLs from string', () => {
+    expect(
+      parseAllowedParentOrigins('https://a.example.com, https://b.example.com/path , invalid')
+    ).toEqual(['https://a.example.com', 'https://b.example.com']);
+    expect(parseAllowedParentOrigins('')).toEqual([]);
+    expect(parseAllowedParentOrigins(undefined)).toEqual([]);
+  });
+
+  it('isTrustedAuthEvent validates event.source against win.parent and checks origin allowlist', () => {
+    const mockParent = {};
+    const mockOtherWindow = {};
+    const mockWin: MinimalHistoryWindowLike = {
+      parent: mockParent,
+      location: {
+        origin: 'https://hub.example.com',
+      },
+    };
+
+    // Same-origin matching location.origin
+    expect(
+      isTrustedAuthEvent(
+        { source: mockParent, origin: 'https://hub.example.com' },
+        mockWin
+      )
+    ).toBe(true);
+
+    // Cross-origin allowed explicitly
+    expect(
+      isTrustedAuthEvent(
+        { source: mockParent, origin: 'https://allowed.example.com' },
+        mockWin,
+        ['https://allowed.example.com']
+      )
+    ).toBe(true);
+
+    // Cross-origin from unrelated domain not allowed
+    expect(
+      isTrustedAuthEvent(
+        { source: mockParent, origin: 'https://evil.com' },
+        mockWin
+      )
+    ).toBe(false);
+
+    // Wrong source window
+    expect(
+      isTrustedAuthEvent(
+        { source: mockOtherWindow, origin: 'https://hub.example.com' },
+        mockWin
+      )
+    ).toBe(false);
+
+    // Missing or invalid origin ('null', empty)
+    expect(
+      isTrustedAuthEvent(
+        { source: mockParent, origin: 'null' },
+        mockWin
+      )
+    ).toBe(false);
+    expect(
+      isTrustedAuthEvent(
+        { source: mockParent, origin: '' },
+        mockWin
+      )
+    ).toBe(false);
+    expect(
+      isTrustedAuthEvent(
+        { source: mockParent },
+        mockWin
+      )
+    ).toBe(false);
+
+    // When win has no parent or win.parent is self
+    const topWin: MinimalHistoryWindowLike = {};
+    topWin.parent = topWin as any;
+    expect(
+      isTrustedAuthEvent(
+        { source: topWin, origin: 'https://hub.example.com' },
+        topWin
+      )
+    ).toBe(false);
+  });
+
   it('requestParentAuth returns false when top window or parent postMessage unavailable', () => {
     const selfWin: MinimalHistoryWindowLike = {};
     selfWin.parent = selfWin as any;
@@ -184,6 +295,152 @@ describe('SSO Helpers in AuthContext', () => {
       },
     };
     expect(requestParentAuth(throwingWin)).toBe(false);
+  });
+});
+
+describe('Cross-Subdomain Trust & Effective Base Domain Helpers', () => {
+  describe('getEffectiveBaseDomain', () => {
+    it('normalizes lowercase hostname', () => {
+      expect(getEffectiveBaseDomain('WWW.EXAMPLE.COM')).toBe('example.com');
+      expect(getEffectiveBaseDomain('  GT.Yatao.CC.CD  ')).toBe('yatao.cc.cd');
+    });
+
+    it('handles common multi-part public suffixes correctly', () => {
+      expect(getEffectiveBaseDomain('www.yatao.cc.cd')).toBe('yatao.cc.cd');
+      expect(getEffectiveBaseDomain('gt.yatao.cc.cd')).toBe('yatao.cc.cd');
+      expect(getEffectiveBaseDomain('portal.co.uk')).toBe('portal.co.uk');
+      expect(getEffectiveBaseDomain('sub.portal.co.uk')).toBe('portal.co.uk');
+      expect(getEffectiveBaseDomain('app.com.cn')).toBe('app.com.cn');
+      expect(getEffectiveBaseDomain('sub.org.cn')).toBe('sub.org.cn');
+      expect(getEffectiveBaseDomain('cluster.net.cn')).toBe('cluster.net.cn');
+      expect(getEffectiveBaseDomain('dept.gov.cn')).toBe('dept.gov.cn');
+      expect(getEffectiveBaseDomain('cs.cam.ac.uk')).toBe('cam.ac.uk');
+      expect(getEffectiveBaseDomain('myuser.github.io')).toBe('myuser.github.io');
+      expect(getEffectiveBaseDomain('project.myuser.github.io')).toBe('myuser.github.io');
+    });
+
+    it('handles standard domains with single TLD', () => {
+      expect(getEffectiveBaseDomain('app.example.com')).toBe('example.com');
+      expect(getEffectiveBaseDomain('sub.app.example.com')).toBe('example.com');
+      expect(getEffectiveBaseDomain('example.com')).toBe('example.com');
+    });
+
+    it('handles single labels, IPv4, and IPv6 addresses without failing', () => {
+      expect(getEffectiveBaseDomain('localhost')).toBe('localhost');
+      expect(getEffectiveBaseDomain('127.0.0.1')).toBe('127.0.0.1');
+      expect(getEffectiveBaseDomain('192.168.1.10')).toBe('192.168.1.10');
+      expect(getEffectiveBaseDomain('[::1]')).toBe('[::1]');
+      expect(getEffectiveBaseDomain('::1')).toBe('::1');
+    });
+  });
+
+  describe('isRelatedSiteOrigin', () => {
+    it('returns false for missing, invalid URL, or protocol mismatch', () => {
+      expect(isRelatedSiteOrigin()).toBe(false);
+      expect(isRelatedSiteOrigin('https://example.com', undefined)).toBe(false);
+      expect(isRelatedSiteOrigin(undefined, 'https://example.com')).toBe(false);
+      expect(isRelatedSiteOrigin('invalid-url', 'https://example.com')).toBe(false);
+      expect(isRelatedSiteOrigin('https://example.com', 'invalid-url')).toBe(false);
+      expect(isRelatedSiteOrigin('http://example.com', 'https://example.com')).toBe(false);
+      expect(isRelatedSiteOrigin('https://yatao.cc.cd', 'http://yatao.cc.cd')).toBe(false);
+    });
+
+    it('returns true when hostnames match even with different ports', () => {
+      expect(isRelatedSiteOrigin('http://localhost:3000', 'http://localhost:8000')).toBe(true);
+      expect(isRelatedSiteOrigin('https://hub.example.com:443', 'https://hub.example.com:8443')).toBe(true);
+      expect(isRelatedSiteOrigin('http://127.0.0.1:8000', 'http://127.0.0.1:9000')).toBe(true);
+    });
+
+    it('returns true when base domains match across different subdomains', () => {
+      expect(isRelatedSiteOrigin('https://gt.yatao.cc.cd', 'https://www.yatao.cc.cd')).toBe(true);
+      expect(isRelatedSiteOrigin('https://sub.portal.co.uk', 'https://auth.portal.co.uk')).toBe(true);
+      expect(isRelatedSiteOrigin('https://app.example.com', 'https://api.example.com')).toBe(true);
+    });
+
+    it('returns false when base domains do not match', () => {
+      expect(isRelatedSiteOrigin('https://gt.yatao.cc.cd', 'https://evil.com')).toBe(false);
+      expect(isRelatedSiteOrigin('https://gt.yatao.cc.cd', 'https://other.cc.cd')).toBe(false);
+      expect(isRelatedSiteOrigin('https://app.example.com', 'https://app.example.org')).toBe(false);
+    });
+  });
+
+  describe('matchOriginPattern & wildcard matching', () => {
+    it('matches exact origins', () => {
+      expect(matchOriginPattern('https://example.com', 'https://example.com')).toBe(true);
+      expect(matchOriginPattern('https://example.com', 'https://other.com')).toBe(false);
+    });
+
+    it('matches wildcard subdomains with same protocol and domain suffix', () => {
+      expect(matchOriginPattern('https://*.yatao.cc.cd', 'https://www.yatao.cc.cd')).toBe(true);
+      expect(matchOriginPattern('https://*.yatao.cc.cd', 'https://gt.yatao.cc.cd')).toBe(true);
+      expect(matchOriginPattern('https://*.yatao.cc.cd', 'https://sub.dev.yatao.cc.cd')).toBe(true);
+    });
+
+    it('rejects protocol or domain mismatch with wildcards', () => {
+      expect(matchOriginPattern('https://*.yatao.cc.cd', 'http://www.yatao.cc.cd')).toBe(false);
+      expect(matchOriginPattern('https://*.yatao.cc.cd', 'https://evil-yatao.cc.cd')).toBe(false);
+      expect(matchOriginPattern('https://*.yatao.cc.cd', 'https://evil.com')).toBe(false);
+    });
+  });
+
+  describe('isTrustedAuthEvent cross-subdomain trust', () => {
+    it('trusts same-site cross-subdomain parent window out-of-the-box (e.g. www.yatao.cc.cd -> gt.yatao.cc.cd)', () => {
+      const mockParent = {};
+      const mockWin: MinimalHistoryWindowLike = {
+        parent: mockParent,
+        location: {
+          origin: 'https://gt.yatao.cc.cd',
+        },
+      };
+
+      // Cross-subdomain on same multi-part base domain
+      expect(
+        isTrustedAuthEvent(
+          { source: mockParent, origin: 'https://www.yatao.cc.cd' },
+          mockWin
+        )
+      ).toBe(true);
+
+      // Third-party unrelated domain remains untrusted
+      expect(
+        isTrustedAuthEvent(
+          { source: mockParent, origin: 'https://evil.cc.cd' },
+          mockWin
+        )
+      ).toBe(false);
+      expect(
+        isTrustedAuthEvent(
+          { source: mockParent, origin: 'https://attacker.com' },
+          mockWin
+        )
+      ).toBe(false);
+    });
+
+    it('trusts wildcard patterns provided via allowedOrigins', () => {
+      const mockParent = {};
+      const mockWin: MinimalHistoryWindowLike = {
+        parent: mockParent,
+        location: {
+          origin: 'https://standalone-hub.net',
+        },
+      };
+
+      expect(
+        isTrustedAuthEvent(
+          { source: mockParent, origin: 'https://app.partner.com' },
+          mockWin,
+          ['https://*.partner.com']
+        )
+      ).toBe(true);
+
+      expect(
+        isTrustedAuthEvent(
+          { source: mockParent, origin: 'https://evil.com' },
+          mockWin,
+          ['https://*.partner.com']
+        )
+      ).toBe(false);
+    });
   });
 });
 

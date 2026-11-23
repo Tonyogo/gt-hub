@@ -227,8 +227,8 @@ export const TerminalTaskView = React.forwardRef<TerminalTaskHandle, TerminalTas
     };
 
     // Handle kill task action
-    const handleKillTask = async (taskId: string) => {
-      if (!activeHostId) return;
+    const handleKillTask = async (taskId: string): Promise<boolean> => {
+      if (!activeHostId) return false;
 
       try {
         const res = await apiFetch(
@@ -247,8 +247,10 @@ export const TerminalTaskView = React.forwardRef<TerminalTaskHandle, TerminalTas
 
         showToast(isZh ? '已发送终止信号' : 'Terminate signal sent', 'info');
         fetchTasks(true);
+        return true;
       } catch (err: any) {
         showToast(err.message || '终止任务失败', 'error');
+        return false;
       }
     };
 
@@ -840,7 +842,7 @@ export const TerminalTaskView = React.forwardRef<TerminalTaskHandle, TerminalTas
           activeHostId={activeHostId || ''}
           adminKey={adminKey}
           onKillTask={async (taskId) => {
-            await handleKillTask(taskId);
+            return await handleKillTask(taskId);
           }}
         />
 

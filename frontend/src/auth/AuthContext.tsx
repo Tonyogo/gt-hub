@@ -21,11 +21,14 @@ export interface AuthContextValue {
   checkAuth: () => Promise<void>;
 }
 
+declare const __GT_ALLOWED_PARENT_ORIGINS__: string | undefined;
+
 export interface MinimalHistoryWindowLike {
   location?: {
     pathname?: string;
     search?: string;
     hash?: string;
+    origin?: string;
   };
   history?: {
     replaceState?: (data: unknown, unused: string, url?: string | URL | null) => void;
@@ -103,10 +106,207 @@ export function parseAuthMessage(data: unknown): string | null {
   return null;
 }
 
-export function requestParentAuth(win?: MinimalHistoryWindowLike | Window | any): boolean {
+export function parseAllowedParentOrigins(raw?: string): string[] {
+  if (!raw || typeof raw !== 'string') return [];
+  const entries = raw.split(',').map((s) => s.trim()).filter(Boolean);
+  const result: string[] = [];
+  for (const entry of entries) {
+    try {
+      const url = new URL(entry);
+      if (url.origin && url.origin !== 'null' && !result.includes(url.origin)) {
+        result.push(url.origin);
+      }
+    } catch {
+      // Ignore invalid URL format
+    }
+  }
+  return result;
+}
+
+export function getAllowedParentOrigins(): string[] {
+  const raw =
+    typeof __GT_ALLOWED_PARENT_ORIGINS__ !== 'undefined'
+      ? __GT_ALLOWED_PARENT_ORIGINS__
+      : typeof process !== 'undefined'
+      ? process.env?.VITE_ALLOWED_PARENT_ORIGINS
+      : undefined;
+  return parseAllowedParentOrigins(raw);
+}
+
+const MULTI_PART_PUBLIC_SUFFIXES = [
+  '.cc.cd',
+  '.co.uk',
+  '.com.cn',
+  '.org.cn',
+  '.net.cn',
+  '.gov.cn',
+  '.ac.uk',
+  '.github.io',
+];
+
+export function getEffectiveBaseDomain(hostname: string): string {
+  if (!hostname || typeof hostname !== 'string') return '';
+  const host = hostname.trim().toLowerCase();
+
+  let cleanHost = host;
+  if (cleanHost.startsWith('[') && cleanHost.includes(']')) {
+    cleanHost = cleanHost.slice(0, cleanHost.indexOf(']') + 1);
+  } else if (cleanHost.includes(':') && !cleanHost.includes('.')) {
+    // IPv6 without brackets
+  } else if (cleanHost.includes(':')) {
+    cleanHost = cleanHost.split(':')[0];
+  }
+
+  const isIpv4 = /^(\d{1,3}\.){3}\d{1,3}$/.test(cleanHost);
+  const isIpv6 = cleanHost.startsWith('[') || cleanHost.includes(':');
+  if (isIpv4 || isIpv6 || !cleanHost.includes('.')) {
+    return cleanHost;
+  }
+
+  for (const suffix of MULTI_PART_PUBLIC_SUFFIXES) {
+    if (cleanHost.endsWith(suffix)) {
+      const prefix = cleanHost.slice(0, -suffix.length);
+      if (prefix) {
+        const labels = prefix.split('.');
+        const lastLabel = labels[labels.length - 1];
+        if (lastLabel) {
+          return `${lastLabel}${suffix}`;
+        }
+      }
+      return cleanHost;
+    }
+  }
+
+  const parts = cleanHost.split('.');
+  if (parts.length <= 2) {
+    return cleanHost;
+  }
+  return parts.slice(-2).join('.');
+}
+
+export function isRelatedSiteOrigin(selfOrigin?: string, candidateOrigin?: string): boolean {
+  if (!selfOrigin || !candidateOrigin) return false;
+  let selfUrl: URL;
+  let candidateUrl: URL;
+  try {
+    selfUrl = new URL(selfOrigin);
+    candidateUrl = new URL(candidateOrigin);
+  } catch {
+    return false;
+  }
+
+  if (!selfUrl.protocol || !candidateUrl.protocol || selfUrl.protocol !== candidateUrl.protocol) {
+    return false;
+  }
+
+  const selfHost = selfUrl.hostname.toLowerCase();
+  const candidateHost = candidateUrl.hostname.toLowerCase();
+
+  if (selfHost === candidateHost) {
+    return true;
+  }
+
+  const selfBase = getEffectiveBaseDomain(selfHost);
+  const candidateBase = getEffectiveBaseDomain(candidateHost);
+
+  if (selfBase && candidateBase && selfBase === candidateBase) {
+    return true;
+  }
+
+  return false;
+}
+
+export function matchOriginPattern(pattern: string, origin: string): boolean {
+  if (!pattern || !origin) return false;
+  if (pattern === origin) return true;
+  if (!pattern.includes('*')) return false;
+
+  try {
+    const patternUrl = new URL(pattern.replace(/\*/g, 'wildcard-temp-token'));
+    const originUrl = new URL(origin);
+
+    if (patternUrl.protocol !== originUrl.protocol) return false;
+    if (patternUrl.port !== originUrl.port) return false;
+
+    const escapedHostPattern = patternUrl.hostname
+      .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+      .replace(/wildcard-temp-token/g, '[a-zA-Z0-9-]+(?:\\.[a-zA-Z0-9-]+)*');
+    const regex = new RegExp(`^${escapedHostPattern}$`, 'i');
+    return regex.test(originUrl.hostname);
+  } catch {
+    const escapedPattern = pattern
+      .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+      .replace(/\*/g, '[a-zA-Z0-9-]+(?:\\.[a-zA-Z0-9-]+)*');
+    const regex = new RegExp(`^${escapedPattern}$`, 'i');
+    return regex.test(origin);
+  }
+}
+
+export function isTrustedAuthEvent(
+  event: { origin?: string; source?: unknown },
+  win?: MinimalHistoryWindowLike | Window | null,
+  allowedOrigins?: string[]
+): boolean {
+  const w = win !== undefined ? win : typeof window !== 'undefined' ? window : null;
+  if (!w || !w.parent || w.parent === w || !event || event.source !== w.parent) {
+    return false;
+  }
+
+  const origin = event.origin;
+  if (!origin || typeof origin !== 'string' || origin === 'null') {
+    return false;
+  }
+
+  // Same-origin check
+  const selfOrigin = w.location?.origin;
+  if (selfOrigin && selfOrigin !== 'null' && origin === selfOrigin) {
+    return true;
+  }
+
+  // Related-site origin check
+  if (selfOrigin && selfOrigin !== 'null' && isRelatedSiteOrigin(selfOrigin, origin)) {
+    return true;
+  }
+
+  // Allowlist check with wildcard pattern support
+  const list = allowedOrigins && allowedOrigins.length > 0 ? allowedOrigins : getAllowedParentOrigins();
+  for (const item of list) {
+    if (matchOriginPattern(item, origin)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function requestParentAuth(
+  win?: MinimalHistoryWindowLike | Window | any,
+  allowedOrigins?: string[]
+): boolean {
   const w = win !== undefined ? win : typeof window !== 'undefined' ? window : null;
   try {
     if (w?.parent && w.parent !== w && typeof w.parent.postMessage === 'function') {
+      const list = allowedOrigins && allowedOrigins.length > 0 ? allowedOrigins : getAllowedParentOrigins();
+      const concreteOrigins = list.filter((o) => !o.includes('*'));
+      const hasWildcard = list.some((o) => o.includes('*'));
+
+      if (concreteOrigins.length > 0) {
+        for (const targetOrigin of concreteOrigins) {
+          w.parent.postMessage({ type: 'app-hub:auth-request' }, targetOrigin);
+        }
+        if (hasWildcard) {
+          w.parent.postMessage({ type: 'app-hub:auth-request' }, '*');
+        }
+        return true;
+      }
+      if (hasWildcard) {
+        w.parent.postMessage({ type: 'app-hub:auth-request' }, '*');
+        return true;
+      }
+      if (w.location?.origin && w.location.origin !== 'null') {
+        w.parent.postMessage({ type: 'app-hub:auth-request' }, w.location.origin);
+        return true;
+      }
       w.parent.postMessage({ type: 'app-hub:auth-request' }, '*');
       return true;
     }
@@ -129,6 +329,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return getStoredAdminKey();
   });
   const [error, setError] = useState<string | null>(null);
+  const [runtimeAllowedOrigins, setRuntimeAllowedOrigins] = useState<string[]>([]);
+  const allowedOriginsRef = React.useRef<string[]>([]);
 
   const checkAuth = useCallback(async () => {
     try {
@@ -140,6 +342,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (res.ok) {
         const data = await res.json();
         setAuthRequired(Boolean(data.authRequired));
+
+        if (Array.isArray(data.allowedParentOrigins)) {
+          setRuntimeAllowedOrigins(data.allowedParentOrigins);
+          allowedOriginsRef.current = data.allowedParentOrigins;
+          if (typeof window !== 'undefined') {
+            requestParentAuth(window, data.allowedParentOrigins);
+          }
+        }
 
         if (!data.authRequired || data.authenticated) {
           if (storedKey) {
@@ -186,6 +396,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     checkAuth();
 
     const handleMessage = (event: MessageEvent) => {
+      const activeOrigins =
+        allowedOriginsRef.current.length > 0
+          ? allowedOriginsRef.current
+          : runtimeAllowedOrigins.length > 0
+          ? runtimeAllowedOrigins
+          : undefined;
+
+      if (!isTrustedAuthEvent(event, window, activeOrigins)) {
+        return;
+      }
       const ssoKey = parseAuthMessage(event.data);
       if (ssoKey) {
         setStoredAdminKey(ssoKey);
@@ -204,7 +424,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         window.removeEventListener('message', handleMessage);
       }
     };
-  }, [checkAuth]);
+  }, [checkAuth, runtimeAllowedOrigins]);
 
   const login = useCallback(async (key: string): Promise<boolean> => {
     setError(null);

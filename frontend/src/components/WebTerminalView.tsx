@@ -902,6 +902,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
   // Initialize xterm instance
   useEffect(() => {
     if (!terminalContainerRef.current) return;
+    isMountedRef.current = true;
 
     const MAX_SCROLLBACK_LINES = 2000;
     const defaultScrollback = 10000;

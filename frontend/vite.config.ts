@@ -4,6 +4,9 @@ import path from 'path';
 
 export default defineConfig({
   plugins: [react()],
+  define: {
+    __GT_ALLOWED_PARENT_ORIGINS__: JSON.stringify(process.env.VITE_ALLOWED_PARENT_ORIGINS || ''),
+  },
   base: '/',
   build: {
     outDir: path.resolve(__dirname, '../dist/frontend'),
