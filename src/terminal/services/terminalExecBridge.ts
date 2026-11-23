@@ -198,8 +198,14 @@ export class TerminalExecBridge {
       if (session && session.cliWs) {
         try {
           session.cliWs.send('\r\n\x1b[31m[Agent Disconnected] Remote host lost connection.\x1b[0m\r\n');
-          session.cliWs.close(1006, 'Agent disconnected');
         } catch {}
+        try {
+          session.cliWs.close(1012, 'Agent disconnected');
+        } catch {
+          try {
+            session.cliWs.terminate?.();
+          } catch {}
+        }
       }
       this.activeSessions.delete(taskId);
     }

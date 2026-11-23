@@ -13,6 +13,7 @@ import { StreamSessionManager } from './pty/sessionManager';
 import { TerminalHistoryBuffer } from './pty/terminalHistoryBuffer';
 import { SecondaryPanePtyManager } from './pty/panePtyManager';
 import { handleFileRpc } from './handlers/fileRpcHandler';
+import { PermissionMode } from './security/pathGuard';
 import { handleCmdExec } from './handlers/cmdExecHandler';
 import { AgentCronScheduler } from './cron/cronScheduler';
 import { handleCronControl } from './handlers/cronHandler';
@@ -61,6 +62,18 @@ export function getLocalIp(): string {
     }
   }
   return '127.0.0.1';
+}
+
+export function buildLocalFileRpcPayload<T extends Record<string, any>>(
+  control: T,
+  localPermissionMode: PermissionMode,
+  localWorkspace?: string
+): T & { permissionMode: PermissionMode; workspace?: string } {
+  return {
+    ...control,
+    permissionMode: localPermissionMode,
+    workspace: localWorkspace,
+  };
 }
 
 function getWebSocketCtor(): any {
@@ -843,6 +856,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
   console.log('---------------------------------------------------------');
 
   let ptyProcess: any = null;
+  let ptySpawnGeneration = 0;
   let ptyBatcher: StreamBatcher | null = null;
   let lastPtyCols = 80;
   let lastPtyRows = 24;
@@ -1000,6 +1014,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
   }
 
   function spawnPty() {
+    const spawnId = ++ptySpawnGeneration;
     if (ptyBatcher) {
       ptyBatcher.flush();
       ptyBatcher = null;
@@ -1095,6 +1110,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
         });
 
         proc.onExit(({ exitCode }: { exitCode: number }) => {
+          if (spawnId !== ptySpawnGeneration) return;
           flushDecodedPtyEnd();
           console.log(`[PTY] Shell exited with code: ${exitCode}`);
           ptyProcess = null;
@@ -1127,6 +1143,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
             pushDecodedPtyChunk(data);
           },
           onExit: (code: any) => {
+            if (spawnId !== ptySpawnGeneration) return;
             flushDecodedPtyEnd();
             console.log(`[PTY] Shell (PosixPty) exited with code: ${code}`);
             ptyProcess = null;
@@ -1172,6 +1189,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
             pushDecodedPtyChunk(data);
           },
           onExit: (code: any) => {
+            if (spawnId !== ptySpawnGeneration) return;
             flushDecodedPtyEnd();
             console.log(`[PTY] Shell (InteractivePipe) exited with code: ${code}`);
             ptyProcess = null;
@@ -1392,11 +1410,11 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
           if (control.type === 'file_rpc') {
             onHeartbeatActivity();
             activeFileRpcCount++;
-            handleFileRpc({
-              ...control,
-              permissionMode: control.permissionMode || permissionMode,
-              workspace: control.workspace || workspace,
-            }, ws, onHeartbeatActivity).finally(() => {
+            handleFileRpc(
+              buildLocalFileRpcPayload(control, permissionMode as PermissionMode, workspace),
+              ws,
+              onHeartbeatActivity
+            ).finally(() => {
               activeFileRpcCount = Math.max(0, activeFileRpcCount - 1);
               onHeartbeatActivity();
             });
@@ -1518,9 +1536,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
           ptyProcess.write(msgStr);
         }
       } catch (err) {
-        if (ptyProcess) {
-          ptyProcess.write(data.toString());
-        }
+        console.error('[Agent] Failed to process WebSocket message:', (err as any)?.message || err);
       }
     });
 

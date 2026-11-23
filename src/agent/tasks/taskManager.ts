@@ -523,6 +523,7 @@ export class TaskManager {
         detached: !isWindows,
       });
       if (child.stdin && stdin !== null && stdin !== undefined) {
+        child.stdin.on('error', () => {});
         child.stdin.write(stdin);
         child.stdin.end();
       }

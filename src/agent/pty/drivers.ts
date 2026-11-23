@@ -93,6 +93,8 @@ export class NodePtyDriver {
   public onData: (data: any) => void;
   public onExit: (code: number | null, signal: string | null) => void;
   public proc: any;
+  private exited = false;
+  private killEscalationTimer: NodeJS.Timeout | null = null;
 
   constructor({ command, shell, cwd, env, cols, rows, onData, onExit }: PtyDriverOptions) {
     this.onData = onData;
@@ -116,7 +118,14 @@ export class NodePtyDriver {
     });
 
     this.proc.onData((data: any) => this.onData(data));
-    this.proc.onExit(({ exitCode, signal }: { exitCode: number; signal: string }) => this.onExit(exitCode, signal));
+    this.proc.onExit(({ exitCode, signal }: { exitCode: number; signal: string }) => {
+      this.exited = true;
+      if (this.killEscalationTimer) {
+        clearTimeout(this.killEscalationTimer);
+        this.killEscalationTimer = null;
+      }
+      this.onExit(exitCode, signal);
+    });
   }
 
   write(buf: Buffer | string): void {
@@ -137,11 +146,53 @@ export class NodePtyDriver {
   }
 
   kill(signal: string = 'SIGTERM'): void {
-    if (this.proc) {
+    if (!this.proc) return;
+    if (signal === 'SIGINT') {
       try {
-        this.proc.kill(signal);
+        this.proc.kill('SIGINT');
+      } catch {}
+      return;
+    }
+
+    const isWindows = os.platform() === 'win32';
+    const pid = this.proc.pid;
+
+    if (isWindows) {
+      try { this.proc.kill(); } catch {}
+      if (pid) {
+        killProcessTree(pid, 'SIGKILL');
+      }
+      return;
+    }
+
+    try {
+      this.proc.kill('SIGHUP');
+    } catch {
+      try {
+        this.proc.kill('SIGTERM');
       } catch {}
     }
+
+    try {
+      (this.proc as any).destroy?.();
+    } catch {}
+
+    if (this.killEscalationTimer) {
+      clearTimeout(this.killEscalationTimer);
+      this.killEscalationTimer = null;
+    }
+
+    this.killEscalationTimer = setTimeout(() => {
+      this.killEscalationTimer = null;
+      if (!this.exited && pid) {
+        try {
+          process.kill(pid, 0);
+          try { process.kill(-pid, 'SIGKILL'); } catch {}
+          try { process.kill(pid, 'SIGKILL'); } catch {}
+        } catch {}
+      }
+    }, 1000);
+    this.killEscalationTimer.unref();
   }
 }
 
@@ -152,6 +203,8 @@ export class PosixPtyDriver {
   public rows: number;
   public proc: ChildProcess;
   public ctlStream: any;
+  private exited = false;
+  private killEscalationTimer: NodeJS.Timeout | null = null;
 
   constructor({ command, shell, cwd, env, cols, rows, onData, onExit }: PtyDriverOptions) {
     this.onData = onData;
@@ -332,9 +385,20 @@ else:
 
     this.ctlStream = this.proc.stdio && this.proc.stdio[3] ? this.proc.stdio[3] : null;
 
+    this.proc.on('error', () => {});
+    if (this.proc.stdin) this.proc.stdin.on('error', () => {});
+    if (this.ctlStream) this.ctlStream.on('error', () => {});
+
     if (this.proc.stdout) this.proc.stdout.on('data', (chunk) => this.onData(chunk));
     if (this.proc.stderr) this.proc.stderr.on('data', (chunk) => this.onData(chunk));
-    this.proc.on('close', (code, signal) => this.onExit(code, signal));
+    this.proc.on('close', (code, signal) => {
+      this.exited = true;
+      if (this.killEscalationTimer) {
+        clearTimeout(this.killEscalationTimer);
+        this.killEscalationTimer = null;
+      }
+      this.onExit(code, signal);
+    });
   }
 
   write(buf: Buffer | string): void {
@@ -369,6 +433,19 @@ else:
     }
     if (this.proc) {
       killProcessTree(this.proc, signal);
+      if (signal !== 'SIGINT' && signal !== 'SIGKILL') {
+        if (this.killEscalationTimer) {
+          clearTimeout(this.killEscalationTimer);
+          this.killEscalationTimer = null;
+        }
+        this.killEscalationTimer = setTimeout(() => {
+          this.killEscalationTimer = null;
+          if (!this.exited && this.proc) {
+            killProcessTree(this.proc, 'SIGKILL');
+          }
+        }, 1000);
+        this.killEscalationTimer.unref();
+      }
     }
   }
 }
@@ -379,6 +456,8 @@ export class InteractivePipeDriver {
   public cols: number;
   public rows: number;
   public proc: ChildProcess;
+  private exited = false;
+  private killEscalationTimer: NodeJS.Timeout | null = null;
 
   constructor({ command, shell, cwd, env, cols, rows, onData, onExit }: PtyDriverOptions) {
     this.onData = onData;
@@ -412,9 +491,19 @@ export class InteractivePipeDriver {
       detached: !isWindows,
     });
 
+    this.proc.on('error', () => {});
+    if (this.proc.stdin) this.proc.stdin.on('error', () => {});
+
     if (this.proc.stdout) this.proc.stdout.on('data', (chunk) => this.onData(chunk));
     if (this.proc.stderr) this.proc.stderr.on('data', (chunk) => this.onData(chunk));
-    this.proc.on('close', (code, signal) => this.onExit(code, signal));
+    this.proc.on('close', (code, signal) => {
+      this.exited = true;
+      if (this.killEscalationTimer) {
+        clearTimeout(this.killEscalationTimer);
+        this.killEscalationTimer = null;
+      }
+      this.onExit(code, signal);
+    });
   }
 
   write(buf: Buffer | string): void {
@@ -446,6 +535,19 @@ export class InteractivePipeDriver {
   kill(signal: string = 'SIGTERM'): void {
     if (this.proc) {
       killProcessTree(this.proc, signal);
+      if (signal !== 'SIGINT' && signal !== 'SIGKILL') {
+        if (this.killEscalationTimer) {
+          clearTimeout(this.killEscalationTimer);
+          this.killEscalationTimer = null;
+        }
+        this.killEscalationTimer = setTimeout(() => {
+          this.killEscalationTimer = null;
+          if (!this.exited && this.proc) {
+            killProcessTree(this.proc, 'SIGKILL');
+          }
+        }, 1000);
+        this.killEscalationTimer.unref();
+      }
     }
   }
 }

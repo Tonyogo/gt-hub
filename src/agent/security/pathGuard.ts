@@ -14,19 +14,8 @@ export function isSubpath(parent: string, child: string): boolean {
   return !rel.startsWith('..') && !path.isAbsolute(rel);
 }
 
-export function checkPathPermission(
-  targetPath: string,
-  mode: PermissionMode = 'default',
-  workspace?: string
-): PathCheckResult {
-  if (mode === 'bypass') {
-    return { allowed: true };
-  }
-
-  const resolved = path.resolve(targetPath);
-  const home = os.homedir();
-
-  // Resolve symlinks to target real path even if broken
+export function resolveRealPath(target: string): string {
+  const resolved = path.resolve(target);
   let realTarget = resolved;
   try {
     let current = resolved;
@@ -61,6 +50,21 @@ export function checkPathPermission(
   } catch {
     // Keep resolved if resolution fails
   }
+  return realTarget;
+}
+
+export function checkPathPermission(
+  targetPath: string,
+  mode: PermissionMode = 'default',
+  workspace?: string
+): PathCheckResult {
+  if (mode === 'bypass') {
+    return { allowed: true };
+  }
+
+  const resolved = path.resolve(targetPath);
+  const home = os.homedir();
+  const realTarget = resolveRealPath(resolved);
 
   const pathsToCheck = [resolved, realTarget];
 
@@ -76,11 +80,22 @@ export function checkPathPermission(
     }
 
     // 2. Agent Config Files
-    const gtDir = path.join(home, '.gt');
-    const agentJson = path.join(gtDir, 'agent.json');
-    const configJson = path.join(gtDir, 'config.json');
-    if (checkPath === agentJson || checkPath === configJson) {
-      return { allowed: false, reason: 'Modification or inspection of agent credentials is restricted' };
+    const protectedConfigDirs = [path.join(home, '.gt')];
+    if (process.env.GT_CONFIG_DIR) {
+      const customDir = path.resolve(process.env.GT_CONFIG_DIR);
+      protectedConfigDirs.push(customDir);
+      try {
+        if (fs.existsSync(customDir)) {
+          protectedConfigDirs.push(fs.realpathSync(customDir));
+        }
+      } catch {}
+    }
+    for (const dir of protectedConfigDirs) {
+      const agentJson = path.join(dir, 'agent.json');
+      const configJson = path.join(dir, 'config.json');
+      if (checkPath === agentJson || checkPath === configJson) {
+        return { allowed: false, reason: 'Modification or inspection of agent credentials is restricted' };
+      }
     }
 
     // 3. Unix system sensitive paths
@@ -112,7 +127,8 @@ export function checkPathPermission(
   // 5. Workspace restriction (if configured)
   if (workspace) {
     const resolvedWorkspace = path.resolve(workspace);
-    if (!isSubpath(resolvedWorkspace, resolved) && !isSubpath(resolvedWorkspace, realTarget)) {
+    const realWorkspace = resolveRealPath(resolvedWorkspace);
+    if (!isSubpath(realWorkspace, realTarget)) {
       return { allowed: false, reason: `Path "${resolved}" is outside workspace "${resolvedWorkspace}"` };
     }
   }

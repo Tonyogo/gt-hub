@@ -16,6 +16,8 @@ export interface StreamSession {
   isPty: boolean;
   proc: any;
   timeoutTimer: NodeJS.Timeout | null;
+  superseded?: boolean;
+  exitEmitted?: boolean;
 }
 
 export class StreamSessionManager {
@@ -74,8 +76,24 @@ export class StreamSessionManager {
     if (!env.WINDOW) delete taskEnv.WINDOW;
     if (!env.TERM_SESSION_ID) delete taskEnv.TERM_SESSION_ID;
 
+    if (this.sessions.has(taskId)) {
+      const oldSession = this.sessions.get(taskId);
+      if (oldSession) {
+        oldSession.superseded = true;
+        if (oldSession.timeoutTimer) {
+          clearTimeout(oldSession.timeoutTimer);
+          oldSession.timeoutTimer = null;
+        }
+        this.sessions.delete(taskId);
+        try {
+          oldSession.driver?.kill('SIGTERM');
+        } catch {}
+      }
+    }
+
     let driver: any = null;
     let driverType: string | null = null;
+    let session: StreamSession | null = null;
     const pty = tryRequirePty();
     const canUseNodePty = Boolean(tty && pty && !_forceFallback && !_forcePipeFallback);
 
@@ -85,9 +103,16 @@ export class StreamSessionManager {
     };
 
     const onExit = (code: number | null, signal: string | null) => {
-      const session = this.sessions.get(taskId);
-      if (session && session.timeoutTimer) clearTimeout(session.timeoutTimer);
-      this.sessions.delete(taskId);
+      if (!session || session.superseded || session.exitEmitted) return;
+      if (this.sessions.has(taskId) && this.sessions.get(taskId) !== session) return;
+      session.exitEmitted = true;
+      if (session.timeoutTimer) {
+        clearTimeout(session.timeoutTimer);
+        session.timeoutTimer = null;
+      }
+      if (this.sessions.get(taskId) === session) {
+        this.sessions.delete(taskId);
+      }
       this.send({
         type: 'cmd_stream_exit',
         taskId,
@@ -131,7 +156,7 @@ export class StreamSessionManager {
       }
     }
 
-    const session: StreamSession = {
+    session = {
       taskId,
       driverType: driverType!,
       driver,
@@ -144,6 +169,7 @@ export class StreamSessionManager {
       session.timeoutTimer = setTimeout(() => {
         this.kill(taskId, 'SIGTERM');
       }, timeoutMs);
+      session.timeoutTimer.unref();
     }
 
     this.sessions.set(taskId, session);
@@ -177,12 +203,17 @@ export class StreamSessionManager {
 
   kill(taskId: string, signal: string = 'SIGTERM'): void {
     const session = this.sessions.get(taskId);
-    if (!session || !session.driver) return;
-    try {
-      session.driver.kill(signal);
-    } catch {}
-    if (session.timeoutTimer) clearTimeout(session.timeoutTimer);
+    if (!session) return;
     this.sessions.delete(taskId);
+    if (session.timeoutTimer) {
+      clearTimeout(session.timeoutTimer);
+      session.timeoutTimer = null;
+    }
+    if (session.driver) {
+      try {
+        session.driver.kill(signal);
+      } catch {}
+    }
   }
 
   killAll(): void {
