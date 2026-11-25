@@ -4,15 +4,16 @@ import { stripTerminalQuerySequences } from '../../shared/utils/terminalSanitize
  * Byte patterns for terminal reset / scrollback clear / alternate screen:
  * - \x1bc (RIS - Reset to Initial State): 0x1b, 0x63
  * - \x1b[3J (ED 3 - Clear scrollback buffer): 0x1b, 0x5b, 0x33, 0x4a
- * - \x1b[?1049h (DECSET 1049 - Enter Alternate Screen Buffer)
- * - \x1b[?1049l (DECRST 1049 - Exit Alternate Screen Buffer)
+ * - \x1b[?1049h / \x1b[?1047h / \x1b[?47h (Enter Alternate Screen Buffer)
+ * - \x1b[?1049l / \x1b[?1047l / \x1b[?47l (Exit Alternate Screen Buffer)
  */
 const RIS_RESET_BUFFER = Buffer.from('\x1bc', 'binary');
 const ED3_CLEAR_BUFFER = Buffer.from('\x1b[3J', 'binary');
-const ALT_SCREEN_ENTER_BUFFER = Buffer.from('\x1b[?1049h', 'binary');
-const ALT_SCREEN_EXIT_BUFFER = Buffer.from('\x1b[?1049l', 'binary');
 const TUI_HOME_CLEAR_BUFFER = Buffer.from('\x1b[H\x1b[2K', 'binary');
 const TUI_LINE_CLEAR_BUFFER = Buffer.from('\x1b[2K\x1b[1B', 'binary');
+const ALT_SCREEN_MODES = new Set(['1049', '1047', '47']);
+const ORDERED_ALT_MOUSE_MODES = ['9', '1000', '1002', '1003', '1004', '1006', '1007', '1016'];
+const TRACKED_ALT_MOUSE_MODES = new Set(ORDERED_ALT_MOUSE_MODES);
 
 export const DEFAULT_MAX_HISTORY_BYTES = 1 * 1024 * 1024;
 export const DEFAULT_MAX_HISTORY_LINES = 2000;
@@ -39,9 +40,9 @@ function findNthBufferNewlineIndex(buf: Buffer, n: number): number {
 /**
  * In-memory circular history ring buffer for terminal PTY output.
  * Maintained on each Agent node as the Single Source of Truth (SSoT) for scrollback history.
- * - Caps memory usage strictly at maxBytes (default 1MB) and line count at maxLines (default 1000 lines).
+ * - Caps memory usage strictly at maxBytes (default 1MB) and line count at maxLines (default 2000 lines).
  * - Isolates Alternate Screen (\x1b[?1049h ... \x1b[?1049l) TUI redraw floods so normal scrollback
- *   is never evicted by TUI animations and \x1b[?1049h state is always preserved across reconnects.
+ *   is never evicted by TUI animations and alternate screen / mouse tracking state is preserved across reconnects.
  * - Truncates obsolete history when user/shell issues clear screen / RIS reset commands.
  * - Survives Hub restarts and re-syncs history on reconnection.
  */
@@ -52,8 +53,10 @@ export class TerminalHistoryBuffer {
   private totalLines: number = 0;
   private altChunks: Buffer[] = [];
   private altBytes: number = 0;
+  private altScreenMode: '1049' | '1047' | '47' = '1049';
   private altMouseModes: Set<string> = new Set();
   private inAltScreen: boolean = false;
+  private pendingEsc: Buffer = Buffer.alloc(0);
   private readonly maxBytes: number;
   private readonly maxLines: number;
   private readonly maxAltBytes: number;
@@ -78,6 +81,20 @@ export class TerminalHistoryBuffer {
     let buf = Buffer.isBuffer(data) ? data : Buffer.from(data, 'utf-8');
     if (buf.length === 0) return;
 
+    if (this.pendingEsc.length > 0) {
+      buf = Buffer.concat([this.pendingEsc, buf], this.pendingEsc.length + buf.length);
+      this.pendingEsc = Buffer.alloc(0);
+    }
+
+    if (!buf.includes(0x1b)) {
+      if (this.inAltScreen) {
+        this.pushAlt(buf);
+      } else {
+        this.pushNormal(buf);
+      }
+      return;
+    }
+
     // Check for hardware RIS reset to purge all stale screen history
     const lastRisIdx = buf.lastIndexOf(RIS_RESET_BUFFER);
     if (lastRisIdx !== -1) {
@@ -85,33 +102,86 @@ export class TerminalHistoryBuffer {
       buf = buf.subarray(lastRisIdx);
     }
 
-    while (buf.length > 0) {
-      if (!this.inAltScreen) {
-        const enterIdx = buf.indexOf(ALT_SCREEN_ENTER_BUFFER);
-        if (enterIdx === -1) {
-          this.pushNormal(buf);
-          break;
+    // Hold trailing incomplete ESC / CSI sequence (<= 32 bytes) so split DECSET/DECRST never escapes parsing
+    if (this.maxBytes >= 64) {
+      const searchStart = Math.max(0, buf.length - 32);
+      const lastEsc = buf.lastIndexOf(0x1b);
+      if (lastEsc !== -1 && lastEsc >= searchStart) {
+        const tailStr = buf.subarray(lastEsc).toString('binary');
+        if (tailStr === '\x1b' || /^\x1b\[[0-9;:?<>! "'*]*$/.test(tailStr)) {
+          this.pendingEsc = Buffer.from(buf.subarray(lastEsc));
+          buf = buf.subarray(0, lastEsc);
         }
-        if (enterIdx > 0) {
-          this.pushNormal(buf.subarray(0, enterIdx));
+      }
+    }
+
+    if (buf.length === 0) {
+      return;
+    }
+
+    const text = buf.toString('binary');
+    const modeRegex = /\x1b\[\?([0-9;]+)([hl])/g;
+    let cursor = 0;
+    let match: RegExpExecArray | null = null;
+
+    while ((match = modeRegex.exec(text)) !== null) {
+      const seqStart = match.index;
+      const seqEnd = seqStart + match[0].length;
+      const params = match[1].split(';');
+      const action = match[2];
+
+      let altParam: '1049' | '1047' | '47' | null = null;
+      for (const p of params) {
+        if (ALT_SCREEN_MODES.has(p)) {
+          altParam = p as '1049' | '1047' | '47';
+        } else if (TRACKED_ALT_MOUSE_MODES.has(p)) {
+          if (action === 'h') {
+            this.altMouseModes.add(p);
+          } else {
+            this.altMouseModes.delete(p);
+          }
         }
-        this.inAltScreen = true;
-        this.altChunks = [];
-        this.altBytes = 0;
-        this.altMouseModes.clear();
-        buf = buf.subarray(enterIdx + ALT_SCREEN_ENTER_BUFFER.length);
+      }
+
+      if (altParam !== null) {
+        if (action === 'h') {
+          if (!this.inAltScreen) {
+            if (seqStart > cursor) {
+              this.pushNormal(buf.subarray(cursor, seqStart));
+            }
+            this.inAltScreen = true;
+            this.altScreenMode = altParam;
+            this.altChunks = [];
+            this.altBytes = 0;
+            cursor = seqEnd;
+          } else {
+            if (seqEnd > cursor) {
+              this.pushAlt(buf.subarray(cursor, seqEnd));
+            }
+            cursor = seqEnd;
+          }
+        } else {
+          if (this.inAltScreen) {
+            this.inAltScreen = false;
+            this.altChunks = [];
+            this.altBytes = 0;
+            cursor = seqEnd;
+          } else {
+            if (seqEnd > cursor) {
+              this.pushNormal(buf.subarray(cursor, seqEnd));
+            }
+            cursor = seqEnd;
+          }
+        }
+      }
+    }
+
+    if (cursor < buf.length) {
+      const rem = buf.subarray(cursor);
+      if (this.inAltScreen) {
+        this.pushAlt(rem);
       } else {
-        const exitIdx = buf.indexOf(ALT_SCREEN_EXIT_BUFFER);
-        if (exitIdx === -1) {
-          this.pushAlt(buf);
-          break;
-        }
-        // Exiting alternate screen: discard transient alternate screen redraw frames
-        this.inAltScreen = false;
-        this.altChunks = [];
-        this.altBytes = 0;
-        this.altMouseModes.clear();
-        buf = buf.subarray(exitIdx + ALT_SCREEN_EXIT_BUFFER.length);
+        this.pushNormal(rem);
       }
     }
   }
@@ -140,9 +210,10 @@ export class TerminalHistoryBuffer {
     }
 
     // 1. Enforce maxBytes limit by evicting oldest chunks from the front
-    while (this.totalBytes > this.maxBytes && this.chunks.length > 0) {
+    const effectiveMaxNormalBytes = Math.max(1, this.maxBytes - this.pendingEsc.length);
+    while (this.totalBytes > effectiveMaxNormalBytes && this.chunks.length > 0) {
       const head = this.chunks[0];
-      const excess = this.totalBytes - this.maxBytes;
+      const excess = this.totalBytes - effectiveMaxNormalBytes;
       if (head.length <= excess) {
         this.totalBytes -= head.length;
         this.totalLines -= this.chunkLineCounts.shift()!;
@@ -199,11 +270,8 @@ export class TerminalHistoryBuffer {
   }
 
   private getAltHeaderBuffer(): Buffer {
-    if (this.altMouseModes.size === 0) {
-      return ALT_SCREEN_ENTER_BUFFER;
-    }
-    let headerStr = '\x1b[?1049h';
-    for (const mode of ['1000', '1002', '1003', '1006']) {
+    let headerStr = `\x1b[?${this.altScreenMode}h`;
+    for (const mode of ORDERED_ALT_MOUSE_MODES) {
       if (this.altMouseModes.has(mode)) {
         headerStr += `\x1b[?${mode}h`;
       }
@@ -213,23 +281,11 @@ export class TerminalHistoryBuffer {
 
   private pushAlt(buf: Buffer): void {
     if (buf.length === 0) return;
-    if (buf.includes(0x1b)) {
-      const text = buf.toString('binary');
-      const regex = /\x1b\[\?(1000|1002|1003|1006)([hl])/g;
-      let match: RegExpExecArray | null = null;
-      while ((match = regex.exec(text)) !== null) {
-        if (match[2] === 'h') {
-          this.altMouseModes.add(match[1]);
-        } else {
-          this.altMouseModes.delete(match[1]);
-        }
-      }
-    }
     this.altChunks.push(buf);
     this.altBytes += buf.length;
 
     const headerLen = this.getAltHeaderBuffer().length;
-    const effectiveMaxAlt = Math.max(1, this.maxAltBytes - headerLen);
+    const effectiveMaxAlt = Math.max(1, this.maxAltBytes - headerLen - this.pendingEsc.length);
     while (this.altBytes > effectiveMaxAlt && this.altChunks.length > 0) {
       const head = this.altChunks[0];
       const excess = this.altBytes - effectiveMaxAlt;
@@ -237,8 +293,19 @@ export class TerminalHistoryBuffer {
         this.altBytes -= head.length;
         this.altChunks.shift();
       } else {
-        this.altChunks[0] = head.subarray(excess);
-        this.altBytes -= excess;
+        let cut = excess;
+        let skipped = 0;
+        while (cut < head.length && skipped < 3 && (head[cut] & 0xc0) === 0x80) {
+          cut++;
+          skipped++;
+        }
+        if (cut >= head.length) {
+          this.altBytes -= head.length;
+          this.altChunks.shift();
+        } else {
+          this.altChunks[0] = head.subarray(cut);
+          this.altBytes -= cut;
+        }
         break;
       }
     }
@@ -249,17 +316,23 @@ export class TerminalHistoryBuffer {
    */
   public getBuffer(): Buffer {
     if (!this.inAltScreen) {
-      if (this.chunks.length === 0) {
+      if (this.chunks.length === 0 && this.pendingEsc.length === 0) {
         return Buffer.alloc(0);
       }
-      if (this.chunks.length === 1) {
+      if (this.chunks.length === 1 && this.pendingEsc.length === 0) {
         return this.chunks[0];
       }
-      return Buffer.concat(this.chunks, this.totalBytes);
+      const parts = this.pendingEsc.length > 0 ? [...this.chunks, this.pendingEsc] : this.chunks;
+      return Buffer.concat(parts, this.totalBytes + this.pendingEsc.length);
     }
     const altHeader = this.getAltHeaderBuffer();
-    const allChunks = [...this.chunks, altHeader, ...this.altChunks];
-    const totalLen = this.totalBytes + altHeader.length + this.altBytes;
+    const allChunks = [
+      ...this.chunks,
+      altHeader,
+      ...this.altChunks,
+      ...(this.pendingEsc.length > 0 ? [this.pendingEsc] : []),
+    ];
+    const totalLen = this.totalBytes + altHeader.length + this.altBytes + this.pendingEsc.length;
     return Buffer.concat(allChunks, totalLen);
   }
 
@@ -281,7 +354,11 @@ export class TerminalHistoryBuffer {
    * Current byte size of the buffer.
    */
   public getSize(): number {
-    return this.totalBytes + (this.inAltScreen ? this.getAltHeaderBuffer().length + this.altBytes : 0);
+    return (
+      this.totalBytes +
+      (this.inAltScreen ? this.getAltHeaderBuffer().length + this.altBytes : 0) +
+      this.pendingEsc.length
+    );
   }
 
   /**
@@ -294,7 +371,9 @@ export class TerminalHistoryBuffer {
     this.totalLines = 0;
     this.altChunks = [];
     this.altBytes = 0;
+    this.altScreenMode = '1049';
     this.altMouseModes.clear();
     this.inAltScreen = false;
+    this.pendingEsc = Buffer.alloc(0);
   }
 }

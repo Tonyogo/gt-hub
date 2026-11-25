@@ -31,6 +31,7 @@ import {
   isSyntheticTerminalReport,
   isUnsolicitedShellDeviceReport,
   updateRemoteAltScreenState,
+  extractIncompleteEscapeTail,
 } from '../utils/terminalFilter';
 import {
   encodeModifierKey,
@@ -232,6 +233,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
   const canvasAddonRef = useRef<CanvasAddon | null>(null);
   const streamTextDecoderRef = useRef<TextDecoder>(new TextDecoder('utf-8'));
   const isRemoteAltScreenRef = useRef<boolean>(false);
+  const altScreenEscapeTailRef = useRef<string>('');
   const magnifierRafRef = useRef<number | null>(null);
 
   const [isConnected, setIsConnected] = useState<boolean>(false);
@@ -686,6 +688,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           xtermRef.current.reset();
         }
         isRemoteAltScreenRef.current = false;
+        altScreenEscapeTailRef.current = '';
         backgroundQueueRef.current.clear();
         writeSchedulerRef.current?.clear();
         streamTextDecoderRef.current.decode();
@@ -742,6 +745,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
             if (parsed.type === 'reset') {
               console.debug('[WebTerminal] Received reset signal from backend, clearing buffer and muting synthetic reports');
               isRemoteAltScreenRef.current = false;
+              altScreenEscapeTailRef.current = '';
               backgroundQueueRef.current.clear();
               writeSchedulerRef.current?.clear();
               streamTextDecoderRef.current.decode();
@@ -774,7 +778,9 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           }
         }
 
-        isRemoteAltScreenRef.current = updateRemoteAltScreenState(isRemoteAltScreenRef.current, data);
+        const combinedAltChunk = altScreenEscapeTailRef.current ? altScreenEscapeTailRef.current + data : data;
+        isRemoteAltScreenRef.current = updateRemoteAltScreenState(isRemoteAltScreenRef.current, combinedAltChunk);
+        altScreenEscapeTailRef.current = extractIncompleteEscapeTail(combinedAltChunk);
 
         if (!isActiveRef.current) {
           backgroundQueueRef.current.push(data);
@@ -802,7 +808,9 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         }
       } else if (data instanceof ArrayBuffer) {
         const text = streamTextDecoderRef.current.decode(data, { stream: true });
-        isRemoteAltScreenRef.current = updateRemoteAltScreenState(isRemoteAltScreenRef.current, text);
+        const combinedAltChunk = altScreenEscapeTailRef.current ? altScreenEscapeTailRef.current + text : text;
+        isRemoteAltScreenRef.current = updateRemoteAltScreenState(isRemoteAltScreenRef.current, combinedAltChunk);
+        altScreenEscapeTailRef.current = extractIncompleteEscapeTail(combinedAltChunk);
 
         if (!isActiveRef.current) {
           backgroundQueueRef.current.push(data);
@@ -1118,7 +1126,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         ) {
           scrollToBottomSafe(t);
         }
-        if (isReplayingRef.current) {
+        if (isReplayingRef.current && (writeSchedulerRef.current?.pendingBytes() ?? 0) === 0) {
           isReplayingRef.current = false;
         }
       });
@@ -1683,6 +1691,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         }
         e.stopPropagation();
         selectionStartPos = null;
+        isTouchScrollingActiveRef.current = false;
         return;
       }
 
@@ -1860,6 +1869,9 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
     const handleVisibilityOrOnline = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        isDragging = false;
+        stopMomentumScroll();
+        syncAtBottomAfterTouchScroll();
         return;
       }
       if (!activeHostIdRef.current) {
@@ -2736,6 +2748,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
   const executeReset = useCallback(() => {
     isRemoteAltScreenRef.current = false;
+    altScreenEscapeTailRef.current = '';
     lastSentColsRef.current = 0;
     lastSentRowsRef.current = 0;
     reconnectAttemptRef.current = 0;

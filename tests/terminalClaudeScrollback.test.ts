@@ -109,4 +109,100 @@ describe('Terminal Claude Code In-Session Scrollback & Alternate Wheel Navigatio
     expect(webTerminalContent).toContain('term.buffer.onBufferChange');
     expect(webTerminalContent).toContain('bufferChangeDisposable.dispose()');
   });
+
+  it('WebTerminalView carries escape sequence tails when calling updateRemoteAltScreenState across WS frames and resets touch state on select/hidden', () => {
+    expect(webTerminalContent).toContain('altScreenEscapeTailRef');
+    const visIdx = webTerminalContent.indexOf('const handleVisibilityOrOnline =');
+    const visEnd = webTerminalContent.indexOf('const handleWindowFocus =', visIdx);
+    const visBlock = webTerminalContent.slice(visIdx, visEnd);
+    expect(visBlock).toContain('stopMomentumScroll');
+  });
+
+  it('StreamSessionManager maintains TerminalHistoryBuffer for pane-* sessions and emits HISTORY_SYNC on demand', () => {
+    const { StreamSessionManager } = require('../src/agent/pty/sessionManager');
+    const { BIN_MSG_TYPE, decodeBinaryPacket } = require('../src/shared/protocol/binaryProtocol');
+    const sentPackets: any[] = [];
+    const manager = new StreamSessionManager((data: any) => sentPackets.push(data));
+    expect(typeof manager.sendHistorySync).toBe('function');
+    expect(typeof manager.hasSession).toBe('function');
+
+    // Simulate a pane stream session emitting alt screen + SGR mouse modes
+    manager.sessions.set('pane-split', {
+      taskId: 'pane-split',
+      driverType: 'node-pty',
+      driver: {},
+      isPty: true,
+      proc: {},
+      timeoutTimer: null,
+      history: new TerminalHistoryBuffer(1024 * 1024, false),
+    });
+    manager.sessions.get('pane-split').history.push('\x1b[?1049h\x1b[?1000h\x1b[?1006hSplit Claude');
+
+    expect(manager.hasSession('pane-split')).toBe(true);
+    const synced = manager.sendHistorySync('pane-split', 'split');
+    expect(synced).toBe(true);
+    expect(sentPackets.length).toBe(1);
+    const decoded = decodeBinaryPacket(sentPackets[0]);
+    expect(decoded.msgType).toBe(BIN_MSG_TYPE.HISTORY_SYNC);
+    expect(decoded.id).toBe('split');
+    expect(decoded.payload.toString('utf-8')).toContain('\x1b[?1049h');
+    expect(decoded.payload.toString('utf-8')).toContain('\x1b[?1006h');
+  });
+
+  it('restores xterm alternate buffer and SGR mouse tracking mode after idle eviction, partial live TUI redraw, and history_sync replay', (done) => {
+    jest.useFakeTimers();
+    const { Terminal } = require('../frontend/node_modules/@xterm/xterm');
+    const { TerminalHostManager } = require('../src/terminal/services/terminalHostManager');
+
+    const agentBuf = new TerminalHistoryBuffer(1024, false);
+    agentBuf.push('$ claude\r\n');
+    agentBuf.push('\x1b[?1049h\x1b[?1000h\x1b[?1006h');
+    for (let i = 0; i < 40; i++) {
+      agentBuf.push(`Claude screen ${i}: ${'Z'.repeat(60)}\r\n`);
+    }
+
+    const hub = new TerminalHostManager();
+    const mockAgentWs = {
+      readyState: 1,
+      send: jest.fn((msg: string) => {
+        if (msg === 'JSON:{"type":"history_req"}') {
+          hub.handleAgentHistorySync('node-e2e-scroll', agentBuf.getBuffer());
+        }
+      }),
+    };
+    hub.registerAgent({ hostId: 'node-e2e-scroll', name: 'e2e', agentWs: mockAgentWs });
+    const session = hub.getSession('node-e2e-scroll')!;
+
+    const client1 = { readyState: 1, send: jest.fn() };
+    session.attach(client1);
+    session.handleData('$ claude\r\n\x1b[?1049h\x1b[?1000h\x1b[?1006hReady');
+    session.flush();
+    session.detach(client1);
+
+    // 10-min idle eviction + post-eviction incremental redraw without 1049h/1000h
+    jest.advanceTimersByTime(10 * 60 * 1000 + 100);
+    jest.useRealTimers();
+    session.handleData('\x1b[?2026h\x1b[10;1HSpinner\x1b[?2026l');
+
+    const receivedChunks: string[] = [];
+    const client2 = {
+      readyState: 1,
+      send: (chunk: string) => receivedChunks.push(chunk),
+    };
+    session.attach(client2);
+
+    const term = new Terminal({ cols: 80, rows: 24, allowProposedApi: true });
+    term.write('stale', () => {
+      term.clear();
+      term.reset();
+      expect(term.buffer.active.type).toBe('normal');
+      expect(term.modes.mouseTrackingMode).toBe('none');
+
+      term.write(receivedChunks.join(''), () => {
+        expect(term.buffer.active.type).toBe('alternate');
+        expect(term.modes.mouseTrackingMode).not.toBe('none');
+        done();
+      });
+    });
+  });
 });

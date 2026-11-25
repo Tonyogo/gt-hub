@@ -44,7 +44,7 @@ export interface ITerminalSession {
 }
 
 export { stripTerminalQuerySequences } from '../../shared/utils/terminalSanitizer';
-import { stripTerminalQuerySequences } from '../../shared/utils/terminalSanitizer';
+import { stripTerminalQuerySequences, findSafeAnsiSplitIndex } from '../../shared/utils/terminalSanitizer';
 import { TerminalHistoryBuffer } from '../../agent/pty/terminalHistoryBuffer';
 import { StringDecoder } from 'string_decoder';
 
@@ -54,6 +54,7 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
   private agentWs: any = null;
   private activeSockets: Set<any> = new Set();
   private replayedSockets: WeakSet<any> = new WeakSet();
+  private fragmentReplayedSockets: WeakSet<any> = new WeakSet();
   private history: TerminalHistoryBuffer;
   private readonly maxBufferSize: number = 1 * 1024 * 1024; // 1MB scrollback
   private currentCols: number = 0;
@@ -69,6 +70,9 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
   private pendingInputBytes: number = 0;
   private readonly maxPendingInputBytes: number = 4 * 1024;
   private streamStarted: boolean = false;
+  private historyNeedsAgentSync: boolean = false;
+  private hasReceivedHistorySync: boolean = false;
+  private pendingHistorySyncTimer: NodeJS.Timeout | null = null;
 
   constructor(hostId: string, agentWs?: any, paneId: string = 'main') {
     this.hostId = hostId;
@@ -177,9 +181,66 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
       ws.send(sanitized);
       return;
     }
-    for (let i = 0; i < sanitized.length; i += RemoteAgentTerminalSession.HISTORY_CHUNK_SIZE) {
-      const chunk = sanitized.slice(i, i + RemoteAgentTerminalSession.HISTORY_CHUNK_SIZE);
-      ws.send(chunk);
+    let offset = 0;
+    while (offset < sanitized.length) {
+      const remaining = sanitized.length - offset;
+      if (remaining <= RemoteAgentTerminalSession.HISTORY_CHUNK_SIZE) {
+        ws.send(sanitized.slice(offset));
+        break;
+      }
+      const windowSlice = sanitized.slice(offset, offset + RemoteAgentTerminalSession.HISTORY_CHUNK_SIZE);
+      const safeLen = findSafeAnsiSplitIndex(windowSlice, RemoteAgentTerminalSession.HISTORY_CHUNK_SIZE);
+      const step = safeLen > 0 ? safeLen : RemoteAgentTerminalSession.HISTORY_CHUNK_SIZE;
+      ws.send(sanitized.slice(offset, offset + step));
+      offset += step;
+    }
+  }
+
+  private clearPendingHistorySyncTimer(): void {
+    if (this.pendingHistorySyncTimer) {
+      clearTimeout(this.pendingHistorySyncTimer);
+      this.pendingHistorySyncTimer = null;
+    }
+  }
+
+  private requestAgentHistorySync(): void {
+    if (!this.agentWs || this.agentWs.readyState !== 1) {
+      return;
+    }
+    try {
+      if (this.paneId === 'main') {
+        this.agentWs.send(`JSON:${JSON.stringify({ type: 'history_req' })}`);
+      } else if (this.streamStarted) {
+        this.agentWs.send(`JSON:${JSON.stringify({ type: 'history_req', paneId: this.paneId })}`);
+      } else {
+        this.ensurePaneStreamStarted();
+      }
+    } catch (err: any) {
+      logger.warn(`[RemoteAgentTerminal:${this.hostId}:${this.paneId}] Failed to request history from agent: ${err.message}`);
+    }
+
+    if (this.historyNeedsAgentSync && !this.pendingHistorySyncTimer) {
+      this.pendingHistorySyncTimer = setTimeout(() => {
+        this.pendingHistorySyncTimer = null;
+        if (!this.historyNeedsAgentSync) return;
+        this.historyNeedsAgentSync = false;
+        if (this.history.getSize() > 0) {
+          const fallbackSanitized = this.history.getSanitizedString();
+          if (fallbackSanitized.length > 0) {
+            for (const client of this.activeSockets) {
+              if (client.readyState === 1 && !this.replayedSockets.has(client)) {
+                try {
+                  this.sendHistoryChunks(client, fallbackSanitized);
+                  this.replayedSockets.add(client);
+                } catch {}
+              }
+            }
+          }
+        }
+      }, 1500);
+      if (this.pendingHistorySyncTimer && typeof this.pendingHistorySyncTimer.unref === 'function') {
+        this.pendingHistorySyncTimer.unref();
+      }
     }
   }
 
@@ -192,32 +253,36 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
     }
     this.activeSockets.add(ws);
     this.cancelIdleEviction();
-    if (this.currentCols > 0 && this.currentRows > 0 && this.history.getSize() > 0) {
+    if (this.currentCols > 0 && this.currentRows > 0 && (this.history.getSize() > 0 || this.historyNeedsAgentSync)) {
       this.pendingAttachRefresh = true;
     }
 
-    // Replay history buffer atomically as a single combined stream with query sequences stripped to prevent echo storms
-    if (this.history.getSize() > 0 && ws.readyState === 1) {
+    // Replay history buffer atomically as a single combined stream with query sequences stripped to prevent echo storms.
+    // If Hub evicted idle history, never treat post-eviction live fragments as authoritative; request full SSoT from Agent.
+    if (!this.historyNeedsAgentSync && this.history.getSize() > 0 && ws.readyState === 1) {
+      try {
+        const sanitized = this.history.getSanitizedString();
+        if (sanitized.length > 0) {
+          this.sendHistoryChunks(ws, sanitized);
+          this.replayedSockets.add(ws);
+          if (!this.hasReceivedHistorySync) {
+            this.fragmentReplayedSockets.add(ws);
+          }
+        }
+      } catch {
+        // Ignore socket write errors during replay
+      }
+    } else if ((this.history.getSize() === 0 || this.historyNeedsAgentSync) && this.agentWs && this.agentWs.readyState === 1) {
+      // Hub has no authoritative cached history (e.g. Hub restarted or idle-evicted) -> request from Agent on demand
+      this.requestAgentHistorySync();
+    } else if (this.historyNeedsAgentSync && this.history.getSize() > 0 && ws.readyState === 1) {
       try {
         const sanitized = this.history.getSanitizedString();
         if (sanitized.length > 0) {
           this.sendHistoryChunks(ws, sanitized);
           this.replayedSockets.add(ws);
         }
-      } catch {
-        // Ignore socket write errors during replay
-      }
-    } else if (this.history.getSize() === 0 && this.agentWs && this.agentWs.readyState === 1) {
-      // Hub has no cached history (e.g. Hub restarted or cache was pruned) -> request from Agent on demand
-      try {
-        if (this.paneId === 'main') {
-          this.agentWs.send(`JSON:${JSON.stringify({ type: 'history_req' })}`);
-        } else {
-          this.ensurePaneStreamStarted();
-        }
-      } catch (err: any) {
-        logger.warn(`[RemoteAgentTerminal:${this.hostId}:${this.paneId}] Failed to request history from agent: ${err.message}`);
-      }
+      } catch {}
     }
   }
 
@@ -358,20 +423,48 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
   }
 
   public handleHistorySync(history: Buffer | string): void {
+    this.clearPendingHistorySyncTimer();
+    const wasNeedingSync = this.historyNeedsAgentSync;
+    const wasFirstSync = !this.hasReceivedHistorySync;
+    this.historyNeedsAgentSync = false;
+
     const raw = Buffer.isBuffer(history)
       ? history.toString('utf-8')
       : (typeof history === 'string' ? history : String(history));
-    if (!raw) return;
+    if (!raw) {
+      if (wasNeedingSync && this.history.getSize() > 0) {
+        const fallbackSanitized = this.history.getSanitizedString();
+        if (fallbackSanitized.length > 0) {
+          for (const ws of this.activeSockets) {
+            if (ws.readyState === 1 && !this.replayedSockets.has(ws)) {
+              try {
+                this.sendHistoryChunks(ws, fallbackSanitized);
+                this.replayedSockets.add(ws);
+              } catch {}
+            }
+          }
+        }
+      }
+      return;
+    }
+
+    this.hasReceivedHistorySync = true;
     const sanitized = stripTerminalQuerySequences(raw);
     this.history.clear();
     this.history.push(sanitized);
 
-    // Immediately push to any active clients that haven't received history replay
+    const hasAltScreenEnter = /\x1b\[\?(?:[0-9;]*;)?(?:1049|1047|47)(?:;[0-9;]*)?h/.test(sanitized);
+
+    // Immediately push to any active clients that haven't received authoritative history replay yet
     for (const ws of this.activeSockets) {
-      if (ws.readyState === 1 && !this.replayedSockets.has(ws)) {
+      const needsReplay =
+        !this.replayedSockets.has(ws) ||
+        (wasFirstSync && hasAltScreenEnter && this.fragmentReplayedSockets.has(ws));
+      if (ws.readyState === 1 && needsReplay) {
         try {
           this.sendHistoryChunks(ws, sanitized);
           this.replayedSockets.add(ws);
+          this.fragmentReplayedSockets.delete(ws);
         } catch {
           // Ignore socket write errors during replay
         }
@@ -407,6 +500,9 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
         // Ignore write errors
       }
     }
+    this.clearPendingHistorySyncTimer();
+    this.historyNeedsAgentSync = false;
+    this.hasReceivedHistorySync = false;
     this.history.clear();
     if (this.broadcastBatcher) {
       this.broadcastBatcher.flush();
@@ -417,9 +513,10 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
     if (this.idleEvictionTimer) return;
     this.idleEvictionTimer = setTimeout(() => {
       this.idleEvictionTimer = null;
-      if (this.activeSockets.size === 0 && this.history.getSize() > 0) {
-        logger.debug(`[RemoteAgentTerminal:${this.hostId}] Evicted idle history buffer from Hub memory`);
+      if (this.activeSockets.size === 0 && (this.history.getSize() > 0 || this.hasReceivedHistorySync)) {
+        logger.debug(`[RemoteAgentTerminal:${this.hostId}:${this.paneId}] Evicted idle history buffer from Hub memory`);
         this.history.clear();
+        this.historyNeedsAgentSync = true;
       }
     }, RemoteAgentTerminalSession.IDLE_EVICTION_MS);
     if (this.idleEvictionTimer && typeof this.idleEvictionTimer.unref === 'function') {
@@ -436,11 +533,16 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
 
   public reset(notifyClients: boolean = true, resetAgentPty: boolean = false): void {
     this.cancelIdleEviction();
+    this.clearPendingHistorySyncTimer();
     this.cancelNudgeTimer();
     if (this.broadcastBatcher) {
       this.broadcastBatcher.flush();
     }
     this.history.clear();
+    this.historyNeedsAgentSync = false;
+    this.hasReceivedHistorySync = false;
+    this.replayedSockets = new WeakSet();
+    this.fragmentReplayedSockets = new WeakSet();
     this.utf8Decoder = new StringDecoder('utf8');
     this.pendingInputBuffer = [];
     this.pendingInputBytes = 0;
@@ -485,12 +587,15 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
 
   public destroy(): void {
     this.cancelIdleEviction();
+    this.clearPendingHistorySyncTimer();
     this.cancelNudgeTimer();
     if (this.broadcastBatcher) {
       this.broadcastBatcher.flush();
     }
     this.activeSockets.clear();
     this.history.clear();
+    this.historyNeedsAgentSync = false;
+    this.hasReceivedHistorySync = false;
     this.utf8Decoder = new StringDecoder('utf8');
     this.pendingInputBuffer = [];
     this.pendingInputBytes = 0;

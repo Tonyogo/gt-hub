@@ -102,6 +102,16 @@ describe('Terminal Synthetic Echo Protection (OSC 11 / DA / CPR)', () => {
       expect(output).toContain('\x1b[?1006h');
     });
 
+    it('handles compound DECSET/DECRST (\\x1b[?1049;1000;1006h / \\x1b[?1000;1049l) accurately', () => {
+      const compoundInAlt = 'start\x1b[?1049;1000;1006hTUI';
+      const outAlt = stripTerminalQuerySequences(compoundInAlt);
+      expect(outAlt.endsWith('\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1004l')).toBe(false);
+
+      const compoundExited = 'start\x1b[?1049;1000hTUI\x1b[?1;1049lprompt$ ';
+      const outNormal = stripTerminalQuerySequences(compoundExited);
+      expect(outNormal.endsWith('\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1004l')).toBe(true);
+    });
+
     it('handles empty or non-string inputs safely', () => {
       expect(stripTerminalQuerySequences('')).toBe('');
       expect(stripTerminalQuerySequences(null as any)).toBe('');
@@ -167,6 +177,12 @@ describe('Terminal Synthetic Echo Protection (OSC 11 / DA / CPR)', () => {
       expect(state).toBe(true);
 
       state = updateRemoteAltScreenState(state, 'exiting\x1b[?1049l\x1b[?1000luser@host:~$ ');
+      expect(state).toBe(false);
+
+      // Compound DECSET/DECRST and RIS reset
+      state = updateRemoteAltScreenState(state, '\x1b[?1049;1000;1006h');
+      expect(state).toBe(true);
+      state = updateRemoteAltScreenState(state, '\x1bc');
       expect(state).toBe(false);
     });
   });

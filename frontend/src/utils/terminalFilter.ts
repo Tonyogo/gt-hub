@@ -43,25 +43,50 @@ export function isUnsolicitedShellDeviceReport(data: string): boolean {
   return stripped.length === 0;
 }
 
+const ALT_SCREEN_MODE_SET = new Set(['47', '1047', '1049']);
+
 /**
  * Tracks whether the remote terminal stream has switched into or out of
- * alternate screen buffer mode (DECSET/DECRST 1049, 1047, or 47).
+ * alternate screen buffer mode (DECSET/DECRST 1049, 1047, or 47, including compound params)
+ * or reset to normal buffer via RIS (\x1bc).
  * This inspects incoming stream frames immediately on arrival, avoiding
  * asynchronous queue latency (such as TerminalWriteScheduler) for wheel/touch event gating.
  */
 export function updateRemoteAltScreenState(prevInAltScreen: boolean, chunk: string): boolean {
-  if (!chunk || typeof chunk !== 'string' || !chunk.includes('\x1b[?')) {
+  if (!chunk || typeof chunk !== 'string' || !chunk.includes('\x1b')) {
     return prevInAltScreen;
   }
-  const regex = /\x1b\[\?(?:1049|1047|47)([hl])/g;
-  let lastMatch: RegExpExecArray | null = null;
+  const regex = /\x1b\[\?([0-9;]+)([hl])|\x1bc/g;
+  let state = prevInAltScreen;
   let match: RegExpExecArray | null = null;
   while ((match = regex.exec(chunk)) !== null) {
-    lastMatch = match;
+    if (match[0] === '\x1bc') {
+      state = false;
+      continue;
+    }
+    const params = match[1].split(';');
+    for (const p of params) {
+      if (ALT_SCREEN_MODE_SET.has(p)) {
+        state = match[2] === 'h';
+      }
+    }
   }
-  if (lastMatch) {
-    return lastMatch[1] === 'h';
+  return state;
+}
+
+/**
+ * Extracts a trailing incomplete ESC / CSI sequence (<= 32 chars) from an incoming chunk
+ * so multi-frame splits across WebSocket boundaries do not break real-time mode tracking.
+ */
+export function extractIncompleteEscapeTail(chunk: string): string {
+  if (!chunk || typeof chunk !== 'string') return '';
+  const searchStart = Math.max(0, chunk.length - 32);
+  const lastEsc = chunk.lastIndexOf('\x1b');
+  if (lastEsc === -1 || lastEsc < searchStart) return '';
+  const remainder = chunk.slice(lastEsc);
+  if (remainder === '\x1b' || /^\[[0-9;:?<>! "'*]*$/.test(remainder.slice(1))) {
+    return remainder;
   }
-  return prevInAltScreen;
+  return '';
 }
 

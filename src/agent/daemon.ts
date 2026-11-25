@@ -880,7 +880,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
   const maxScrollbackBytes = options.scrollback
     ? Math.max(1024, parseInt(String(options.scrollback), 10) || (1 * 1024 * 1024))
     : (1 * 1024 * 1024);
-  const terminalHistory = new TerminalHistoryBuffer(maxScrollbackBytes);
+  const terminalHistory = new TerminalHistoryBuffer(maxScrollbackBytes, false);
 
   const secondaryPaneManager = new SecondaryPanePtyManager({
     shell: getDefaultShell(options),
@@ -927,10 +927,17 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     }
   });
 
-  function sendHistorySync() {
+  function sendHistorySync(replyIfEmpty: boolean = false) {
     if (!ws || (ws.readyState !== 1 && ws.readyState !== WebSocket.OPEN)) return;
     const histBuf = terminalHistory.getBuffer();
-    if (histBuf.length === 0) return;
+    if (histBuf.length === 0) {
+      if (replyIfEmpty) {
+        try {
+          ws.send(`JSON:${JSON.stringify({ type: 'history_sync', history: '' })}`);
+        } catch {}
+      }
+      return;
+    }
     try {
       const syncPacket = encodeBinaryPacket(BIN_MSG_TYPE.HISTORY_SYNC, hostId, histBuf);
       ws.send(syncPacket);
@@ -1343,7 +1350,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
               ws.send('JSON:' + JSON.stringify(data));
             }
           }
-        });
+        }, maxScrollbackBytes);
 
         if (isFirstSpawn) {
           ws.send(`JSON:${JSON.stringify({ type: 'reset' })}`);
@@ -1502,10 +1509,15 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
           }
           if (control.type === 'history_req') {
             if (control.paneId && control.paneId !== 'main') {
+              const streamTaskId = `pane-${control.paneId}`;
+              if (streamSessionManager && streamSessionManager.hasSession(streamTaskId)) {
+                streamSessionManager.sendHistorySync(streamTaskId, control.paneId, true);
+                return;
+              }
               secondaryPaneManager.sendHistorySync(control.paneId);
               return;
             }
-            sendHistorySync();
+            sendHistorySync(true);
             return;
           }
           if (control.type === 'pane_close') {
@@ -1527,6 +1539,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
               sendHistorySync();
             }
             secondaryPaneManager.sendAllHistorySync();
+            streamSessionManager?.sendAllPaneHistorySync();
             return;
           }
           return;

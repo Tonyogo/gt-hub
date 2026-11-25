@@ -381,6 +381,10 @@ function findNthStringNewlineIndex(str: string, n: number): number {
   return -1;
 }
 
+const BG_ORDERED_MOUSE_MODES = ['9', '1000', '1002', '1003', '1004', '1006', '1007', '1016'];
+const BG_TRACKED_MOUSE_MODES = new Set(BG_ORDERED_MOUSE_MODES);
+const BG_ALT_SCREEN_MODES = new Set(['47', '1047', '1049']);
+
 export class BackgroundBufferQueue {
   private chunks: string[] = [];
   private chunkLineCounts: number[] = [];
@@ -389,10 +393,63 @@ export class BackgroundBufferQueue {
   private readonly maxBytes: number;
   private readonly maxLines: number;
   private decoder: TextDecoder = new TextDecoder('utf-8');
+  private inAltScreen: boolean = false;
+  private altScreenMode: string = '1049';
+  private activeMouseModes: Set<string> = new Set();
+  private modeTail: string = '';
+  private headEvicted: boolean = false;
 
   constructor(maxBytes: number = 2 * 1024 * 1024, maxLines: number = 2000) {
     this.maxBytes = Math.max(1, maxBytes);
     this.maxLines = Math.max(1, maxLines);
+  }
+
+  private trackModes(str: string): void {
+    const combined = this.modeTail ? this.modeTail + str : str;
+    this.modeTail = '';
+    if (!combined.includes('\x1b')) {
+      return;
+    }
+
+    const searchStart = Math.max(0, combined.length - 32);
+    const lastEsc = combined.lastIndexOf('\x1b');
+    let scanTarget = combined;
+    if (lastEsc !== -1 && lastEsc >= searchStart) {
+      const remainder = combined.slice(lastEsc);
+      if (remainder === '\x1b' || /^\[[0-9;:?<>! "'*]*$/.test(remainder.slice(1))) {
+        this.modeTail = remainder;
+        scanTarget = combined.slice(0, lastEsc);
+      }
+    }
+
+    const modeRe = /\x1b\[\?([0-9;]+)([hl])|\x1bc/g;
+    let match: RegExpExecArray | null = null;
+    while ((match = modeRe.exec(scanTarget)) !== null) {
+      if (match[0] === '\x1bc') {
+        this.inAltScreen = false;
+        this.altScreenMode = '1049';
+        this.activeMouseModes.clear();
+        continue;
+      }
+      const action = match[2];
+      const params = match[1].split(';');
+      for (const p of params) {
+        if (BG_ALT_SCREEN_MODES.has(p)) {
+          if (action === 'h') {
+            this.inAltScreen = true;
+            this.altScreenMode = p;
+          } else {
+            this.inAltScreen = false;
+          }
+        } else if (BG_TRACKED_MOUSE_MODES.has(p)) {
+          if (action === 'h') {
+            this.activeMouseModes.add(p);
+          } else {
+            this.activeMouseModes.delete(p);
+          }
+        }
+      }
+    }
   }
 
   public push(data: string | Uint8Array | ArrayBuffer): void {
@@ -404,6 +461,8 @@ export class BackgroundBufferQueue {
     }
     if (!str) return;
 
+    this.trackModes(str);
+
     const lines = countStringNewlines(str);
     this.chunks.push(str);
     this.chunkLineCounts.push(lines);
@@ -412,6 +471,7 @@ export class BackgroundBufferQueue {
 
     // 1. Enforce maxBytes cap
     while (this.totalBytes > this.maxBytes && this.chunks.length > 0) {
+      this.headEvicted = true;
       const head = this.chunks[0];
       const excess = this.totalBytes - this.maxBytes;
       if (head.length <= excess) {
@@ -431,6 +491,7 @@ export class BackgroundBufferQueue {
 
     // 2. Enforce maxLines cap
     while (this.totalLines > this.maxLines && this.chunks.length > 0) {
+      this.headEvicted = true;
       const head = this.chunks[0];
       const headLines = this.chunkLineCounts[0];
       const excessLines = this.totalLines - this.maxLines;
@@ -472,12 +533,38 @@ export class BackgroundBufferQueue {
     if (tail) {
       this.push(tail);
     }
-    if (this.chunks.length === 0) return '';
-    const combined = this.chunks.length === 1 ? this.chunks[0] : this.chunks.join('');
+    if (this.chunks.length === 0) {
+      this.inAltScreen = false;
+      this.altScreenMode = '1049';
+      this.activeMouseModes.clear();
+      this.modeTail = '';
+      this.headEvicted = false;
+      return '';
+    }
+    let combined = this.chunks.length === 1 ? this.chunks[0] : this.chunks.join('');
+    if (this.headEvicted && this.inAltScreen) {
+      const hasAltEnterInTail = /\x1b\[\?(?:[0-9;]*;)?(?:1049|1047|47)(?:;[0-9;]*)?h(?![\s\S]*\x1b\[\?(?:[0-9;]*;)?(?:1049|1047|47)(?:;[0-9;]*)?l)/.test(combined);
+      let modeSeq = '';
+      for (const mode of BG_ORDERED_MOUSE_MODES) {
+        if (this.activeMouseModes.has(mode)) {
+          modeSeq += `\x1b[?${mode}h`;
+        }
+      }
+      if (!hasAltEnterInTail) {
+        combined = `\x1b[?${this.altScreenMode}h${modeSeq}` + combined;
+      } else if (modeSeq) {
+        combined = combined + modeSeq;
+      }
+    }
     this.chunks = [];
     this.chunkLineCounts = [];
     this.totalBytes = 0;
     this.totalLines = 0;
+    this.inAltScreen = false;
+    this.altScreenMode = '1049';
+    this.activeMouseModes.clear();
+    this.modeTail = '';
+    this.headEvicted = false;
     return combined;
   }
 
@@ -491,5 +578,10 @@ export class BackgroundBufferQueue {
     this.chunkLineCounts = [];
     this.totalBytes = 0;
     this.totalLines = 0;
+    this.inAltScreen = false;
+    this.altScreenMode = '1049';
+    this.activeMouseModes.clear();
+    this.modeTail = '';
+    this.headEvicted = false;
   }
 }

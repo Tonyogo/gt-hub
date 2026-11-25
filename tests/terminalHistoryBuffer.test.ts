@@ -126,4 +126,62 @@ describe('TerminalHistoryBuffer Unit Tests', () => {
 
     expect(buf.getString()).toBe('part2-line3\nline4\nline5\n');
   });
+
+  test('preserves alternate screen and mouse tracking when escape sequences are split across chunk boundaries', () => {
+    const buf = new TerminalHistoryBuffer(1024, false);
+    buf.push('$ claude\r\n');
+    // Split \x1b[?1049h and \x1b[?1000h\x1b[?1006h across separate chunks
+    buf.push('\x1b[?1049');
+    buf.push('h\x1b[?1000');
+    buf.push('h\x1b[?1006');
+    buf.push('h');
+
+    // Flood alt screen to trigger altChunks eviction
+    for (let i = 0; i < 40; i++) {
+      buf.push(`Claude TUI frame ${i}: ${'B'.repeat(60)}\r\n`);
+    }
+
+    const replayed = buf.getString();
+    expect(replayed).toContain('\x1b[?1049h');
+    expect(replayed).toContain('\x1b[?1000h');
+    expect(replayed).toContain('\x1b[?1006h');
+    expect(replayed).toContain('Claude TUI frame 39');
+  });
+
+  test('handles compound DECSET/DECRST (e.g. \\x1b[?1049;1000;1006h) and mouse modes sent before 1049h', () => {
+    const buf = new TerminalHistoryBuffer(1024, false);
+    buf.push('\x1b[?1000h\x1b[?1006h\x1b[?1049h');
+    for (let i = 0; i < 40; i++) {
+      buf.push(`Frame ${i}: ${'C'.repeat(60)}\r\n`);
+    }
+    let replayed = buf.getString();
+    expect(replayed).toContain('\x1b[?1049h');
+    expect(replayed).toContain('\x1b[?1000h');
+    expect(replayed).toContain('\x1b[?1006h');
+
+    // Compound exit
+    buf.push('\x1b[?1006;1000;1049l$ ');
+    expect(buf.getString()).not.toContain('\x1b[?1049h');
+
+    // Compound entry
+    buf.push('\x1b[?1049;1000;1006h');
+    for (let i = 0; i < 40; i++) {
+      buf.push(`Compound ${i}: ${'D'.repeat(60)}\r\n`);
+    }
+    replayed = buf.getString();
+    expect(replayed).toContain('\x1b[?1049h');
+    expect(replayed).toContain('\x1b[?1000h');
+    expect(replayed).toContain('\x1b[?1006h');
+  });
+
+  test('preserves normal scrollback across \\x1b[3J when clearOnEd3 is false (Agent daemon mode)', () => {
+    const buf = new TerminalHistoryBuffer(1024 * 1024, false);
+    buf.push('User: prompt 1\r\nClaude: answer 1\r\n');
+    buf.push('\x1b[2J\x1b[3J\x1b[HClaude: inline redraw\r\n');
+
+    const output = buf.getString();
+    expect(output).toContain('User: prompt 1');
+    expect(output).toContain('Claude: answer 1');
+    expect(output).toContain('Claude: inline redraw');
+  });
 });

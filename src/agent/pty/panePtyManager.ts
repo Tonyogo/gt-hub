@@ -74,7 +74,7 @@ export class SecondaryPanePtyManager {
       ptyProcess: null,
       batcher: null,
       decoder: new StringDecoder('utf8'),
-      history: new TerminalHistoryBuffer(this.maxScrollbackBytes),
+      history: new TerminalHistoryBuffer(this.maxScrollbackBytes, false),
       cols,
       rows,
       isClosing: false,

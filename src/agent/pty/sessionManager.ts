@@ -8,6 +8,7 @@ import {
   InteractivePipeDriver,
 } from './drivers';
 import { BIN_MSG_TYPE, encodeBinaryPacket } from '../../shared/protocol/binaryProtocol';
+import { TerminalHistoryBuffer } from './terminalHistoryBuffer';
 
 export interface StreamSession {
   taskId: string;
@@ -16,6 +17,7 @@ export interface StreamSession {
   isPty: boolean;
   proc: any;
   timeoutTimer: NodeJS.Timeout | null;
+  history?: TerminalHistoryBuffer;
   superseded?: boolean;
   exitEmitted?: boolean;
 }
@@ -23,10 +25,47 @@ export interface StreamSession {
 export class StreamSessionManager {
   public send: (data: any) => void;
   public sessions: Map<string, StreamSession>;
+  private readonly maxScrollbackBytes: number;
 
-  constructor(sendFn: (data: any) => void) {
+  constructor(sendFn: (data: any) => void, maxScrollbackBytes: number = 1 * 1024 * 1024) {
     this.send = sendFn;
     this.sessions = new Map();
+    this.maxScrollbackBytes = maxScrollbackBytes;
+  }
+
+  hasSession(taskId: string): boolean {
+    return this.sessions.has(taskId);
+  }
+
+  sendHistorySync(taskId: string, paneId?: string, replyIfEmpty: boolean = false): boolean {
+    const session = this.sessions.get(taskId);
+    if (!session || !session.history) {
+      return false;
+    }
+    const targetPaneId = paneId || (taskId.startsWith('pane-') ? taskId.slice(5) : taskId);
+    const histBuf = session.history.getBuffer();
+    if (histBuf.length === 0) {
+      if (replyIfEmpty) {
+        try {
+          this.send({ type: 'history_sync', paneId: targetPaneId, history: '' });
+        } catch {}
+      }
+      return true;
+    }
+    try {
+      this.send(encodeBinaryPacket(BIN_MSG_TYPE.HISTORY_SYNC, targetPaneId, histBuf));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  sendAllPaneHistorySync(): void {
+    for (const session of this.sessions.values()) {
+      if (session.taskId.startsWith('pane-') && session.history && session.history.getSize() > 0) {
+        this.sendHistorySync(session.taskId, session.taskId.slice(5));
+      }
+    }
   }
 
   startStream({
@@ -97,8 +136,15 @@ export class StreamSessionManager {
     const pty = tryRequirePty();
     const canUseNodePty = Boolean(tty && pty && !_forceFallback && !_forcePipeFallback);
 
+    const paneHistory = taskId.startsWith('pane-')
+      ? new TerminalHistoryBuffer(this.maxScrollbackBytes, false)
+      : undefined;
+
     const onData = (chunk: any) => {
       const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, 'utf-8');
+      if (paneHistory) {
+        paneHistory.push(buf);
+      }
       this.send(encodeBinaryPacket(BIN_MSG_TYPE.STREAM_OUTPUT, taskId, buf));
     };
 
@@ -109,6 +155,9 @@ export class StreamSessionManager {
       if (session.timeoutTimer) {
         clearTimeout(session.timeoutTimer);
         session.timeoutTimer = null;
+      }
+      if (session.history) {
+        session.history.clear();
       }
       if (this.sessions.get(taskId) === session) {
         this.sessions.delete(taskId);
@@ -163,6 +212,7 @@ export class StreamSessionManager {
       isPty: driverType === 'node-pty' || driverType === 'posix-pty',
       proc: driver.proc,
       timeoutTimer: null,
+      ...(paneHistory ? { history: paneHistory } : {}),
     };
 
     if (timeoutMs && timeoutMs > 0) {
@@ -208,6 +258,9 @@ export class StreamSessionManager {
     if (session.timeoutTimer) {
       clearTimeout(session.timeoutTimer);
       session.timeoutTimer = null;
+    }
+    if (session.history) {
+      session.history.clear();
     }
     if (session.driver) {
       try {

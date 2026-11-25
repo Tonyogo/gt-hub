@@ -413,6 +413,19 @@ describe('Terminal Performance Optimization', () => {
         queue.push('2\nkeep-3\n');
         expect(queue.drain()).toBe('keep-prefix-2\nkeep-3\n');
       });
+
+      it('preserves alternate screen and mouse tracking header when background queue evicts excess lines across tab switch', () => {
+        const queue = new BackgroundBufferQueue(1024 * 1024, 5);
+        queue.push('$ claude\r\n\x1b[?1049h\x1b[?1000h\x1b[?1006h');
+        for (let i = 1; i <= 20; i++) {
+          queue.push(`Frame line ${i}\n`);
+        }
+        const drained = queue.drain();
+        expect(drained).toContain('\x1b[?1049h');
+        expect(drained).toContain('\x1b[?1000h');
+        expect(drained).toContain('\x1b[?1006h');
+        expect(drained).toContain('Frame line 20');
+      });
     });
   });
 
@@ -454,6 +467,7 @@ describe('Terminal Performance Optimization', () => {
       const daemonContent = fs.readFileSync(daemonPath, 'utf-8');
       expect(daemonContent).not.toMatch(/CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN:\s*process\.env\.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN\s*\|\|\s*['"]1['"]/);
       expect(daemonContent).toContain('delete env.CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN');
+      expect(daemonContent).toContain('new TerminalHistoryBuffer(maxScrollbackBytes, false)');
     });
 
     it('safely loads @xterm/addon-canvas for 2D double-buffered rendering with fallback to DOM renderer', () => {
