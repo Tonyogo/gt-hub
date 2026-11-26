@@ -57,6 +57,12 @@ export class TerminalExecService {
       this.taskWaiters.set(taskId, finishPromiseResolve);
     }
 
+    const needsFinishOutput = clampedWaitMs > 0 || Boolean(options.callback);
+    const finishMaxOutputBytes =
+      clampedWaitMs === 0 && options.callback
+        ? options.callback.maxOutputBytes
+        : undefined;
+
     const res = await terminalHostManager.executeCmdRpc(trimmedHost, {
       action: 'start',
       taskId,
@@ -65,6 +71,8 @@ export class TerminalExecService {
       timeoutMs,
       env: options.env || {},
       stdin: typeof options.stdin === 'string' ? options.stdin : undefined,
+      includeFinishOutput: needsFinishOutput,
+      ...(finishMaxOutputBytes !== undefined ? { finishMaxOutputBytes } : {}),
     });
 
     if (res && res.success && res.data) {

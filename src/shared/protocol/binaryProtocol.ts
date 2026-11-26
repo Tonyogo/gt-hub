@@ -7,12 +7,88 @@ export const BIN_MSG_TYPE = {
   PROXY_HTTP_RES_BODY: 0x06,
   PROXY_TCP_DATA: 0x07,
   CONTROL_JSON: 0x08,
+  FILE_CHUNK_REQ: 0x09,
+  FILE_CHUNK_RES: 0x0a,
 } as const;
 
 export interface DecodedBinaryPacket {
   msgType: number;
   id: string;
   payload: Buffer;
+}
+
+export interface DecodedBinaryJsonBufferPacket {
+  msgType: number;
+  id: string;
+  meta: Record<string, any>;
+  rawData: Buffer;
+}
+
+export function encodeBinaryJsonBufferPacket(
+  msgType: number,
+  id: string,
+  meta: Record<string, any>,
+  rawData?: Buffer | Uint8Array
+): Buffer {
+  const idBuf = Buffer.from(id, 'ascii');
+  if (idBuf.length > 255) {
+    throw new Error(`Binary packet id length exceeds 255 bytes: "${id}"`);
+  }
+  const metaBuf = Buffer.from(JSON.stringify(meta), 'utf-8');
+  const dataBuf = !rawData
+    ? Buffer.alloc(0)
+    : Buffer.isBuffer(rawData)
+      ? rawData
+      : Buffer.from(rawData);
+
+  const packet = Buffer.allocUnsafe(2 + idBuf.length + 4 + metaBuf.length + dataBuf.length);
+  packet[0] = msgType;
+  packet[1] = idBuf.length;
+  idBuf.copy(packet, 2);
+  packet.writeUInt32BE(metaBuf.length, 2 + idBuf.length);
+  metaBuf.copy(packet, 2 + idBuf.length + 4);
+  if (dataBuf.length > 0) {
+    dataBuf.copy(packet, 2 + idBuf.length + 4 + metaBuf.length);
+  }
+  return packet;
+}
+
+export function decodeBinaryJsonBufferPacket(buf: Buffer | Uint8Array): DecodedBinaryJsonBufferPacket | null {
+  const decoded = decodeBinaryPacket(buf);
+  if (!decoded || decoded.payload.length < 4) return null;
+  const metaLen = decoded.payload.readUInt32BE(0);
+  if (decoded.payload.length < 4 + metaLen) return null;
+  try {
+    const meta = JSON.parse(decoded.payload.toString('utf-8', 4, 4 + metaLen));
+    const rawData = decoded.payload.subarray(4 + metaLen);
+    return {
+      msgType: decoded.msgType,
+      id: decoded.id,
+      meta: meta && typeof meta === 'object' ? meta : {},
+      rawData,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function sendWsSafe(
+  ws: any,
+  payload: Buffer | string,
+  options?: { binary?: boolean; compress?: boolean }
+): void {
+  if (!ws || typeof ws.send !== 'function') return;
+  if (ws._sender && typeof ws._sender === 'object') {
+    const sendOpts: Record<string, any> = {
+      compress: options?.compress ?? false,
+    };
+    if (options?.binary !== undefined) {
+      sendOpts.binary = options.binary;
+    }
+    ws.send(payload, sendOpts);
+  } else {
+    ws.send(payload);
+  }
 }
 
 export function encodeBinaryPacket(

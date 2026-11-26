@@ -441,16 +441,21 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
         controller.signal.addEventListener('abort', onAbortReader, { once: true });
 
         let received = 0;
+        let lastDlUiUpdateAt = 0;
         try {
           while (true) {
             if (controller.signal.aborted) break;
             const { done, value } = await reader.read();
             if (done) break;
             received += value?.length || 0;
-            const elapsedSec = Math.max(0.001, (performance.now() - dlStart) / 1000);
-            const mbps = (received * 8) / (elapsedSec * 1_000_000);
-            setDlProgress(Math.min(100, Math.round((received / sizeBytes) * 100)));
-            setDlCurrentMbps(Number(mbps.toFixed(2)));
+            const now = performance.now();
+            if (now - lastDlUiUpdateAt >= 100) {
+              lastDlUiUpdateAt = now;
+              const elapsedSec = Math.max(0.001, (now - dlStart) / 1000);
+              const mbps = (received * 8) / (elapsedSec * 1_000_000);
+              setDlProgress(Math.min(100, Math.round((received / sizeBytes) * 100)));
+              setDlCurrentMbps(Number(mbps.toFixed(2)));
+            }
           }
         } finally {
           controller.signal.removeEventListener('abort', onAbortReader);
@@ -460,10 +465,13 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
 
         const dlDurationMs = Math.max(1, performance.now() - dlStart);
         const dlSec = dlDurationMs / 1000;
+        const finalDlMbps = Number(((received * 8) / (dlSec * 1_000_000)).toFixed(2));
+        setDlProgress(100);
+        setDlCurrentMbps(finalDlMbps);
         setDownloadMetrics({
           bytes: received,
           durationMs: Math.round(dlDurationMs),
-          mbps: Number(((received * 8) / (dlSec * 1_000_000)).toFixed(2)),
+          mbps: finalDlMbps,
           mbPerSec: Number((received / (dlSec * 1024 * 1024)).toFixed(2)),
         });
 
@@ -483,6 +491,7 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
         }
 
         let uploaded = 0;
+        let lastUlUiUpdateAt = 0;
         const ulStart = performance.now();
 
         while (uploaded < sizeBytes) {
@@ -504,10 +513,14 @@ export const TerminalProxyView = React.forwardRef<TerminalProxyHandle, TerminalP
           if (!ulRes.ok) throw new Error(`Upload failed (${ulRes.status})`);
 
           uploaded += currentBatchSize;
-          const elapsedSec = Math.max(0.001, (performance.now() - ulStart) / 1000);
-          const mbps = (uploaded * 8) / (elapsedSec * 1_000_000);
-          setUlProgress(Math.min(100, Math.round((uploaded / sizeBytes) * 100)));
-          setUlCurrentMbps(Number(mbps.toFixed(2)));
+          const now = performance.now();
+          if (now - lastUlUiUpdateAt >= 100 || uploaded >= sizeBytes) {
+            lastUlUiUpdateAt = now;
+            const elapsedSec = Math.max(0.001, (now - ulStart) / 1000);
+            const mbps = (uploaded * 8) / (elapsedSec * 1_000_000);
+            setUlProgress(Math.min(100, Math.round((uploaded / sizeBytes) * 100)));
+            setUlCurrentMbps(Number(mbps.toFixed(2)));
+          }
         }
 
         const ulDurationMs = Math.max(1, performance.now() - ulStart);

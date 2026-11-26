@@ -112,12 +112,46 @@ function parseField(rawField: string, range: FieldRange): Set<number> {
   return values;
 }
 
+const MAX_CRON_CACHE_SIZE = 256;
+const MAX_TZ_CACHE_SIZE = 64;
+const parsedCronCache = new Map<string, ParsedCron>();
+const timezoneValidityCache = new Map<string, boolean>();
+const timezoneDtfCache = new Map<string, Intl.DateTimeFormat>();
+
+function getCachedTimezoneDtf(tz: string): Intl.DateTimeFormat {
+  let dtf = timezoneDtfCache.get(tz);
+  if (!dtf) {
+    dtf = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: 'numeric',
+      second: 'numeric',
+      hourCycle: 'h23',
+      weekday: 'short',
+    });
+    if (timezoneDtfCache.size >= MAX_TZ_CACHE_SIZE) {
+      timezoneDtfCache.clear();
+    }
+    timezoneDtfCache.set(tz, dtf);
+  }
+  return dtf;
+}
+
 export function parseCronExpression(expr: string): ParsedCron {
   if (typeof expr !== 'string') {
     throw new Error('Cron expression must be a string');
   }
 
-  const parts = expr.trim().split(/\s+/);
+  const trimmed = expr.trim();
+  const cached = parsedCronCache.get(trimmed);
+  if (cached) {
+    return cached;
+  }
+
+  const parts = trimmed.split(/\s+/);
   if (parts.length !== 5) {
     throw new Error(`Cron expression must have exactly 5 fields, got ${parts.length} ("${expr}")`);
   }
@@ -128,7 +162,7 @@ export function parseCronExpression(expr: string): ParsedCron {
   const months = parseField(parts[3], FIELD_RANGES[3]);
   const daysOfWeek = parseField(parts[4], FIELD_RANGES[4]);
 
-  return {
+  const parsed: ParsedCron = {
     minutes,
     hours,
     daysOfMonth,
@@ -137,6 +171,12 @@ export function parseCronExpression(expr: string): ParsedCron {
     isDomWildcard: parts[2] === '*',
     isDowWildcard: parts[4] === '*',
   };
+
+  if (parsedCronCache.size >= MAX_CRON_CACHE_SIZE) {
+    parsedCronCache.clear();
+  }
+  parsedCronCache.set(trimmed, parsed);
+  return parsed;
 }
 
 export function isValidCronExpression(expr: string): boolean {
@@ -150,12 +190,21 @@ export function isValidCronExpression(expr: string): boolean {
 
 export function isValidTimezone(tz?: string): boolean {
   if (!tz || tz === 'local') return true;
+  const cached = timezoneValidityCache.get(tz);
+  if (cached !== undefined) return cached;
+
+  let valid = false;
   try {
     Intl.DateTimeFormat(undefined, { timeZone: tz });
-    return true;
+    valid = true;
   } catch {
-    return false;
+    valid = false;
   }
+  if (timezoneValidityCache.size >= MAX_TZ_CACHE_SIZE) {
+    timezoneValidityCache.clear();
+  }
+  timezoneValidityCache.set(tz, valid);
+  return valid;
 }
 
 interface ParsedDateParts {
@@ -378,17 +427,7 @@ export function getNextCronTime(expr: string, fromDate?: Date, timezone?: string
   }
 
   // Arbitrary IANA timezone
-  const dtf = new Intl.DateTimeFormat('en-US', {
-    timeZone: tz,
-    year: 'numeric',
-    month: 'numeric',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: 'numeric',
-    second: 'numeric',
-    hourCycle: 'h23',
-    weekday: 'short',
-  });
+  const dtf = getCachedTimezoneDtf(tz);
 
   const baseDate = new Date(fromDate ? fromDate.getTime() : Date.now());
   const initialParts = getTimezoneParts(baseDate, dtf);

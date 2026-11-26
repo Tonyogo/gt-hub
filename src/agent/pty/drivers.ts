@@ -4,8 +4,10 @@ import fs from 'fs';
 import { spawn, execSync, ChildProcess } from 'child_process';
 import { killProcessTree } from '../tasks/taskManager';
 
+let _spawnHelperChecked = false;
 export function ensureSpawnHelperPermissions(): void {
-  if (os.platform() === 'win32') return;
+  if (_spawnHelperChecked || os.platform() === 'win32') return;
+  _spawnHelperChecked = true;
   try {
     const candidateDirs = [
       path.resolve(__dirname, '../../../node_modules/node-pty/prebuilds'),
@@ -33,15 +35,19 @@ export function ensureSpawnHelperPermissions(): void {
   }
 }
 
+let _cachedPtyModule: any = undefined;
 export function tryRequirePty(): any {
   if (process.env.GT_DISABLE_NODE_PTY) return null;
   ensureSpawnHelperPermissions();
+  if (_cachedPtyModule !== undefined) return _cachedPtyModule;
   try {
-    return require('node-pty');
+    _cachedPtyModule = require('node-pty');
+    return _cachedPtyModule;
   } catch {}
   try {
     const cwdReq = require('module').createRequire(path.join(process.cwd(), 'dummy.js'));
-    return cwdReq('node-pty');
+    _cachedPtyModule = cwdReq('node-pty');
+    return _cachedPtyModule;
   } catch {}
   try {
     const candidatePaths = [
@@ -55,10 +61,14 @@ export function tryRequirePty(): any {
       try {
         const req = require('module').createRequire(path.join(p, 'dummy.js'));
         const mod = req('node-pty');
-        if (mod) return mod;
+        if (mod) {
+          _cachedPtyModule = mod;
+          return _cachedPtyModule;
+        }
       } catch {}
     }
   } catch {}
+  _cachedPtyModule = null;
   return null;
 }
 

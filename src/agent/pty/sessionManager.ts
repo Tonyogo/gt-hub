@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { StringDecoder } from 'string_decoder';
 import { resolveWorkingDir, getDefaultShell } from '../tasks/taskManager';
 import {
   tryRequirePty,
@@ -8,6 +9,7 @@ import {
   InteractivePipeDriver,
 } from './drivers';
 import { BIN_MSG_TYPE, encodeBinaryPacket } from '../../shared/protocol/binaryProtocol';
+import { StreamBatcher } from '../../shared/utils/streamBatcher';
 import { TerminalHistoryBuffer } from './terminalHistoryBuffer';
 
 export interface StreamSession {
@@ -17,6 +19,7 @@ export interface StreamSession {
   isPty: boolean;
   proc: any;
   timeoutTimer: NodeJS.Timeout | null;
+  batcher?: StreamBatcher;
   history?: TerminalHistoryBuffer;
   superseded?: boolean;
   exitEmitted?: boolean;
@@ -123,6 +126,9 @@ export class StreamSessionManager {
           clearTimeout(oldSession.timeoutTimer);
           oldSession.timeoutTimer = null;
         }
+        if (oldSession.batcher) {
+          oldSession.batcher.flush();
+        }
         this.sessions.delete(taskId);
         try {
           oldSession.driver?.kill('SIGTERM');
@@ -140,18 +146,33 @@ export class StreamSessionManager {
       ? new TerminalHistoryBuffer(this.maxScrollbackBytes, false)
       : undefined;
 
-    const onData = (chunk: any) => {
-      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, 'utf-8');
+    const decoder = new StringDecoder('utf8');
+    const streamBatcher = new StreamBatcher((batchedText) => {
+      const buf = Buffer.from(batchedText, 'utf-8');
       if (paneHistory) {
         paneHistory.push(buf);
       }
       this.send(encodeBinaryPacket(BIN_MSG_TYPE.STREAM_OUTPUT, taskId, buf));
+    }, 8, 64 * 1024, 4096);
+
+    const onData = (chunk: any) => {
+      const text = typeof chunk === 'string'
+        ? chunk
+        : decoder.write(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      if (text) {
+        streamBatcher.push(text);
+      }
     };
 
     const onExit = (code: number | null, signal: string | null) => {
       if (!session || session.superseded || session.exitEmitted) return;
       if (this.sessions.has(taskId) && this.sessions.get(taskId) !== session) return;
       session.exitEmitted = true;
+      const tail = decoder.end();
+      if (tail) {
+        streamBatcher.push(tail);
+      }
+      streamBatcher.flush();
       if (session.timeoutTimer) {
         clearTimeout(session.timeoutTimer);
         session.timeoutTimer = null;
@@ -212,6 +233,7 @@ export class StreamSessionManager {
       isPty: driverType === 'node-pty' || driverType === 'posix-pty',
       proc: driver.proc,
       timeoutTimer: null,
+      batcher: streamBatcher,
       ...(paneHistory ? { history: paneHistory } : {}),
     };
 
@@ -258,6 +280,9 @@ export class StreamSessionManager {
     if (session.timeoutTimer) {
       clearTimeout(session.timeoutTimer);
       session.timeoutTimer = null;
+    }
+    if (session.batcher) {
+      session.batcher.flush();
     }
     if (session.history) {
       session.history.clear();

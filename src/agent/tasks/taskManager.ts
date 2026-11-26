@@ -98,6 +98,7 @@ export function resolveUtf8Locale(env?: Record<string, any>): string {
 export interface TaskChunk {
   type: 'stdout' | 'stderr';
   text: string;
+  bytes?: number;
   startOffset: number;
   endOffset: number;
 }
@@ -143,6 +144,26 @@ export interface TaskManagerOptions {
   persist?: boolean;
 }
 
+interface TaskLogState {
+  pendingChunks: string[];
+  pendingBytes: number;
+  flushTimer: NodeJS.Timeout | null;
+  writeChain: Promise<void>;
+  handle: fs.promises.FileHandle | null;
+  writtenBytes: number;
+  initialized: boolean;
+  disposed?: boolean;
+}
+
+interface FinishOutputConfig {
+  includeOutput: boolean;
+  maxOutputBytes?: number;
+}
+
+const CHUNK_COALESCE_MAX_BYTES = 32 * 1024;
+const LOG_FLUSH_BATCH_BYTES = 64 * 1024;
+const LOG_FLUSH_DELAY_MS = 50;
+
 export class TaskManager {
   public tasks: Map<string, TaskRecord>;
   public MAX_TASKS: number;
@@ -151,6 +172,13 @@ export class TaskManager {
   public storageDir: string | null = null;
   private reconcileTimers: Map<string, NodeJS.Timeout> = new Map();
   private finishListeners: Set<(event: TaskFinishedEvent) => void> = new Set();
+  private chunkHeads: WeakMap<TaskRecord, number> = new WeakMap();
+  private finishOutputConfigs: WeakMap<TaskRecord, FinishOutputConfig> = new WeakMap();
+  private logStates: Map<string, TaskLogState> = new Map();
+  private saveChain: Promise<void> = Promise.resolve();
+  private saveRequested = false;
+  private saveInFlight = false;
+  private logDirEnsured = false;
 
   public onTaskFinished(listener: (event: TaskFinishedEvent) => void): () => void {
     this.finishListeners.add(listener);
@@ -159,12 +187,125 @@ export class TaskManager {
     };
   }
 
+  private extractOutputFromChunks(
+    record: TaskRecord,
+    maxBytes?: number
+  ): { stdout: string; stderr: string; output: string } {
+    const head = this.chunkHeads.get(record) ?? 0;
+    const chunks = record.chunks;
+    if (!chunks || chunks.length <= head) {
+      if (record.stdout || record.stderr || record.output) {
+        if (maxBytes === undefined) {
+          return { stdout: record.stdout, stderr: record.stderr, output: record.output };
+        }
+        return {
+          stdout: this.sliceStringTailUtf8(record.stdout, maxBytes),
+          stderr: this.sliceStringTailUtf8(record.stderr, maxBytes),
+          output: this.sliceStringTailUtf8(record.output, maxBytes),
+        };
+      }
+      return { stdout: '', stderr: '', output: '' };
+    }
+
+    if (maxBytes === undefined) {
+      const stdoutParts: string[] = [];
+      const stderrParts: string[] = [];
+      const outputParts: string[] = [];
+      for (let i = head; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        outputParts.push(chunk.text);
+        if (chunk.type === 'stdout') {
+          stdoutParts.push(chunk.text);
+        } else {
+          stderrParts.push(chunk.text);
+        }
+      }
+      return {
+        stdout: stdoutParts.join(''),
+        stderr: stderrParts.join(''),
+        output: outputParts.join(''),
+      };
+    }
+
+    let stdoutBudget = Math.max(0, maxBytes);
+    let stderrBudget = Math.max(0, maxBytes);
+    let outputBudget = Math.max(0, maxBytes);
+    const stdoutParts: string[] = [];
+    const stderrParts: string[] = [];
+    const outputParts: string[] = [];
+
+    for (let i = chunks.length - 1; i >= head; i--) {
+      if (stdoutBudget <= 0 && stderrBudget <= 0 && outputBudget <= 0) {
+        break;
+      }
+      const chunk = chunks[i];
+      const chunkBytes = chunk.bytes ?? Buffer.byteLength(chunk.text, 'utf-8');
+
+      if (outputBudget > 0) {
+        if (chunkBytes <= outputBudget) {
+          outputParts.push(chunk.text);
+          outputBudget -= chunkBytes;
+        } else {
+          outputParts.push(this.sliceStringTailUtf8(chunk.text, outputBudget));
+          outputBudget = 0;
+        }
+      }
+
+      if (chunk.type === 'stdout' && stdoutBudget > 0) {
+        if (chunkBytes <= stdoutBudget) {
+          stdoutParts.push(chunk.text);
+          stdoutBudget -= chunkBytes;
+        } else {
+          stdoutParts.push(this.sliceStringTailUtf8(chunk.text, stdoutBudget));
+          stdoutBudget = 0;
+        }
+      } else if (chunk.type === 'stderr' && stderrBudget > 0) {
+        if (chunkBytes <= stderrBudget) {
+          stderrParts.push(chunk.text);
+          stderrBudget -= chunkBytes;
+        } else {
+          stderrParts.push(this.sliceStringTailUtf8(chunk.text, stderrBudget));
+          stderrBudget = 0;
+        }
+      }
+    }
+
+    stdoutParts.reverse();
+    stderrParts.reverse();
+    outputParts.reverse();
+    return {
+      stdout: stdoutParts.join(''),
+      stderr: stderrParts.join(''),
+      output: outputParts.join(''),
+    };
+  }
+
+  private sliceStringTailUtf8(text: string, maxBytes: number): string {
+    if (!text || maxBytes <= 0) return '';
+    const buf = Buffer.from(text, 'utf-8');
+    if (buf.length <= maxBytes) return text;
+    return sliceBufferUtf8Safe(buf, buf.length - maxBytes);
+  }
+
   private emitTaskFinished(record: TaskRecord): void {
     if (record.notifiedFinish || record.status === 'running') return;
     record.notifiedFinish = true;
     const endTime = record.endTime || Date.now();
     record.endTime = endTime;
-    const event: TaskFinishedEvent = {
+
+    const outputCfg = this.finishOutputConfigs.get(record);
+    const includeForCallbacks = outputCfg ? outputCfg.includeOutput : true;
+    const hasGlobalListeners = this.finishListeners.size > 0;
+    const shouldExtract = includeForCallbacks || hasGlobalListeners;
+    const maxBytes = hasGlobalListeners ? undefined : outputCfg?.maxOutputBytes;
+    const extracted = shouldExtract
+      ? this.extractOutputFromChunks(record, maxBytes)
+      : { stdout: '', stderr: '', output: '' };
+
+    const totalBytes =
+      record.totalBytes !== undefined ? record.totalBytes : Buffer.byteLength(extracted.output || '', 'utf-8');
+
+    const callbackEvent: TaskFinishedEvent = {
       taskId: record.taskId,
       command: record.command,
       cwd: record.cwd,
@@ -173,22 +314,34 @@ export class TaskManager {
       startTime: record.startTime,
       endTime,
       durationMs: Math.max(0, endTime - record.startTime),
-      stdout: record.stdout,
-      stderr: record.stderr,
-      output: record.output,
-      totalBytes: record.totalBytes !== undefined ? record.totalBytes : Buffer.byteLength(record.output || '', 'utf-8'),
+      stdout: includeForCallbacks ? extracted.stdout : '',
+      stderr: includeForCallbacks ? extracted.stderr : '',
+      output: includeForCallbacks ? extracted.output : '',
+      totalBytes,
     };
+
     if (record.onFinishCallbacks && record.onFinishCallbacks.length > 0) {
       for (const cb of record.onFinishCallbacks) {
         try {
-          cb(event);
+          cb(callbackEvent);
         } catch {}
       }
     }
-    for (const listener of this.finishListeners) {
-      try {
-        listener(event);
-      } catch {}
+
+    if (hasGlobalListeners) {
+      const globalEvent: TaskFinishedEvent = includeForCallbacks
+        ? callbackEvent
+        : {
+            ...callbackEvent,
+            stdout: extracted.stdout,
+            stderr: extracted.stderr,
+            output: extracted.output,
+          };
+      for (const listener of this.finishListeners) {
+        try {
+          listener(globalEvent);
+        } catch {}
+      }
     }
   }
 
@@ -206,7 +359,10 @@ export class TaskManager {
       if (!fs.existsSync(logDir)) {
         try {
           fs.mkdirSync(logDir, { recursive: true });
+          this.logDirEnsured = true;
         } catch {}
+      } else {
+        this.logDirEnsured = true;
       }
       this.loadFromDisk();
     } else {
@@ -224,49 +380,246 @@ export class TaskManager {
     return path.join(this.storageDir, 'logs', `${taskId}.log`);
   }
 
-  private saveToDisk(): void {
+  private buildTasksSnapshot(
+    overrides?: Record<string, { status: TaskRecord['status']; exitCode: number | null; endTime: number | null }>
+  ): string {
+    const data = Array.from(this.tasks.values()).map((t) => {
+      const ov = overrides?.[t.taskId];
+      return {
+        taskId: t.taskId,
+        command: t.command,
+        cwd: t.cwd,
+        status: ov ? ov.status : t.status,
+        exitCode: ov ? ov.exitCode : t.exitCode,
+        startTime: t.startTime,
+        endTime: ov ? ov.endTime : t.endTime,
+        pid: t.pid,
+        totalBytes: t.totalBytes,
+      };
+    });
+    return JSON.stringify(data, null, 2);
+  }
+
+  private saveToDiskSync(): void {
     if (!this.storageDir) return;
     try {
       const jsonPath = this.getTasksJsonPath();
       if (!jsonPath) return;
-      const data = Array.from(this.tasks.values()).map((t) => ({
-        taskId: t.taskId,
-        command: t.command,
-        cwd: t.cwd,
-        status: t.status,
-        exitCode: t.exitCode,
-        startTime: t.startTime,
-        endTime: t.endTime,
-        pid: t.pid,
-        totalBytes: t.totalBytes,
-      }));
+      const serialized = this.buildTasksSnapshot();
       const tmpPath = `${jsonPath}.tmp`;
-      fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
+      fs.writeFileSync(tmpPath, serialized, 'utf-8');
       fs.renameSync(tmpPath, jsonPath);
     } catch {}
   }
 
-  private appendToLogFile(taskId: string, text: string): void {
+  private saveToDiskAsync(
+    overrides?: Record<string, { status: TaskRecord['status']; exitCode: number | null; endTime: number | null }>
+  ): Promise<void> {
+    if (!this.storageDir) return Promise.resolve();
+    if (overrides) {
+      const jsonPath = this.getTasksJsonPath();
+      if (!jsonPath) return Promise.resolve();
+      const serialized = this.buildTasksSnapshot(overrides);
+      this.saveChain = this.saveChain.then(async () => {
+        try {
+          if (!this.logDirEnsured && this.storageDir) {
+            await fs.promises.mkdir(path.join(this.storageDir, 'logs'), { recursive: true });
+            this.logDirEnsured = true;
+          }
+          const tmpPath = `${jsonPath}.${process.pid}.tmp`;
+          await fs.promises.writeFile(tmpPath, serialized, 'utf-8');
+          await fs.promises.rename(tmpPath, jsonPath);
+        } catch {}
+      });
+      return this.saveChain;
+    }
+
+    this.saveRequested = true;
+    if (!this.saveInFlight) {
+      this.saveInFlight = true;
+      this.saveChain = this.saveChain.then(async () => {
+        try {
+          while (this.saveRequested) {
+            this.saveRequested = false;
+            const jsonPath = this.getTasksJsonPath();
+            if (!jsonPath) break;
+            if (!this.logDirEnsured && this.storageDir) {
+              await fs.promises.mkdir(path.join(this.storageDir, 'logs'), { recursive: true });
+              this.logDirEnsured = true;
+            }
+            const serialized = this.buildTasksSnapshot();
+            const tmpPath = `${jsonPath}.${process.pid}.tmp`;
+            await fs.promises.writeFile(tmpPath, serialized, 'utf-8');
+            await fs.promises.rename(tmpPath, jsonPath);
+          }
+        } catch {} finally {
+          this.saveInFlight = false;
+        }
+      });
+    }
+    return this.saveChain;
+  }
+
+  private getOrCreateLogState(taskId: string): TaskLogState {
+    let state = this.logStates.get(taskId);
+    if (!state) {
+      state = {
+        pendingChunks: [],
+        pendingBytes: 0,
+        flushTimer: null,
+        writeChain: Promise.resolve(),
+        handle: null,
+        writtenBytes: 0,
+        initialized: false,
+      };
+      this.logStates.set(taskId, state);
+    }
+    return state;
+  }
+
+  private enqueueLogWrite(taskId: string, text: string): void {
     if (!this.storageDir || !text) return;
+    const state = this.getOrCreateLogState(taskId);
+    state.pendingChunks.push(text);
+    state.pendingBytes += Buffer.byteLength(text, 'utf-8');
+
+    if (state.pendingBytes >= LOG_FLUSH_BATCH_BYTES) {
+      if (state.flushTimer) {
+        clearTimeout(state.flushTimer);
+        state.flushTimer = null;
+      }
+      void this.flushTaskLog(taskId, false);
+      return;
+    }
+
+    if (!state.flushTimer) {
+      state.flushTimer = setTimeout(() => {
+        state.flushTimer = null;
+        void this.flushTaskLog(taskId, false);
+      }, LOG_FLUSH_DELAY_MS);
+      if (typeof state.flushTimer.unref === 'function') {
+        state.flushTimer.unref();
+      }
+    }
+  }
+
+  private async trimLogFileAsync(logPath: string, state: TaskLogState): Promise<void> {
+    if (state.handle) {
+      try {
+        await state.handle.close();
+      } catch {}
+      state.handle = null;
+    }
+
+    let readHandle: fs.promises.FileHandle | null = null;
     try {
+      readHandle = await fs.promises.open(logPath, 'r');
+      const stat = await readHandle.stat();
+      if (stat.size <= this.MAX_BUFFER_SIZE) {
+        state.writtenBytes = stat.size;
+        return;
+      }
+      const readPos = stat.size - this.MAX_BUFFER_SIZE;
+      const buf = Buffer.allocUnsafe(this.MAX_BUFFER_SIZE);
+      const { bytesRead } = await readHandle.read(buf, 0, this.MAX_BUFFER_SIZE, readPos);
+      await readHandle.close();
+      readHandle = null;
+
+      let idx = 0;
+      while (idx < bytesRead && (buf[idx] & 0b11000000) === 0b10000000) {
+        idx++;
+      }
+      const trimmed = buf.subarray(idx, bytesRead);
+      const tmpPath = `${logPath}.trim.tmp`;
+      await fs.promises.writeFile(tmpPath, trimmed);
+      await fs.promises.rename(tmpPath, logPath);
+      state.writtenBytes = trimmed.length;
+    } catch {
+      if (readHandle) {
+        try {
+          await readHandle.close();
+        } catch {}
+      }
+    }
+  }
+
+  private flushTaskLog(taskId: string, closeHandle: boolean = false): Promise<void> {
+    if (!this.storageDir) return Promise.resolve();
+    const state = this.logStates.get(taskId);
+    if (!state) return Promise.resolve();
+
+    if (state.flushTimer) {
+      clearTimeout(state.flushTimer);
+      state.flushTimer = null;
+    }
+
+    const batch = state.pendingChunks.length > 0 ? state.pendingChunks.splice(0).join('') : '';
+    state.pendingBytes = 0;
+
+    if (!batch && !closeHandle) {
+      return state.writeChain;
+    }
+
+    state.writeChain = state.writeChain.then(async () => {
       const logPath = this.getLogFilePath(taskId);
       if (!logPath) return;
-      fs.appendFileSync(logPath, text, 'utf-8');
 
-      // If log file grows significantly beyond MAX_BUFFER_SIZE, trim to MAX_BUFFER_SIZE
-      const stat = fs.statSync(logPath);
-      if (stat.size > this.MAX_BUFFER_SIZE * 1.5) {
-        const fileBuf = fs.readFileSync(logPath);
-        if (fileBuf.length > this.MAX_BUFFER_SIZE) {
-          const trimmedBuf = fileBuf.subarray(fileBuf.length - this.MAX_BUFFER_SIZE);
-          let idx = 0;
-          while (idx < trimmedBuf.length && (trimmedBuf[idx] & 0b11000000) === 0b10000000) {
-            idx++;
+      try {
+        if (batch && !state.disposed) {
+          if (!this.logDirEnsured && this.storageDir) {
+            await fs.promises.mkdir(path.join(this.storageDir, 'logs'), { recursive: true });
+            this.logDirEnsured = true;
           }
-          fs.writeFileSync(logPath, trimmedBuf.subarray(idx));
+          if (!state.handle) {
+            state.handle = await fs.promises.open(logPath, 'a');
+            if (!state.initialized) {
+              const st = await state.handle.stat();
+              state.writtenBytes = st.size;
+              state.initialized = true;
+            }
+          }
+          if (!state.disposed) {
+            const buf = Buffer.from(batch, 'utf-8');
+            await state.handle.write(buf, 0, buf.length);
+            state.writtenBytes += buf.length;
+
+            if (state.writtenBytes > this.MAX_BUFFER_SIZE * 1.5) {
+              await this.trimLogFileAsync(logPath, state);
+            }
+          }
+        }
+      } catch {} finally {
+        if ((closeHandle || state.disposed) && state.handle) {
+          try {
+            await state.handle.close();
+          } catch {}
+          state.handle = null;
+        }
+        if ((closeHandle || state.disposed) && state.pendingChunks.length === 0 && !state.handle) {
+          this.logStates.delete(taskId);
         }
       }
-    } catch {}
+    });
+
+    return state.writeChain;
+  }
+
+  private disposeTaskLogState(taskId: string): void {
+    const state = this.logStates.get(taskId);
+    if (!state) return;
+    state.disposed = true;
+    if (state.flushTimer) {
+      clearTimeout(state.flushTimer);
+      state.flushTimer = null;
+    }
+    state.pendingChunks.length = 0;
+    state.pendingBytes = 0;
+    if (state.handle) {
+      const handle = state.handle;
+      state.handle = null;
+      void handle.close().catch(() => {});
+    }
+    this.logStates.delete(taskId);
   }
 
   private loadFromDisk(): void {
@@ -325,7 +678,7 @@ export class TaskManager {
     }
 
     if (hasChanges) {
-      this.saveToDisk();
+      this.saveToDiskSync();
     }
   }
 
@@ -350,7 +703,7 @@ export class TaskManager {
           record.exitCode = 0;
         }
         record.endTime = Date.now();
-        this.saveToDisk();
+        void this.saveToDiskAsync();
         this.emitTaskFinished(record);
       }
     }, 1500);
@@ -364,6 +717,7 @@ export class TaskManager {
     for (const [taskId, task] of this.tasks.entries()) {
       if (task.status !== 'running' && now - task.startTime > this.TASK_TTL_MS) {
         this.tasks.delete(taskId);
+        this.disposeTaskLogState(taskId);
         removedTaskIds.push(taskId);
       }
     }
@@ -375,6 +729,7 @@ export class TaskManager {
         const item = sorted.shift();
         if (item) {
           this.tasks.delete(item[0]);
+          this.disposeTaskLogState(item[0]);
           removedTaskIds.push(item[0]);
         }
       }
@@ -383,13 +738,11 @@ export class TaskManager {
     if (removedTaskIds.length > 0 && this.storageDir) {
       for (const taskId of removedTaskIds) {
         const logPath = this.getLogFilePath(taskId);
-        if (logPath && fs.existsSync(logPath)) {
-          try {
-            fs.rmSync(logPath, { force: true });
-          } catch {}
+        if (logPath) {
+          void fs.promises.rm(logPath, { force: true }).catch(() => {});
         }
       }
-      this.saveToDisk();
+      void this.saveToDiskAsync();
     }
   }
 
@@ -401,6 +754,8 @@ export class TaskManager {
     env = {},
     stdin = null,
     onFinish,
+    includeFinishOutput = true,
+    finishMaxOutputBytes,
   }: {
     taskId: string;
     command: string;
@@ -409,6 +764,8 @@ export class TaskManager {
     env?: Record<string, any>;
     stdin?: string | null;
     onFinish?: (event: TaskFinishedEvent) => void;
+    includeFinishOutput?: boolean;
+    finishMaxOutputBytes?: number;
   }): any {
     this.pruneOldTasks();
 
@@ -420,17 +777,36 @@ export class TaskManager {
             existing.onFinishCallbacks = [];
           }
           existing.onFinishCallbacks.push(onFinish);
+          if (includeFinishOutput) {
+            const prevCfg = this.finishOutputConfigs.get(existing);
+            this.finishOutputConfigs.set(existing, {
+              includeOutput: true,
+              maxOutputBytes:
+                prevCfg?.maxOutputBytes === undefined || finishMaxOutputBytes === undefined
+                  ? undefined
+                  : Math.max(prevCfg.maxOutputBytes, finishMaxOutputBytes),
+            });
+          }
         } else {
-          let stdout = existing.stdout;
-          let stderr = existing.stderr;
-          let output = existing.output;
-          if (!output && this.storageDir) {
-            const logPath = this.getLogFilePath(existing.taskId);
-            if (logPath && fs.existsSync(logPath)) {
-              try {
-                output = fs.readFileSync(logPath, 'utf-8');
-                stdout = output;
-              } catch {}
+          let stdout = '';
+          let stderr = '';
+          let output = '';
+          if (includeFinishOutput) {
+            const extracted = this.extractOutputFromChunks(existing, finishMaxOutputBytes);
+            stdout = extracted.stdout;
+            stderr = extracted.stderr;
+            output = extracted.output;
+            if (!output && this.storageDir) {
+              const logPath = this.getLogFilePath(existing.taskId);
+              if (logPath && fs.existsSync(logPath)) {
+                try {
+                  output = fs.readFileSync(logPath, 'utf-8');
+                  if (finishMaxOutputBytes !== undefined) {
+                    output = this.sliceStringTailUtf8(output, finishMaxOutputBytes);
+                  }
+                  stdout = output;
+                } catch {}
+              }
             }
           }
           const endTime = existing.endTime || Date.now();
@@ -552,6 +928,12 @@ export class TaskManager {
       onFinishCallbacks: onFinish ? [onFinish] : [],
     };
 
+    this.finishOutputConfigs.set(taskRecord, {
+      includeOutput: includeFinishOutput,
+      maxOutputBytes: finishMaxOutputBytes,
+    });
+    this.chunkHeads.set(taskRecord, 0);
+
     const stdoutDecoder = new StringDecoder('utf8');
     const stderrDecoder = new StringDecoder('utf8');
 
@@ -561,33 +943,46 @@ export class TaskManager {
       const startOffset = taskRecord.totalBytes;
       const endOffset = startOffset + bytes;
       taskRecord.totalBytes = endOffset;
-      taskRecord.chunks.push({ type, text, startOffset, endOffset });
 
-      if (type === 'stdout') {
-        taskRecord.stdout += text;
-        if (taskRecord.stdout.length > this.MAX_BUFFER_SIZE) {
-          taskRecord.stdout = taskRecord.stdout.slice(-this.MAX_BUFFER_SIZE);
+      let keptText = text;
+      let keptBytes = bytes;
+      let chunkStartOffset = startOffset;
+      if (bytes > this.MAX_BUFFER_SIZE) {
+        keptText = this.sliceStringTailUtf8(text, this.MAX_BUFFER_SIZE);
+        keptBytes = Buffer.byteLength(keptText, 'utf-8');
+        chunkStartOffset = endOffset - keptBytes;
+      }
+
+      let head = this.chunkHeads.get(taskRecord) ?? 0;
+      const len = taskRecord.chunks.length;
+      const last = len > head ? taskRecord.chunks[len - 1] : null;
+      if (last && last.type === type) {
+        const lastBytes = last.bytes ?? Buffer.byteLength(last.text, 'utf-8');
+        if (lastBytes + keptBytes <= CHUNK_COALESCE_MAX_BYTES) {
+          last.text += keptText;
+          last.bytes = lastBytes + keptBytes;
+          last.endOffset = endOffset;
+        } else {
+          taskRecord.chunks.push({ type, text: keptText, bytes: keptBytes, startOffset: chunkStartOffset, endOffset });
         }
       } else {
-        taskRecord.stderr += text;
-        if (taskRecord.stderr.length > this.MAX_BUFFER_SIZE) {
-          taskRecord.stderr = taskRecord.stderr.slice(-this.MAX_BUFFER_SIZE);
-        }
-      }
-      taskRecord.output += text;
-      if (taskRecord.output.length > this.MAX_BUFFER_SIZE) {
-        taskRecord.output = taskRecord.output.slice(-this.MAX_BUFFER_SIZE);
+        taskRecord.chunks.push({ type, text: keptText, bytes: keptBytes, startOffset: chunkStartOffset, endOffset });
       }
 
       while (
-        taskRecord.chunks.length > 1 &&
-        taskRecord.totalBytes - taskRecord.chunks[0].startOffset > this.MAX_BUFFER_SIZE
+        taskRecord.chunks.length - head > 1 &&
+        taskRecord.totalBytes - taskRecord.chunks[head].startOffset > this.MAX_BUFFER_SIZE
       ) {
-        taskRecord.chunks.shift();
+        head++;
       }
+      if (head >= 128 && head * 2 >= taskRecord.chunks.length) {
+        taskRecord.chunks = taskRecord.chunks.slice(head);
+        head = 0;
+      }
+      this.chunkHeads.set(taskRecord, head);
 
       if (this.storageDir) {
-        this.appendToLogFile(taskRecord.taskId, text);
+        this.enqueueLogWrite(taskRecord.taskId, text);
       }
     };
 
@@ -614,12 +1009,27 @@ export class TaskManager {
         }
       }
       appendChunk('stderr', Buffer.from(`\nProcess execution error: ${err.message}${extra}\n`));
-      taskRecord.status = 'failed';
-      taskRecord.endTime = Date.now();
       if (taskRecord.timeoutTimer) clearTimeout(taskRecord.timeoutTimer);
-      this.saveToDisk();
-      if (!taskRecord.child?.pid) {
-        this.emitTaskFinished(taskRecord);
+      const endTime = Date.now();
+      const willEmit = !taskRecord.child?.pid;
+
+      taskRecord.status = 'failed';
+      taskRecord.endTime = endTime;
+
+      if (this.storageDir) {
+        void (async () => {
+          await this.flushTaskLog(taskId, willEmit);
+          await this.saveToDiskAsync({
+            [taskId]: { status: 'failed', exitCode: taskRecord.exitCode, endTime },
+          });
+          if (willEmit) {
+            this.emitTaskFinished(taskRecord);
+          }
+        })();
+      } else {
+        if (willEmit) {
+          this.emitTaskFinished(taskRecord);
+        }
       }
     });
 
@@ -628,19 +1038,41 @@ export class TaskManager {
       appendDecodedText('stderr', stderrDecoder.end());
       if (taskRecord.timeoutTimer) clearTimeout(taskRecord.timeoutTimer);
       if (taskRecord.killTimer) clearTimeout(taskRecord.killTimer);
-      taskRecord.endTime = Date.now();
+      const endTime = Date.now();
       taskRecord.child = null;
 
-      if (taskRecord.status === 'running') {
+      const head = this.chunkHeads.get(taskRecord) ?? 0;
+      if (head > 0) {
+        taskRecord.chunks = taskRecord.chunks.slice(head);
+        this.chunkHeads.set(taskRecord, 0);
+      }
+
+      let finalStatus = taskRecord.status;
+      let finalExitCode = taskRecord.exitCode;
+      if (finalStatus === 'running') {
         if (signal) {
-          taskRecord.status = 'killed';
+          finalStatus = 'killed';
         } else {
-          taskRecord.exitCode = code;
-          taskRecord.status = code === 0 ? 'completed' : 'failed';
+          finalExitCode = code;
+          finalStatus = code === 0 ? 'completed' : 'failed';
         }
       }
-      this.saveToDisk();
-      this.emitTaskFinished(taskRecord);
+
+      taskRecord.endTime = endTime;
+      taskRecord.exitCode = finalExitCode;
+      taskRecord.status = finalStatus;
+
+      if (this.storageDir) {
+        void (async () => {
+          await this.flushTaskLog(taskId, true);
+          await this.saveToDiskAsync({
+            [taskId]: { status: finalStatus, exitCode: finalExitCode, endTime },
+          });
+          this.emitTaskFinished(taskRecord);
+        })();
+      } else {
+        this.emitTaskFinished(taskRecord);
+      }
     });
 
     if (timeoutMs > 0) {
@@ -657,14 +1089,14 @@ export class TaskManager {
             }
           }, 1000);
           if ((taskRecord.killTimer as any).unref) (taskRecord.killTimer as any).unref();
-          this.saveToDisk();
+          void this.saveToDiskAsync();
         }
       }, timeoutMs);
       if ((taskRecord.timeoutTimer as any).unref) (taskRecord.timeoutTimer as any).unref();
     }
 
     this.tasks.set(taskId, taskRecord);
-    this.saveToDisk();
+    void this.saveToDiskAsync();
 
     return {
       success: true,
@@ -690,8 +1122,14 @@ export class TaskManager {
     let incStderr = '';
     let incOutput = '';
 
-    if (task.chunks && task.chunks.length > 0) {
-      for (const chunk of task.chunks) {
+    const head = this.chunkHeads.get(task) ?? 0;
+    if (task.chunks && task.chunks.length > head) {
+      const stdoutParts: string[] = [];
+      const stderrParts: string[] = [];
+      const outputParts: string[] = [];
+
+      for (let i = head; i < task.chunks.length; i++) {
+        const chunk = task.chunks[i];
         if (chunk.endOffset <= numOffset) {
           continue;
         }
@@ -702,22 +1140,36 @@ export class TaskManager {
           chunkText = sliceBufferUtf8Safe(buf, byteSliceStart);
         }
         if (chunk.type === 'stdout') {
-          incStdout += chunkText;
+          stdoutParts.push(chunkText);
         } else if (chunk.type === 'stderr') {
-          incStderr += chunkText;
+          stderrParts.push(chunkText);
         }
-        incOutput += chunkText;
+        outputParts.push(chunkText);
       }
+
+      incStdout = stdoutParts.join('');
+      incStderr = stderrParts.join('');
+      incOutput = outputParts.join('');
     } else {
       // Chunks empty - check log file on disk if persistence is enabled
       const logPath = this.getLogFilePath(taskId);
       if (logPath && fs.existsSync(logPath)) {
         try {
-          const fileBuf = fs.readFileSync(logPath);
-          totalBytes = fileBuf.length;
-          task.totalBytes = totalBytes;
-          incOutput = sliceBufferUtf8Safe(fileBuf, numOffset);
-          incStdout = incOutput;
+          const fd = fs.openSync(logPath, 'r');
+          try {
+            const stat = fs.fstatSync(fd);
+            totalBytes = stat.size;
+            task.totalBytes = totalBytes;
+            if (numOffset < totalBytes) {
+              const toRead = totalBytes - numOffset;
+              const sliceBuf = Buffer.allocUnsafe(toRead);
+              const bytesRead = fs.readSync(fd, sliceBuf, 0, toRead, numOffset);
+              incOutput = sliceBufferUtf8Safe(sliceBuf.subarray(0, bytesRead), 0);
+              incStdout = incOutput;
+            }
+          } finally {
+            fs.closeSync(fd);
+          }
         } catch {}
       } else if (numOffset === 0) {
         incStdout = task.stdout;
@@ -761,7 +1213,7 @@ export class TaskManager {
     }
 
     task.status = 'killed';
-    this.saveToDisk();
+    void this.saveToDiskAsync();
     killProcessTree(task.child, signal || 'SIGTERM');
 
     if (task.killTimer) clearTimeout(task.killTimer);

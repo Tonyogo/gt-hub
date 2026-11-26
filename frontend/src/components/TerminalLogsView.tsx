@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import {
   Terminal as TerminalIcon,
   Search,
@@ -99,15 +99,18 @@ export default function TerminalLogsView({
     }
   }, [logs, autoScroll]);
 
-  const filteredLogs = logs.filter(item => {
-    if (levelFilter !== 'ALL' && item.level?.toUpperCase() !== levelFilter) {
-      return false;
-    }
-    if (searchTerm && !item.message?.toLowerCase().includes(searchTerm.toLowerCase())) {
-      return false;
-    }
-    return true;
-  });
+  const filteredLogs = useMemo(() => {
+    const normalizedSearch = searchTerm ? searchTerm.toLowerCase() : '';
+    return logs.filter(item => {
+      if (levelFilter !== 'ALL' && item.level?.toUpperCase() !== levelFilter) {
+        return false;
+      }
+      if (normalizedSearch && !item.message?.toLowerCase().includes(normalizedSearch)) {
+        return false;
+      }
+      return true;
+    });
+  }, [logs, levelFilter, searchTerm]);
 
   const handleCopyAll = () => {
     const rawText = filteredLogs.map(l => l.message).join('\n');

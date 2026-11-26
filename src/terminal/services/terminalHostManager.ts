@@ -1,7 +1,7 @@
 import logger from '../../utils/logger';
 import { rpcDispatcher, RpcDispatcher } from './rpcDispatcher';
 import { StreamBatcher } from '../../shared/utils/streamBatcher';
-import { isValidControlPayload } from '../../shared/protocol/binaryProtocol';
+import { isValidControlPayload, sendWsSafe } from '../../shared/protocol/binaryProtocol';
 
 export interface ManagedHost {
   id: string;
@@ -88,7 +88,7 @@ export class RemoteAgentTerminalSession implements ITerminalSession {
               logger.warn(`[RemoteAgentTerminal:${this.hostId}] Dropping frame for slow client socket (bufferedAmount=${ws.bufferedAmount})`);
               continue;
             }
-            ws.send(batchedText);
+            sendWsSafe(ws, batchedText, { compress: false });
           } else {
             deadSockets.push(ws);
           }

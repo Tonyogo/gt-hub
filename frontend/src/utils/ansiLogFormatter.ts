@@ -4,6 +4,11 @@ export interface AnsiLogSegment {
   bold?: boolean;
 }
 
+export interface AnsiParserState {
+  colorClass?: string;
+  bold?: boolean;
+}
+
 const ANSI_COLOR_MAP: Record<number, string> = {
   30: 'text-slate-400',
   31: 'text-rose-400',
@@ -90,27 +95,45 @@ export function stripAnsiCodes(raw: string): string {
   return normalized.replace(/\x1b\[[0-9;]*m/g, '');
 }
 
-export function parseAnsiToSegments(raw: string): AnsiLogSegment[] {
-  if (!raw) return [];
+export function parseAnsiToSegmentsWithState(
+  raw: string,
+  initialState?: AnsiParserState
+): { segments: AnsiLogSegment[]; endState: AnsiParserState } {
+  let currentColor: string | undefined = initialState?.colorClass;
+  let currentBold: boolean = Boolean(initialState?.bold);
+
+  if (!raw) {
+    return { segments: [], endState: { colorClass: currentColor, bold: currentBold } };
+  }
   const normalized = normalizeTerminalLogText(raw);
-  if (!normalized) return [];
+  if (!normalized) {
+    return { segments: [], endState: { colorClass: currentColor, bold: currentBold } };
+  }
 
   const segments: AnsiLogSegment[] = [];
+  const pushSegment = (text: string) => {
+    if (!text) return;
+    const last = segments[segments.length - 1];
+    if (last && last.colorClass === currentColor && Boolean(last.bold) === currentBold) {
+      last.text += text;
+    } else {
+      segments.push({
+        text,
+        colorClass: currentColor,
+        bold: currentBold,
+      });
+    }
+  };
+
   const sgrRegex = /\x1b\[([0-9;]*)m/g;
 
-  let currentColor: string | undefined = undefined;
-  let currentBold: boolean = false;
   let lastIndex = 0;
   let match: RegExpExecArray | null;
 
   while ((match = sgrRegex.exec(normalized)) !== null) {
     const textBefore = normalized.slice(lastIndex, match.index);
     if (textBefore.length > 0) {
-      segments.push({
-        text: textBefore,
-        colorClass: currentColor,
-        bold: currentBold,
-      });
+      pushSegment(textBefore);
     }
 
     const paramStr = match[1];
@@ -143,12 +166,15 @@ export function parseAnsiToSegments(raw: string): AnsiLogSegment[] {
 
   const remainingText = normalized.slice(lastIndex);
   if (remainingText.length > 0) {
-    segments.push({
-      text: remainingText,
-      colorClass: currentColor,
-      bold: currentBold,
-    });
+    pushSegment(remainingText);
   }
 
-  return segments;
+  return {
+    segments,
+    endState: { colorClass: currentColor, bold: currentBold },
+  };
+}
+
+export function parseAnsiToSegments(raw: string): AnsiLogSegment[] {
+  return parseAnsiToSegmentsWithState(raw).segments;
 }

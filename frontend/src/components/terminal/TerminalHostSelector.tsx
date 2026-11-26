@@ -201,7 +201,12 @@ export function TerminalHostSelector({
 
   useEffect(() => {
     fetchHosts();
-    const interval = setInterval(fetchHosts, 10000);
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) {
+        return;
+      }
+      fetchHosts();
+    }, 10000);
     return () => clearInterval(interval);
   }, [adminKey]);
 

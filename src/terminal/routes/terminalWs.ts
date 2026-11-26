@@ -13,6 +13,7 @@ import { terminalCronService } from '../services/terminalCronService';
 import {
   BIN_MSG_TYPE,
   decodeBinaryPacket,
+  decodeBinaryJsonBufferPacket,
   decodeControlJsonPacket,
   isValidControlPayload,
   sendControlFrame,
@@ -155,6 +156,10 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
     const binaryControlParam = parsedUrl.searchParams.get('binaryControl');
     if (binaryControlParam === '1' || binaryControlParam === 'true') {
       (ws as any)._binaryControl = true;
+    }
+    const binaryFileParam = parsedUrl.searchParams.get('binaryFile');
+    if (binaryFileParam === '1' || binaryFileParam === 'true') {
+      (ws as any)._binaryFile = true;
     }
     const agentMeta = { hostId, name, hostname, ip, platform, machineId, version, startTime };
     (ws as any)._agentMeta = agentMeta;
@@ -317,6 +322,23 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
             hostMgr.handleAgentPaneData(hostId, decoded.id, decoded.payload);
             return;
           }
+          if (decoded && decoded.msgType === BIN_MSG_TYPE.FILE_CHUNK_RES) {
+            const pkt = decodeBinaryJsonBufferPacket(buf);
+            if (pkt) {
+              const { success = true, error = null, ...meta } = pkt.meta;
+              hostMgr.handleAgentRpcResponse({
+                type: 'file_rpc_res',
+                reqId: pkt.id,
+                success,
+                data: {
+                  ...meta,
+                  rawBuffer: pkt.rawData,
+                },
+                error,
+              });
+              return;
+            }
+          }
           if (decoded && decoded.msgType === BIN_MSG_TYPE.HISTORY_SYNC) {
             if (decoded.id && decoded.id !== hostId) {
               hostMgr.handleAgentPaneHistorySync(hostId, decoded.id, decoded.payload);
@@ -407,18 +429,23 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
           control = decodeControlJsonPacket(buf);
         }
 
-        const msgStr = typeof message === 'string' ? message : message.toString('utf-8');
-        if (!control && msgStr.startsWith('JSON:')) {
-          try {
-            const parsed = JSON.parse(msgStr.slice(5));
-            if (isValidControlPayload(parsed)) {
-              control = parsed;
-            }
-          } catch {}
+        let msgStr = '';
+        if (!control) {
+          msgStr = typeof message === 'string' ? message : message.toString('utf-8');
+          if (msgStr.startsWith('JSON:')) {
+            try {
+              const parsed = JSON.parse(msgStr.slice(5));
+              if (isValidControlPayload(parsed)) {
+                control = parsed;
+              }
+            } catch {}
+          }
         }
 
         if (control) {
-          logger.debug(`[TerminalWS:${hostId}:${paneId}] Control frame: ${JSON.stringify(control)}`);
+          if (config.logLevel === 'debug') {
+            logger.debug(`[TerminalWS:${hostId}:${paneId}] Control frame: ${JSON.stringify(control)}`);
+          }
           if (
             control.type === 'resize' &&
             typeof control.cols === 'number' &&

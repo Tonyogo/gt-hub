@@ -8,10 +8,13 @@ const getCurrentLevel = (): number => {
   return levels[current] !== undefined ? levels[current] : 2;
 };
 
-const getFormattedTimestamp = (): string => {
-  try {
-    const timeZone = config.timeZone || 'Asia/Shanghai';
-    const formatter = new Intl.DateTimeFormat('sv-SE', {
+const MAX_TIMESTAMP_FORMATTER_CACHE = 32;
+const timestampFormatterCache = new Map<string, Intl.DateTimeFormat>();
+
+const getTimestampFormatter = (timeZone: string): Intl.DateTimeFormat => {
+  let formatter = timestampFormatterCache.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('sv-SE', {
       timeZone,
       year: 'numeric',
       month: '2-digit',
@@ -21,7 +24,18 @@ const getFormattedTimestamp = (): string => {
       second: '2-digit',
       hourCycle: 'h23'
     });
-    return formatter.format(new Date());
+    if (timestampFormatterCache.size >= MAX_TIMESTAMP_FORMATTER_CACHE) {
+      timestampFormatterCache.clear();
+    }
+    timestampFormatterCache.set(timeZone, formatter);
+  }
+  return formatter;
+};
+
+const getFormattedTimestamp = (): string => {
+  try {
+    const timeZone = config.timeZone || 'Asia/Shanghai';
+    return getTimestampFormatter(timeZone).format(new Date());
   } catch {
     return new Date().toISOString();
   }

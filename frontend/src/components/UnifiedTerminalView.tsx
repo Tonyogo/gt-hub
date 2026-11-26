@@ -176,6 +176,10 @@ export default function UnifiedTerminalView({
   }, []);
 
   const headerRef = useRef<HTMLDivElement>(null);
+  const mainPaneRef = useRef<HTMLDivElement>(null);
+  const splitPaneRef = useRef<HTMLDivElement>(null);
+  const splitterRafRef = useRef<number | null>(null);
+  const tabFitTimersRef = useRef<Array<ReturnType<typeof setTimeout>>>([]);
   // Mobile Visual Viewport tracking for virtual keyboard positioning in standalone mode
   const [workspaceStyle, setWorkspaceStyle] = useState<React.CSSProperties>({});
   const baseHeightRef = useRef<number>(typeof window !== 'undefined' ? window.innerHeight : 0);
@@ -365,24 +369,56 @@ export default function UnifiedTerminalView({
     }, 100);
   }, [activeHostId, updateHostSplitMode]);
 
+  const applySplitPreviewRatio = useCallback((clamped: number) => {
+    if (mainPaneRef.current) {
+      mainPaneRef.current.style.width = `${clamped}%`;
+    }
+    if (splitPaneRef.current) {
+      splitPaneRef.current.style.width = `${100 - clamped}%`;
+    }
+    if (splitterRafRef.current === null) {
+      splitterRafRef.current = requestAnimationFrame(() => {
+        splitterRafRef.current = null;
+        terminalRef.current?.fit();
+        splitTerminalRef.current?.fit();
+      });
+    }
+  }, []);
+
+  const commitSplitRatio = useCallback((clamped: number | null) => {
+    if (splitterRafRef.current !== null) {
+      cancelAnimationFrame(splitterRafRef.current);
+      splitterRafRef.current = null;
+    }
+    if (clamped !== null) {
+      setSplitRatio(clamped);
+      localStorage.setItem('terminal_split_ratio', String(clamped));
+    }
+    terminalRef.current?.fit(true);
+    splitTerminalRef.current?.fit(true);
+  }, []);
+
+  const computeSplitRatioFromClientX = (clientX: number): number | null => {
+    if (!splitContainerRef.current) return null;
+    const rect = splitContainerRef.current.getBoundingClientRect();
+    if (rect.width <= 0) return null;
+    const rawRatio = ((clientX - rect.left) / rect.width) * 100;
+    return Math.max(20, Math.min(80, Math.round(rawRatio)));
+  };
+
   const handleSplitterMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     isDraggingSplitterRef.current = true;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
+    let latestRatio: number | null = null;
 
     const onMouseMove = (moveEvent: MouseEvent) => {
-      if (!isDraggingSplitterRef.current || !splitContainerRef.current) return;
-      const rect = splitContainerRef.current.getBoundingClientRect();
-      if (rect.width <= 0) return;
-      const rawRatio = ((moveEvent.clientX - rect.left) / rect.width) * 100;
-      const clamped = Math.max(20, Math.min(80, Math.round(rawRatio)));
-      setSplitRatio(clamped);
-      localStorage.setItem('terminal_split_ratio', String(clamped));
-      requestAnimationFrame(() => {
-        terminalRef.current?.fit();
-        splitTerminalRef.current?.fit();
-      });
+      if (!isDraggingSplitterRef.current) return;
+      const clamped = computeSplitRatioFromClientX(moveEvent.clientX);
+      if (clamped === null) return;
+      latestRatio = clamped;
+      applySplitPreviewRatio(clamped);
     };
 
     const onMouseUp = () => {
@@ -391,43 +427,35 @@ export default function UnifiedTerminalView({
       document.body.style.userSelect = '';
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
-      terminalRef.current?.fit(true);
-      splitTerminalRef.current?.fit(true);
+      commitSplitRatio(latestRatio);
     };
 
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
-  }, []);
+  }, [applySplitPreviewRatio, commitSplitRatio]);
 
   const handleSplitterTouchStart = useCallback((e: React.TouchEvent) => {
     isDraggingSplitterRef.current = true;
+    let latestRatio: number | null = null;
 
     const onTouchMove = (moveEvent: TouchEvent) => {
-      if (!isDraggingSplitterRef.current || !splitContainerRef.current || moveEvent.touches.length === 0) return;
-      const touch = moveEvent.touches[0];
-      const rect = splitContainerRef.current.getBoundingClientRect();
-      if (rect.width <= 0) return;
-      const rawRatio = ((touch.clientX - rect.left) / rect.width) * 100;
-      const clamped = Math.max(20, Math.min(80, Math.round(rawRatio)));
-      setSplitRatio(clamped);
-      localStorage.setItem('terminal_split_ratio', String(clamped));
-      requestAnimationFrame(() => {
-        terminalRef.current?.fit();
-        splitTerminalRef.current?.fit();
-      });
+      if (!isDraggingSplitterRef.current || moveEvent.touches.length === 0) return;
+      const clamped = computeSplitRatioFromClientX(moveEvent.touches[0].clientX);
+      if (clamped === null) return;
+      latestRatio = clamped;
+      applySplitPreviewRatio(clamped);
     };
 
     const onTouchEnd = () => {
       isDraggingSplitterRef.current = false;
       window.removeEventListener('touchmove', onTouchMove);
       window.removeEventListener('touchend', onTouchEnd);
-      terminalRef.current?.fit(true);
-      splitTerminalRef.current?.fit(true);
+      commitSplitRatio(latestRatio);
     };
 
     window.addEventListener('touchmove', onTouchMove, { passive: true });
     window.addEventListener('touchend', onTouchEnd);
-  }, []);
+  }, [applySplitPreviewRatio, commitSplitRatio]);
 
   const handleSplitterDoubleClick = useCallback(() => {
     setSplitRatio(50);
@@ -486,16 +514,29 @@ export default function UnifiedTerminalView({
   }, [subTab, isSplitMode, openSplitPane, closeSplitPane]);
 
   const handleSubTabChange = useCallback((newTab: TerminalSubTab) => {
+    tabFitTimersRef.current.forEach(clearTimeout);
+    tabFitTimersRef.current = [];
     setSubTab(newTab);
     if (newTab === 'interactive') {
-      setTimeout(() => {
-        fitAllPanes(true);
-      }, 50);
-      setTimeout(() => {
-        fitAllPanes(true);
-      }, 200);
+      tabFitTimersRef.current.push(
+        setTimeout(() => {
+          fitAllPanes(false);
+        }, 50),
+        setTimeout(() => {
+          fitAllPanes(false);
+        }, 200)
+      );
     }
   }, [fitAllPanes]);
+
+  useEffect(() => {
+    return () => {
+      tabFitTimersRef.current.forEach(clearTimeout);
+      if (splitterRafRef.current !== null) {
+        cancelAnimationFrame(splitterRafRef.current);
+      }
+    };
+  }, []);
 
   const handleFullscreenToggle = useCallback(() => {
     toggleBrowserFullscreen(isMobile).catch(() => {});
@@ -518,8 +559,8 @@ export default function UnifiedTerminalView({
   useEffect(() => {
     if (subTab === 'interactive' && activeHostId) {
       const t1 = setTimeout(() => {
-        terminalRef.current?.fit(true);
-        splitTerminalRef.current?.fit(true);
+        terminalRef.current?.fit();
+        splitTerminalRef.current?.fit();
       }, 60);
       const t2 = setTimeout(() => {
         terminalRef.current?.fit();
@@ -1074,6 +1115,7 @@ export default function UnifiedTerminalView({
         >
           {/* Main Terminal Pane */}
           <div
+            ref={mainPaneRef}
             style={isSplitMode ? { width: `${splitRatio}%` } : undefined}
             className={`h-full flex flex-col min-w-0 min-h-0 relative transition-colors duration-150 ${
               isSplitMode
@@ -1163,6 +1205,7 @@ export default function UnifiedTerminalView({
           {/* Secondary Split Terminal Pane */}
           {isSplitMode && (
             <div
+              ref={splitPaneRef}
               style={{ width: `${100 - splitRatio}%` }}
               className={`h-full flex flex-col min-w-0 min-h-0 relative transition-colors duration-150 ${
                 activePane === 'split'

@@ -202,6 +202,13 @@ export class TerminalCronService {
     const canonicalId = this.resolveCanonicalNodeId(nodeId);
     const data = this.loadNodeData(canonicalId);
 
+    const latestExecutionByJobId = new Map<string, (typeof data.executions)[number]>();
+    for (const execution of data.executions) {
+      if (!latestExecutionByJobId.has(execution.jobId)) {
+        latestExecutionByJobId.set(execution.jobId, execution);
+      }
+    }
+
     return data.jobs.map((job) => {
       let nextRunTime: number | null = null;
       if (job.status === 'active') {
@@ -212,7 +219,7 @@ export class TerminalCronService {
         }
       }
 
-      const lastExecution = data.executions.find(e => e.jobId === job.id) || null;
+      const lastExecution = latestExecutionByJobId.get(job.id) || null;
 
       return {
         ...job,

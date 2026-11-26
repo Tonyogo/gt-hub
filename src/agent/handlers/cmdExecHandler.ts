@@ -1,7 +1,21 @@
 import { taskManager } from '../tasks/taskManager';
 
 export function handleCmdExec(control: any, targetWs: any): void {
-  const { reqId, action, taskId, command, cwd, timeoutMs, env, stdin, offset, signal, limit } = control;
+  const {
+    reqId,
+    action,
+    taskId,
+    command,
+    cwd,
+    timeoutMs,
+    env,
+    stdin,
+    offset,
+    signal,
+    limit,
+    includeFinishOutput,
+    finishMaxOutputBytes,
+  } = control;
 
   const reply = (success: boolean, data: any = null, error: string | null = null) => {
     const isOpen = targetWs && (targetWs.readyState === 1 || targetWs.readyState === (targetWs.constructor?.OPEN ?? 1));
@@ -29,7 +43,20 @@ export function handleCmdExec(control: any, targetWs: any): void {
           } catch {}
         }
       };
-      const res = taskManager.startTask({ taskId, command, cwd, timeoutMs, env, stdin, onFinish });
+      const res = taskManager.startTask({
+        taskId,
+        command,
+        cwd,
+        timeoutMs,
+        env,
+        stdin,
+        onFinish,
+        includeFinishOutput: includeFinishOutput !== false,
+        finishMaxOutputBytes:
+          typeof finishMaxOutputBytes === 'number' && !isNaN(finishMaxOutputBytes)
+            ? finishMaxOutputBytes
+            : undefined,
+      });
       if (res.success) {
         return reply(true, res);
       }

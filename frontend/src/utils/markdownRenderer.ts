@@ -75,6 +75,19 @@ const DANGEROUS_TAGS = [
  * Employs fixed-point iterative passes in Node and DOMPurify in browser DOM contexts.
  */
 export function sanitizeMarkdownHtml(html: string): string {
+  // Fast browser DOMPurify path: skips redundant 10-pass Node regex cleanup
+  const purify =
+    typeof DOMPurify === 'function' && typeof (DOMPurify as any).sanitize !== 'function' && typeof window !== 'undefined'
+      ? (DOMPurify as any)(window)
+      : DOMPurify;
+  if (typeof window !== 'undefined' && typeof document !== 'undefined' && purify && typeof purify.sanitize === 'function') {
+    const cleanDom = purify.sanitize(html, {
+      FORBID_TAGS: DANGEROUS_TAGS,
+      ADD_ATTR: ['target', 'rel', 'data-copy-code', 'disabled', 'checked', 'type'],
+    });
+    return cleanDom.replace(/<p[^>]*>\s*<\/p>/gi, '');
+  }
+
   let clean = html;
   const tagPattern = DANGEROUS_TAGS.join('|');
   const blockRegex = new RegExp(`<(${tagPattern})\\b[^>]*>[\\s\\S]*?<\\/\\1>`, 'gi');
@@ -112,18 +125,6 @@ export function sanitizeMarkdownHtml(html: string): string {
 
   // Remove empty paragraphs left behind by tag removals
   clean = clean.replace(/<p[^>]*>\s*<\/p>/gi, '');
-
-  // Browser DOMPurify pass
-  const purify =
-    typeof DOMPurify === 'function' && typeof (DOMPurify as any).sanitize !== 'function' && typeof window !== 'undefined'
-      ? (DOMPurify as any)(window)
-      : DOMPurify;
-  if (typeof window !== 'undefined' && typeof document !== 'undefined' && purify && typeof purify.sanitize === 'function') {
-    clean = purify.sanitize(clean, {
-      FORBID_TAGS: DANGEROUS_TAGS,
-      ADD_ATTR: ['target', 'rel', 'data-copy-code', 'disabled', 'checked', 'type'],
-    });
-  }
 
   return clean;
 }

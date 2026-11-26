@@ -1,4 +1,9 @@
-import { sendControlFrame } from '../../shared/protocol/binaryProtocol';
+import {
+  BIN_MSG_TYPE,
+  encodeBinaryJsonBufferPacket,
+  sendControlFrame,
+  sendWsSafe,
+} from '../../shared/protocol/binaryProtocol';
 
 export interface RpcCallbackEntry {
   hostId: string;
@@ -135,9 +140,53 @@ export class RpcDispatcher {
       });
 
       if (agentWs) {
+        if (
+          payload.action === 'upload_chunk' &&
+          (agentWs as any)._binaryFile === true
+        ) {
+          const params = payload.params || {};
+          const rawBuf = Buffer.isBuffer(params.rawBuffer)
+            ? params.rawBuffer
+            : Buffer.from(params.data || '', 'base64');
+          const { rawBuffer: _omitRaw, data: _omitData, ...restParams } = params;
+          const pkt = encodeBinaryJsonBufferPacket(
+            BIN_MSG_TYPE.FILE_CHUNK_REQ,
+            reqId,
+            {
+              action: payload.action,
+              path: payload.path,
+              params: restParams,
+            },
+            rawBuf
+          );
+          sendWsSafe(agentWs, pkt, { binary: true, compress: false });
+          return;
+        }
+
+        if (payload.action === 'upload_chunk' && Buffer.isBuffer(payload.params?.rawBuffer)) {
+          const { rawBuffer, ...restParams } = payload.params;
+          const compatPayload = {
+            ...rpcPayload,
+            params: {
+              ...restParams,
+              data: rawBuffer.toString('base64'),
+            },
+          };
+          sendControlFrame(agentWs, compatPayload, canonicalId);
+          return;
+        }
+
         sendControlFrame(agentWs, rpcPayload, canonicalId);
       } else if (session && typeof session.write === 'function') {
-        session.write(`JSON:${JSON.stringify(rpcPayload)}`);
+        if (payload.action === 'upload_chunk' && Buffer.isBuffer(payload.params?.rawBuffer)) {
+          const { rawBuffer, ...restParams } = payload.params;
+          session.write(`JSON:${JSON.stringify({
+            ...rpcPayload,
+            params: { ...restParams, data: rawBuffer.toString('base64') },
+          })}`);
+        } else {
+          session.write(`JSON:${JSON.stringify(rpcPayload)}`);
+        }
       }
     });
   }

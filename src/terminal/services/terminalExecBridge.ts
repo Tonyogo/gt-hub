@@ -7,6 +7,7 @@ import {
   BIN_MSG_TYPE,
   encodeBinaryPacket,
   decodeBinaryPacket,
+  sendWsSafe,
 } from '../../shared/protocol/binaryProtocol';
 
 export interface ActiveExecSession {
@@ -147,7 +148,7 @@ export class TerminalExecBridge {
       if (decoded && decoded.msgType === BIN_MSG_TYPE.STREAM_OUTPUT) {
         const session = this.activeSessions.get(decoded.id);
         if (session && session.cliWs && session.cliWs.readyState === 1) {
-          session.cliWs.send(decoded.payload);
+          sendWsSafe(session.cliWs, decoded.payload, { binary: true, compress: false });
         }
         return;
       }
@@ -164,7 +165,7 @@ export class TerminalExecBridge {
     if (type === 'cmd_stream_data') {
       try {
         const buf = Buffer.from(message.data, 'base64');
-        session.cliWs.send(buf);
+        sendWsSafe(session.cliWs, buf, { binary: true, compress: false });
       } catch (err: any) {
         logger.warn(`[ExecBridge] Failed to write stream data to CLI [${taskId}]: ${err.message}`);
       }

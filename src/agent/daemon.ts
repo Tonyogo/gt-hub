@@ -23,10 +23,12 @@ import { StreamBatcher } from '../shared/utils/streamBatcher';
 import {
   BIN_MSG_TYPE,
   decodeBinaryPacket,
+  decodeBinaryJsonBufferPacket,
   encodeBinaryPacket,
   decodeControlJsonPacket,
   encodeControlJsonPacket,
   sendControlFrame,
+  sendWsSafe,
 } from '../shared/protocol/binaryProtocol';
 import { ProxyHandler } from './handlers/proxyHandler';
 
@@ -888,7 +890,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     sendBinary: (packet: Buffer) => {
       if (ws && (ws.readyState === 1 || ws.readyState === WebSocket.OPEN)) {
         try {
-          ws.send(packet);
+          sendWsSafe(ws, packet, { binary: true, compress: false });
         } catch {}
       }
     },
@@ -940,7 +942,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     }
     try {
       const syncPacket = encodeBinaryPacket(BIN_MSG_TYPE.HISTORY_SYNC, hostId, histBuf);
-      ws.send(syncPacket);
+      sendWsSafe(ws, syncPacket, { binary: true, compress: false });
     } catch (err: any) {
       console.warn(`[Agent] Failed to send history sync: ${err.message}`);
     }
@@ -952,7 +954,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
         const chunk = pendingOutputQueue.shift()!;
         pendingQueueBytes -= chunk.length;
         try {
-          ws.send(chunk);
+          sendWsSafe(ws, chunk, { binary: true, compress: false });
         } catch {
           break;
         }
@@ -1062,7 +1064,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       terminalHistory.push(buf);
       if (ws && (ws.readyState === 1 || ws.readyState === WebSocket.OPEN) && pendingOutputQueue.length === 0) {
         try {
-          ws.send(buf);
+          sendWsSafe(ws, buf, { binary: true, compress: false });
           return;
         } catch {}
       }
@@ -1266,6 +1268,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       version: clientVersion,
       startTime: agentStartTime,
       binaryControl: 1,
+      binaryFile: 1,
     });
     console.log(`[Agent] Connecting to ${targetWsUrl.split('?')[0]}...`);
 
@@ -1287,6 +1290,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       },
     });
     (ws as any)._binaryControl = true;
+    (ws as any)._binaryFile = true;
 
     ws.on('pong', () => {
       lastPongReceived = Date.now();
@@ -1345,7 +1349,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
         streamSessionManager = new StreamSessionManager((data: any) => {
           if (ws && (ws.readyState === 1 || ws.readyState === WebSocket.OPEN)) {
             if (Buffer.isBuffer(data)) {
-              ws.send(data);
+              sendWsSafe(ws, data, { binary: true, compress: false });
             } else {
               ws.send('JSON:' + JSON.stringify(data));
             }
@@ -1375,12 +1379,38 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
               data[0] === BIN_MSG_TYPE.TERMINAL_RAW ||
               data[0] === BIN_MSG_TYPE.PROXY_HTTP_REQ_BODY ||
               data[0] === BIN_MSG_TYPE.PROXY_TCP_DATA ||
-              data[0] === BIN_MSG_TYPE.CONTROL_JSON))
+              data[0] === BIN_MSG_TYPE.CONTROL_JSON ||
+              data[0] === BIN_MSG_TYPE.FILE_CHUNK_REQ))
         ) {
           const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as any);
           const decoded = decodeBinaryPacket(buf);
           if (decoded) {
-            if (decoded.msgType === BIN_MSG_TYPE.CONTROL_JSON) {
+            if (decoded.msgType === BIN_MSG_TYPE.FILE_CHUNK_REQ) {
+              const pkt = decodeBinaryJsonBufferPacket(buf);
+              if (pkt) {
+                onHeartbeatActivity();
+                activeFileRpcCount++;
+                const reqControl = {
+                  type: 'file_rpc',
+                  reqId: pkt.id,
+                  action: pkt.meta.action,
+                  path: pkt.meta.path,
+                  params: {
+                    ...(pkt.meta.params || {}),
+                    rawBuffer: pkt.rawData,
+                  },
+                };
+                handleFileRpc(
+                  buildLocalFileRpcPayload(reqControl, permissionMode as PermissionMode, workspace),
+                  ws,
+                  onHeartbeatActivity
+                ).finally(() => {
+                  activeFileRpcCount = Math.max(0, activeFileRpcCount - 1);
+                  onHeartbeatActivity();
+                });
+                return;
+              }
+            } else if (decoded.msgType === BIN_MSG_TYPE.CONTROL_JSON) {
               control = decodeControlJsonPacket(buf);
             } else if (decoded.msgType === BIN_MSG_TYPE.STREAM_INPUT) {
               if (streamSessionManager) {

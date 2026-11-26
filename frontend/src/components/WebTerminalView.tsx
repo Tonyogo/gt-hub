@@ -583,6 +583,8 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       ) {
         return true;
       }
+      const prevCols = term.cols;
+      const prevRows = term.rows;
       fitAddonRef.current.fit();
       const { cols, rows } = term;
       if (cols > 2 && rows > 1) {
@@ -590,7 +592,9 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         if (shouldScrollToBottom({ isReplaying: isReplayingRef.current, wasAtBottom, bufferType: term.buffer.active.type })) {
           scrollToBottomSafe(term);
         }
-        term.refresh(0, Math.max(0, rows - 1));
+        if (forceResize || cols !== prevCols || rows !== prevRows) {
+          term.refresh(0, Math.max(0, rows - 1));
+        }
         return true;
       }
     } catch (err) {
@@ -918,7 +922,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       ? parseInt(localStorage.getItem('terminal_scrollback_lines') || '', 10)
       : NaN;
     const scrollback = !isNaN(configuredScrollback) && configuredScrollback > 0
-      ? configuredScrollback
+      ? Math.min(defaultScrollback, configuredScrollback)
       : defaultScrollback;
 
     const term = new Terminal({
@@ -1833,21 +1837,21 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       if (typeof window === 'undefined') return;
       window.requestAnimationFrame(() => {
         if (cancelRaf) return;
+        const scheduleFollowups = (needsInitialForce: boolean) => {
+          const fitStep = () => safeFit(needsInitialForce && lastSentColsRef.current === 0);
+          fallbackTimers.push(setTimeout(fitStep, 60));
+          fallbackTimers.push(setTimeout(fitStep, 150));
+          fallbackTimers.push(setTimeout(fitStep, 300));
+          fallbackTimers.push(setTimeout(fitStep, 350));
+          fallbackTimers.push(setTimeout(() => safeFit(false), 800));
+        };
         if (!safeFit(true)) {
           window.requestAnimationFrame(() => {
             if (cancelRaf) return;
-            fallbackTimers.push(setTimeout(() => safeFit(true), 60));
-            fallbackTimers.push(setTimeout(() => safeFit(true), 150));
-            fallbackTimers.push(setTimeout(() => safeFit(true), 300));
-            fallbackTimers.push(setTimeout(() => safeFit(true), 350));
-            fallbackTimers.push(setTimeout(() => safeFit(false), 800));
+            scheduleFollowups(true);
           });
         } else {
-          fallbackTimers.push(setTimeout(() => safeFit(true), 60));
-          fallbackTimers.push(setTimeout(() => safeFit(true), 150));
-          fallbackTimers.push(setTimeout(() => safeFit(true), 300));
-          fallbackTimers.push(setTimeout(() => safeFit(true), 350));
-          fallbackTimers.push(setTimeout(() => safeFit(false), 800));
+          scheduleFollowups(false);
         }
       });
     };
@@ -1860,7 +1864,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           try {
             canvasAddonRef.current?.clearTextureAtlas();
           } catch {}
-          safeFit(true);
+          safeFit(false);
         }
       }).catch(() => {});
     }
@@ -2724,7 +2728,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
         setTimeout(() => {
           safeFit(true);
         }, 60),
-        setTimeout(() => { safeFit(true); }, 200),
+        setTimeout(() => { safeFit(false); }, 200),
         setTimeout(() => { safeFit(true); }, 500),
       ];
       return () => timers.forEach(clearTimeout);

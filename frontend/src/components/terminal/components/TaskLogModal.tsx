@@ -17,7 +17,15 @@ import {
 import { useTranslation } from '../../../i18n/LanguageContext';
 import { apiFetch, getStoredAdminKey } from '../../../utils/apiClient';
 import { TaskSummary, TaskStatus, TaskLogResponse } from '../types/task';
-import { parseAnsiToSegments, stripAnsiCodes } from '../../../utils/ansiLogFormatter';
+import {
+  AnsiLogSegment,
+  AnsiParserState,
+  parseAnsiToSegments,
+  parseAnsiToSegmentsWithState,
+  stripAnsiCodes,
+} from '../../../utils/ansiLogFormatter';
+
+const MAX_RENDERED_SEGMENTS = 2500;
 
 export interface TaskLogModalProps {
   isOpen: boolean;
@@ -62,8 +70,61 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [autoScroll, setAutoScroll] = useState<boolean>(true);
   const [isKilling, setIsKilling] = useState<boolean>(false);
+  const [showAllSegments, setShowAllSegments] = useState<boolean>(false);
 
-  const logSegments = useMemo(() => parseAnsiToSegments(logText), [logText]);
+  const ansiCacheRef = useRef<{
+    text: string;
+    segments: AnsiLogSegment[];
+    state: AnsiParserState;
+  }>({ text: '', segments: [], state: {} });
+
+  useEffect(() => {
+    setShowAllSegments(false);
+  }, [task?.taskId, isOpen]);
+
+  const logSegments = useMemo<AnsiLogSegment[]>(() => {
+    if (!logText) {
+      ansiCacheRef.current = { text: '', segments: [], state: {} };
+      return [];
+    }
+
+    const prev = ansiCacheRef.current;
+    if (prev.text && logText.startsWith(prev.text)) {
+      const delta = logText.slice(prev.text.length);
+      if (delta.length === 0) {
+        return prev.segments;
+      }
+      // Incremental path is safe when delta does not rewrite lines via CR/BS
+      // and previous buffer does not end mid-ANSI escape sequence.
+      const hasControlRewrite = delta.includes('\r') || delta.includes('\b');
+      const hasIncompleteEscape = /\x1b(?:\[[^\x40-\x7e]*|\][^\x07\x1b]*)?$/.test(prev.text.slice(-64));
+      if (!hasControlRewrite && !hasIncompleteEscape) {
+        const { segments: deltaSegments, endState } = parseAnsiToSegmentsWithState(delta, prev.state);
+        const nextSegments = prev.segments.slice();
+        for (const seg of deltaSegments) {
+          const last = nextSegments[nextSegments.length - 1];
+          if (last && last.colorClass === seg.colorClass && Boolean(last.bold) === Boolean(seg.bold)) {
+            nextSegments[nextSegments.length - 1] = { ...last, text: last.text + seg.text };
+          } else {
+            nextSegments.push(seg);
+          }
+        }
+        ansiCacheRef.current = { text: logText, segments: nextSegments, state: endState };
+        return nextSegments;
+      }
+    }
+
+    const fullSegments = parseAnsiToSegments(logText);
+    const { endState } = parseAnsiToSegmentsWithState(logText.slice(-4096));
+    ansiCacheRef.current = { text: logText, segments: fullSegments, state: endState };
+    return fullSegments;
+  }, [logText]);
+
+  const isTailWindowed = !showAllSegments && logSegments.length > MAX_RENDERED_SEGMENTS;
+  const visibleLogSegments = useMemo(
+    () => (isTailWindowed ? logSegments.slice(-MAX_RENDERED_SEGMENTS) : logSegments),
+    [isTailWindowed, logSegments]
+  );
 
   const offsetRef = useRef<number>(0);
   const pollTimerRef = useRef<any>(null);
@@ -504,7 +565,24 @@ export const TaskLogModal: React.FC<TaskLogModalProps> = ({
               ref={logContainerRef}
               className="flex-1 bg-[var(--bg-terminal)] font-mono text-xs text-[var(--text-primary)] border border-[var(--border-default)] rounded-xl p-4 max-h-[50vh] sm:max-h-[520px] overflow-y-auto whitespace-pre-wrap break-all select-text shadow-inner ansi-log-container"
             >
-              {logSegments.map((seg, idx) => (
+              {isTailWindowed && (
+                <div className="mb-2 pb-2 border-b border-[var(--border-subtle)] flex items-center justify-between gap-2 text-[11px] text-[var(--text-muted)]">
+                  <span>
+                    {t(
+                      'tasks.logsModal.windowedNotice',
+                      `已省略较早的 ${logSegments.length - MAX_RENDERED_SEGMENTS} 个日志片段以保持流畅`
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowAllSegments(true)}
+                    className="px-2 py-0.5 rounded bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-indigo-400 font-medium transition-colors shrink-0"
+                  >
+                    {t('tasks.logsModal.showAll', '显示全部')}
+                  </button>
+                </div>
+              )}
+              {visibleLogSegments.map((seg, idx) => (
                 <span
                   key={idx}
                   className={[seg.colorClass, seg.bold ? 'font-bold' : ''].filter(Boolean).join(' ') || undefined}

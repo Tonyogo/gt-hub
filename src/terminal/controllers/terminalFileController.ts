@@ -24,7 +24,7 @@ async function parseAndUploadMultipart(
   const uploaded: string[] = [];
 
   let state: 'WAIT_DELIMITER' | 'READ_HEADER' | 'READ_BODY' | 'SKIP_BODY' = 'WAIT_DELIMITER';
-  let buffer = Buffer.alloc(0);
+  let buffer: Buffer = Buffer.alloc(0);
   let currentFileStream: PassThrough | null = null;
   let currentSavePromise: Promise<{ success: boolean; error?: string }> | null = null;
   let currentFilename = '';
@@ -60,7 +60,7 @@ async function parseAndUploadMultipart(
       }
 
       const chunkBuf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      buffer = Buffer.concat([buffer, chunkBuf]);
+      buffer = buffer.length === 0 ? chunkBuf : Buffer.concat([buffer, chunkBuf]);
 
       const keepProcessing = true;
       while (keepProcessing) {
@@ -440,25 +440,39 @@ class TerminalFileController {
       }
 
       // Normal full stream download (200 OK)
-      const result = await terminalFileService.getFileStream(hostId, targetPath);
+      const isInline = req.query.inline === '1' || req.query.inline === 'true';
+      const acceptEncoding = String(req.headers['accept-encoding'] || '');
+      const requestedCompress =
+        req.query.compress === '1' ||
+        req.query.compress === 'true' ||
+        (Boolean(req.headers['cf-ray']) && !isInline);
+      const wantsCompress =
+        acceptEncoding.includes('gzip') &&
+        requestedCompress &&
+        isCompressibleFile(targetPath);
+
+      const result = await terminalFileService.getFileStream(hostId, targetPath, undefined, {
+        preferGzipPassthrough: wantsCompress,
+      });
       if (result.status === 200 && result.stream) {
         res.status(200);
         res.setHeader('Accept-Ranges', 'bytes');
         res.type(result.filename);
 
-        const isInline = req.query.inline === '1' || req.query.inline === 'true';
         res.setHeader('Content-Disposition', `${isInline ? 'inline' : 'attachment'}; filename="${encodeURIComponent(result.filename)}"`);
 
-        const acceptEncoding = String(req.headers['accept-encoding'] || '');
-        const wantsCompress = acceptEncoding.includes('gzip') && (
-          req.query.compress === '1' ||
-          req.query.compress === 'true' ||
-          (Boolean(req.headers['cf-ray']) && !isInline && isCompressibleFile(result.filename))
-        );
-
-        if (wantsCompress) {
+        if (wantsCompress && isCompressibleFile(result.filename)) {
           res.setHeader('Content-Encoding', 'gzip');
           res.setHeader('Vary', 'Accept-Encoding');
+          if (result.isGzippedStream) {
+            res.on('close', () => {
+              if (!res.writableEnded && typeof (result.stream as any)?.destroy === 'function') {
+                (result.stream as any).destroy();
+              }
+            });
+            this.pipeStreamToResponse(result.stream, res);
+            return;
+          }
           const gzipStream = zlib.createGzip({ level: zlib.constants.Z_BEST_SPEED });
           result.stream.on('error', (err) => gzipStream.destroy(err));
           res.on('close', () => {

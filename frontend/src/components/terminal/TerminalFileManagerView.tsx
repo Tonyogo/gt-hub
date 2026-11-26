@@ -250,6 +250,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
 
   const activeHostIdRef = useRef<string>(activeHostId);
   activeHostIdRef.current = activeHostId;
+  const monacoEditorRef = useRef<any>(null);
 
   // Load directory items
   const loadFiles = useCallback(async (targetPath?: string) => {
@@ -486,6 +487,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
     const isMarkdown = isMarkdownExtension(ext);
 
     // Text / Code Editor
+    monacoEditorRef.current = null;
     setEditorTarget({
       file,
       content: '',
@@ -527,7 +529,11 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
   // Save Editor Content
   const handleSaveEditor = useCallback(async () => {
     if (!editorTarget || editorTarget.saving || editorTarget.isBinary) return;
-    setEditorTarget(prev => prev ? { ...prev, saving: true } : null);
+    const latestContent =
+      editorTarget.viewMode !== 'preview' && typeof monacoEditorRef.current?.getValue === 'function'
+        ? monacoEditorRef.current.getValue()
+        : editorTarget.content;
+    setEditorTarget(prev => prev ? { ...prev, saving: true, content: latestContent } : null);
 
     try {
       const res = await apiFetch('/api/terminal/files/save', {
@@ -539,7 +545,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
         body: JSON.stringify({
           hostId: activeHostId,
           path: editorTarget.file.path,
-          content: editorTarget.content,
+          content: latestContent,
         }),
       });
       const data = await res.json();
@@ -1233,7 +1239,22 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
                   <div className="flex items-center rounded-lg bg-[var(--bg-canvas)] p-0.5 border border-[var(--border-subtle)] text-xs font-medium mr-1">
                     <button
                       type="button"
-                      onClick={() => setEditorTarget((prev) => (prev ? { ...prev, viewMode: 'preview' } : null))}
+                      onClick={() => {
+                        const liveContent =
+                          typeof monacoEditorRef.current?.getValue === 'function'
+                            ? monacoEditorRef.current.getValue()
+                            : undefined;
+                        monacoEditorRef.current = null;
+                        setEditorTarget((prev) =>
+                          prev
+                            ? {
+                                ...prev,
+                                content: liveContent !== undefined ? liveContent : prev.content,
+                                viewMode: 'preview',
+                              }
+                            : null
+                        );
+                      }}
                       className={`flex items-center space-x-1 px-2.5 py-1 rounded-md transition-colors ${
                         editorTarget.viewMode === 'preview'
                           ? 'bg-indigo-600 text-white shadow-xs'
@@ -1283,7 +1304,10 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
                 )}
 
                 <button
-                  onClick={() => setEditorTarget(null)}
+                  onClick={() => {
+                    monacoEditorRef.current = null;
+                    setEditorTarget(null);
+                  }}
                   className="p-1 rounded hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                 >
                   <X className="w-4 h-4" />
@@ -1324,13 +1348,14 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
                 />
               ) : (
                 <Editor
+                  key={editorTarget.file.path}
                   height="100%"
                   language={getMonacoLanguage(editorTarget.file.extension)}
                   theme={monacoTheme}
                   beforeMount={defineGeminiProxyTheme}
-                  value={editorTarget.content}
-                  onChange={(val) => {
-                    setEditorTarget(prev => prev ? { ...prev, content: val || '' } : null);
+                  defaultValue={editorTarget.content}
+                  onMount={(editor) => {
+                    monacoEditorRef.current = editor;
                   }}
                   options={{
                     minimap: { enabled: false },

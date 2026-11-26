@@ -6,17 +6,20 @@ import logger from '../../utils/logger';
 import { terminalHostManager } from './terminalHostManager';
 
 const gunzipAsync = promisify(zlib.gunzip);
+const gzipAsync = promisify(zlib.gzip);
 
 export const DEFAULT_DOWNLOAD_CHUNK_SIZE = 512 * 1024; // 512KB
 export const DEFAULT_PREFETCH_CONCURRENCY = 2;
+export const DEFAULT_UPLOAD_CONCURRENCY = 4;
 
 export function decodeAgentChunkBuffer(resData: any): Buffer {
   if (!resData) return Buffer.alloc(0);
   if (typeof resData === 'string') {
     return Buffer.from(resData, 'base64');
   }
-  const base64Str = typeof resData.data === 'string' ? resData.data : '';
-  const buf = Buffer.from(base64Str, 'base64');
+  const buf = Buffer.isBuffer(resData.rawBuffer)
+    ? resData.rawBuffer
+    : Buffer.from(typeof resData.data === 'string' ? resData.data : '', 'base64');
   if (resData.encoding === 'gzip') {
     return zlib.gunzipSync(buf);
   }
@@ -28,12 +31,29 @@ export async function decodeAgentChunkBufferAsync(resData: any): Promise<Buffer>
   if (typeof resData === 'string') {
     return Buffer.from(resData, 'base64');
   }
-  const base64Str = typeof resData.data === 'string' ? resData.data : '';
-  const buf = Buffer.from(base64Str, 'base64');
+  const buf = Buffer.isBuffer(resData.rawBuffer)
+    ? resData.rawBuffer
+    : Buffer.from(typeof resData.data === 'string' ? resData.data : '', 'base64');
   if (resData.encoding === 'gzip') {
     return gunzipAsync(buf);
   }
   return buf;
+}
+
+export async function passthroughOrGzipAgentChunkAsync(resData: any): Promise<Buffer> {
+  if (!resData) return Buffer.alloc(0);
+  if (typeof resData === 'string') {
+    const raw = Buffer.from(resData, 'base64');
+    return gzipAsync(raw, { level: zlib.constants.Z_BEST_SPEED });
+  }
+  const buf = Buffer.isBuffer(resData.rawBuffer)
+    ? resData.rawBuffer
+    : Buffer.from(typeof resData.data === 'string' ? resData.data : '', 'base64');
+  if (resData.encoding === 'gzip') {
+    return buf;
+  }
+  if (buf.length === 0) return buf;
+  return gzipAsync(buf, { level: zlib.constants.Z_BEST_SPEED });
 }
 
 export interface TerminalFileItem {
@@ -210,12 +230,14 @@ export class TerminalFileService {
   public async getFileStream(
     hostId: string,
     filePath: string,
-    range?: { offset: number; length: number }
+    range?: { offset: number; length: number },
+    options?: { preferGzipPassthrough?: boolean }
   ): Promise<{
     status: number;
     filename: string;
     size?: number;
     totalSize?: number;
+    isGzippedStream?: boolean;
     stream?: NodeJS.ReadableStream;
     error?: string;
   }> {
@@ -224,29 +246,103 @@ export class TerminalFileService {
     }
 
     const filename = path.basename(filePath);
-    const CHUNK_THRESHOLD = DEFAULT_DOWNLOAD_CHUNK_SIZE; // 1MB
+    const CHUNK_THRESHOLD = DEFAULT_DOWNLOAD_CHUNK_SIZE;
+    const preferGzipPassthrough = Boolean(options?.preferGzipPassthrough);
 
-    // If a range is provided and length is greater than 1MB, stream in chunks
+    // If a range is provided and length is greater than threshold, stream in chunks
     if (range && range.length > CHUNK_THRESHOLD) {
-      const stream = this.createAgentChunkedStream(hostId, filePath, range.offset, range.length);
+      const stream = this.createAgentChunkedStream(
+        hostId,
+        filePath,
+        range.offset,
+        range.length,
+        DEFAULT_DOWNLOAD_CHUNK_SIZE,
+        DEFAULT_PREFETCH_CONCURRENCY,
+        preferGzipPassthrough
+      );
       return {
         status: 200,
         filename,
         size: range.length,
+        ...(preferGzipPassthrough ? { isGzippedStream: true } : {}),
         stream,
       };
     }
 
-    // If no range is provided, check if we can get totalSize and stream chunk-by-chunk
+    const session = terminalHostManager.getSession(hostId);
+    const supportsBinaryFile = Boolean((session?.getAgentWs() as any)?._binaryFile === true);
+
+    // For binaryFile-capable agents without Range: try 1-RTT inline fetch (<= 512KB) first
+    if (!range && supportsBinaryFile) {
+      const res = await this.rpcAgentWithRetry(
+        hostId,
+        'download_chunk',
+        filePath,
+        { acceptEncoding: 'gzip', maxInlineBytes: CHUNK_THRESHOLD },
+        60000
+      );
+      if (!res || !res.success || res.data === undefined || res.data === null) {
+        const isNotFound = res?.error && (res.error.toLowerCase().includes('not found') || res.error.toLowerCase().includes('no such file'));
+        return { status: isNotFound ? 404 : 500, filename, error: res?.error || 'Failed to fetch file from agent' };
+      }
+
+      if (res.data.tooLargeForInline && typeof res.data.size === 'number') {
+        const stream = this.createAgentChunkedStream(
+          hostId,
+          filePath,
+          0,
+          res.data.size,
+          DEFAULT_DOWNLOAD_CHUNK_SIZE,
+          DEFAULT_PREFETCH_CONCURRENCY,
+          preferGzipPassthrough
+        );
+        return {
+          status: 200,
+          filename,
+          size: res.data.size,
+          totalSize: res.data.size,
+          ...(preferGzipPassthrough ? { isGzippedStream: true } : {}),
+          stream,
+        };
+      }
+
+      const rawSize = typeof res.data.size === 'number' ? res.data.size : undefined;
+      if (preferGzipPassthrough) {
+        const gzBuf = await passthroughOrGzipAgentChunkAsync(res.data);
+        return {
+          status: 200,
+          filename,
+          size: rawSize ?? gzBuf.length,
+          totalSize: rawSize ?? gzBuf.length,
+          isGzippedStream: true,
+          stream: Readable.from(gzBuf),
+        };
+      }
+
+      const buffer = await decodeAgentChunkBufferAsync(res.data);
+      const totalSize = rawSize ?? buffer.length;
+      return { status: 200, filename, size: buffer.length, totalSize, stream: Readable.from(buffer) };
+    }
+
+    // If no range is provided (legacy / mock agent), check totalSize and stream chunk-by-chunk
     if (!range) {
       const statRes = await this.getFileStat(hostId, filePath);
       if (statRes.success && typeof statRes.size === 'number' && statRes.size > CHUNK_THRESHOLD) {
-        const stream = this.createAgentChunkedStream(hostId, filePath, 0, statRes.size);
+        const stream = this.createAgentChunkedStream(
+          hostId,
+          filePath,
+          0,
+          statRes.size,
+          DEFAULT_DOWNLOAD_CHUNK_SIZE,
+          DEFAULT_PREFETCH_CONCURRENCY,
+          preferGzipPassthrough
+        );
         return {
           status: 200,
           filename,
           size: statRes.size,
           totalSize: statRes.size,
+          ...(preferGzipPassthrough ? { isGzippedStream: true } : {}),
           stream,
         };
       }
@@ -260,6 +356,19 @@ export class TerminalFileService {
     if (!res || !res.success || res.data === undefined || res.data === null) {
       const isNotFound = res?.error && (res.error.toLowerCase().includes('not found') || res.error.toLowerCase().includes('no such file'));
       return { status: isNotFound ? 404 : 500, filename, error: res?.error || 'Failed to fetch file from agent' };
+    }
+
+    if (preferGzipPassthrough) {
+      const gzBuf = await passthroughOrGzipAgentChunkAsync(res.data);
+      const totalSize = typeof res.data === 'string' ? undefined : (typeof res.data.size === 'number' ? res.data.size : undefined);
+      return {
+        status: 200,
+        filename,
+        size: totalSize ?? gzBuf.length,
+        totalSize: totalSize ?? gzBuf.length,
+        isGzippedStream: true,
+        stream: Readable.from(gzBuf),
+      };
     }
 
     const buffer = await decodeAgentChunkBufferAsync(res.data);
@@ -276,7 +385,7 @@ export class TerminalFileService {
   }
 
   /**
-   * Creates a Readable stream that pulls data from the agent with 1MB 4-way concurrent read-ahead prefetch pipeline.
+   * Creates a Readable stream that pulls data from the agent with concurrent read-ahead prefetch pipeline.
    * Completely avoids memory spikes and RPC timeouts for large files over WAN, eliminating stop-and-wait latency.
    */
   private createAgentChunkedStream(
@@ -285,7 +394,8 @@ export class TerminalFileService {
     startOffset: number,
     totalLength: number,
     chunkSize: number = DEFAULT_DOWNLOAD_CHUNK_SIZE,
-    concurrency: number = DEFAULT_PREFETCH_CONCURRENCY
+    concurrency: number = DEFAULT_PREFETCH_CONCURRENCY,
+    preferGzipPassthrough: boolean = false
   ): NodeJS.ReadableStream {
     if (totalLength <= 0) {
       return Readable.from([]);
@@ -296,6 +406,7 @@ export class TerminalFileService {
     let nextEmitIndex = 0;
     let isDestroyed = false;
     let canPush = true;
+    let gzipDisabled = false;
     const completedBuffers = new Map<number, Buffer>();
 
     const self = this;
@@ -341,16 +452,16 @@ export class TerminalFileService {
         const chunkIndex = nextDispatchIndex++;
         const offset = startOffset + chunkIndex * chunkSize;
         const length = Math.min(chunkSize, startOffset + totalLength - offset);
+        const rpcParams: Record<string, any> = { offset, length };
+        if (!gzipDisabled) {
+          rpcParams.acceptEncoding = 'gzip';
+        }
 
         self.rpcAgentWithRetry(
           hostId,
           'download_chunk',
           filePath,
-          {
-            offset,
-            length,
-            acceptEncoding: 'gzip',
-          },
+          rpcParams,
           60000
         ).then(async (res) => {
           if (isDestroyed) return;
@@ -361,7 +472,13 @@ export class TerminalFileService {
             return;
           }
 
-          const buffer = await decodeAgentChunkBufferAsync(res.data);
+          if (chunkIndex === 0 && length >= 4096 && res.data?.encoding !== 'gzip') {
+            gzipDisabled = true;
+          }
+
+          const buffer = preferGzipPassthrough
+            ? await passthroughOrGzipAgentChunkAsync(res.data)
+            : await decodeAgentChunkBufferAsync(res.data);
           completedBuffers.set(chunkIndex, buffer);
           flush();
           pump();
@@ -379,8 +496,7 @@ export class TerminalFileService {
 
   /**
    * Save uploaded file via agent RPC with chunked streaming to prevent high memory usage.
-   * If a Buffer is passed, small buffers (<=512KB) use single chunk RPC,
-   * while larger buffers or streams are chunked into 512KB RPC requests sequentially.
+   * If a Buffer is passed, slices chunks directly without intermediate stream wrapping.
    */
   public async saveUploadedFile(
     hostId: string,
@@ -397,27 +513,80 @@ export class TerminalFileService {
       if (data.length <= CHUNK_SIZE) {
         return this.rpcAgent(hostId, 'upload_chunk', targetDir, {
           filename,
-          data: data.toString('base64'),
+          rawBuffer: data,
           offset: 0,
           truncate: true,
+          isLast: true,
         });
       }
-      return this.saveUploadedStream(hostId, targetDir, filename, Readable.from(data), CHUNK_SIZE);
+
+      // First chunk truncates/creates target file cleanly
+      const firstSlice = data.subarray(0, CHUNK_SIZE);
+      const firstRes = await this.rpcAgent(hostId, 'upload_chunk', targetDir, {
+        filename,
+        rawBuffer: firstSlice,
+        offset: 0,
+        truncate: true,
+        isLast: false,
+      }, 60000);
+      if (!firstRes || !firstRes.success) {
+        return { success: false, error: firstRes?.error || 'Failed to upload file chunk to agent' };
+      }
+
+      // Pipeline remaining chunks concurrently (up to DEFAULT_UPLOAD_CONCURRENCY)
+      const inFlight = new Set<Promise<void>>();
+      let uploadErr: Error | null = null;
+      for (let offset = CHUNK_SIZE; offset < data.length; offset += CHUNK_SIZE) {
+        if (uploadErr) break;
+        const end = Math.min(offset + CHUNK_SIZE, data.length);
+        const isLast = end >= data.length;
+        const slice = data.subarray(offset, end);
+
+        const p = this.rpcAgent(hostId, 'upload_chunk', targetDir, {
+          filename,
+          rawBuffer: slice,
+          offset,
+          truncate: false,
+          isLast,
+        }, 60000).then((res) => {
+          if (!res || !res.success) {
+            throw new Error(res?.error || 'Failed to upload file chunk to agent');
+          }
+        }).catch((err: any) => {
+          if (!uploadErr) uploadErr = err instanceof Error ? err : new Error(String(err));
+        }).finally(() => {
+          inFlight.delete(p);
+        });
+        inFlight.add(p);
+
+        if (inFlight.size >= DEFAULT_UPLOAD_CONCURRENCY) {
+          await Promise.race(inFlight);
+        }
+      }
+
+      if (inFlight.size > 0) {
+        await Promise.all(inFlight);
+      }
+      if (uploadErr) {
+        return { success: false, error: (uploadErr as Error).message };
+      }
+      return { success: true };
     }
 
     return this.saveUploadedStream(hostId, targetDir, filename, data);
   }
 
   /**
-   * Streams a file from a ReadableStream directly to the Agent in 512KB chunks.
-   * Neither server nor agent ever buffers the whole file in memory.
+   * Streams a file from a ReadableStream to the Agent in 512KB chunks with bounded concurrency.
+   * Chunk 0 truncates/creates synchronously first; subsequent chunks pipeline up to concurrency=4.
    */
   public async saveUploadedStream(
     hostId: string,
     targetDir: string,
     filename: string,
     stream: NodeJS.ReadableStream,
-    chunkSize: number = 512 * 1024
+    chunkSize: number = 512 * 1024,
+    concurrency: number = DEFAULT_UPLOAD_CONCURRENCY
   ): Promise<{ success: boolean; error?: string }> {
     if (!hostId || !hostId.trim()) {
       return { success: false, error: 'hostId is required' };
@@ -426,51 +595,81 @@ export class TerminalFileService {
     let currentOffset = 0;
     let pendingChunks: Buffer[] = [];
     let pendingBytes = 0;
+    const inFlight = new Set<Promise<void>>();
+    let uploadErr: Error | null = null;
+
+    const sendChunk = async (buf: Buffer, offset: number, truncate: boolean, isLast: boolean): Promise<void> => {
+      const res = await this.rpcAgent(hostId, 'upload_chunk', targetDir, {
+        filename,
+        rawBuffer: buf,
+        offset,
+        truncate,
+        isLast,
+      }, 60000);
+      if (!res || !res.success) {
+        throw new Error(res?.error || 'Failed to upload file chunk to agent');
+      }
+    };
 
     try {
       for await (const chunk of stream) {
+        if (uploadErr) break;
         const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
         pendingChunks.push(buf);
         pendingBytes += buf.length;
 
         while (pendingBytes >= chunkSize) {
-          const combined = Buffer.concat(pendingChunks);
-          const toSend = combined.slice(0, chunkSize);
-          const rest = combined.slice(chunkSize);
+          if (uploadErr) break;
+          const combined = pendingChunks.length === 1 ? pendingChunks[0] : Buffer.concat(pendingChunks);
+          const toSend = combined.subarray(0, chunkSize);
+          const rest = combined.subarray(chunkSize);
           pendingChunks = rest.length > 0 ? [rest] : [];
           pendingBytes = rest.length;
 
-          const res = await this.rpcAgent(hostId, 'upload_chunk', targetDir, {
-            filename,
-            data: toSend.toString('base64'),
-            offset: currentOffset,
-            truncate: currentOffset === 0,
-          }, 60000);
-
-          if (!res || !res.success) {
-            return { success: false, error: res?.error || 'Failed to upload file chunk to agent' };
-          }
+          const chunkOffset = currentOffset;
           currentOffset += toSend.length;
+
+          if (chunkOffset === 0) {
+            await sendChunk(toSend, 0, true, false);
+          } else {
+            const p = sendChunk(toSend, chunkOffset, false, false)
+              .catch((err: any) => {
+                if (!uploadErr) uploadErr = err instanceof Error ? err : new Error(String(err));
+              })
+              .finally(() => {
+                inFlight.delete(p);
+              });
+            inFlight.add(p);
+
+            if (inFlight.size >= concurrency) {
+              await Promise.race(inFlight);
+            }
+          }
         }
+      }
+
+      if (inFlight.size > 0) {
+        await Promise.all(inFlight);
+      }
+      if (uploadErr) {
+        return { success: false, error: (uploadErr as Error).message };
       }
 
       // Flush any remaining bytes, or if file was 0 bytes, ensure an empty file is created
       if (pendingBytes > 0 || currentOffset === 0) {
-        const combined = Buffer.concat(pendingChunks);
-        const res = await this.rpcAgent(hostId, 'upload_chunk', targetDir, {
-          filename,
-          data: combined.toString('base64'),
-          offset: currentOffset,
-          truncate: currentOffset === 0,
-        }, 60000);
-
-        if (!res || !res.success) {
-          return { success: false, error: res?.error || 'Failed to upload final file chunk to agent' };
-        }
+        const combined = pendingChunks.length === 0
+          ? Buffer.alloc(0)
+          : pendingChunks.length === 1
+            ? pendingChunks[0]
+            : Buffer.concat(pendingChunks);
+        await sendChunk(combined, currentOffset, currentOffset === 0, true);
       }
 
       return { success: true };
     } catch (err: any) {
+      if (inFlight.size > 0) {
+        await Promise.allSettled(inFlight);
+      }
       return { success: false, error: err?.message || 'Error processing stream upload' };
     }
   }
