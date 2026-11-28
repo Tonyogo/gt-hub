@@ -55,78 +55,104 @@ describe('Enterprise Light & Dark Theme System Architecture', () => {
     });
   });
 
-  test('App.tsx and LoginView.tsx use Indigo as primary brand accent instead of Emerald', () => {
+  function collectFiles(dir: string, exts: string[]): string[] {
+    const results: string[] = [];
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        results.push(...collectFiles(fullPath, exts));
+      } else if (exts.some((ext) => entry.name.endsWith(ext))) {
+        results.push(fullPath);
+      }
+    }
+    return results;
+  }
+
+  test('index.html has Anti-FOUC script and frontend contains zero Google Fonts CDN links', () => {
+    const indexHtml = fs.readFileSync(path.resolve(__dirname, '../frontend/index.html'), 'utf-8');
+    expect(indexHtml).toContain('app_hub_theme_mode');
+    expect(indexHtml).toContain('#07080a');
+    expect(indexHtml).toContain('#f5f6f8');
+    expect(indexHtml).not.toContain('fonts.googleapis.com');
+    expect(indexHtml).not.toContain('fonts.gstatic.com');
+
+    const srcFiles = collectFiles(path.resolve(__dirname, '../frontend/src'), ['.ts', '.tsx', '.css']);
+    for (const file of srcFiles) {
+      const content = fs.readFileSync(file, 'utf-8');
+      expect(content).not.toContain('fonts.googleapis.com');
+      expect(content).not.toContain('fonts.gstatic.com');
+    }
+  });
+
+  test('frontend/src contains zero indigo-*, slate-*, CSS-var opacity modifiers, or ui-btn-primary + text-white collisions', () => {
+    const srcFiles = collectFiles(path.resolve(__dirname, '../frontend/src'), ['.ts', '.tsx', '.css']);
+    const violations: string[] = [];
+
+    for (const file of srcFiles) {
+      const rel = path.relative(path.resolve(__dirname, '..'), file);
+      const content = fs.readFileSync(file, 'utf-8');
+
+      if (/\bindigo-\d+/.test(content)) {
+        violations.push(`${rel}: contains forbidden indigo-* class`);
+      }
+      if (/\bslate-\d+/.test(content)) {
+        violations.push(`${rel}: contains forbidden slate-* class`);
+      }
+      if (/(?:bg|border|text)-\[var\(--[^\]]+\)\]\//.test(content)) {
+        violations.push(`${rel}: contains forbidden CSS-var opacity modifier`);
+      }
+
+      const classAttrMatches = content.match(/className=(?:"[^"]*"|\{`[^`]*`\})/g) || [];
+      for (const match of classAttrMatches) {
+        if (/\bui-btn-primary\b/.test(match) && /\btext-white\b/.test(match)) {
+          violations.push(`${rel}: combines ui-btn-primary with text-white`);
+        }
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+
+  test('Terminal, Monaco, App, LoginView, and Markdown use Obsidian Azure surface and accent tokens', () => {
+    const webTermContent = fs.readFileSync(path.resolve(__dirname, '../frontend/src/components/WebTerminalView.tsx'), 'utf-8');
+    const monacoContent = fs.readFileSync(path.resolve(__dirname, '../frontend/src/utils/monacoTheme.ts'), 'utf-8');
     const appContent = fs.readFileSync(path.resolve(__dirname, '../frontend/src/App.tsx'), 'utf-8');
     const loginContent = fs.readFileSync(path.resolve(__dirname, '../frontend/src/components/LoginView.tsx'), 'utf-8');
-
-    expect(appContent).toContain('text-indigo-500');
-    expect(loginContent).toContain('bg-indigo-600');
-    expect(loginContent).not.toContain('bg-emerald-600');
-  });
-
-  test('monacoTheme.ts aligns dark editor background with #090D16 and light editor background with #FFFFFF', () => {
-    const monacoContent = fs.readFileSync(path.resolve(__dirname, '../frontend/src/utils/monacoTheme.ts'), 'utf-8');
-    expect(monacoContent).toContain('#090D16');
-    expect(monacoContent).toContain('#FFFFFF');
-  });
-
-  test('markdownRenderer.ts uses semantic CSS variables instead of hardcoded dark slate classes', () => {
     const mdContent = fs.readFileSync(path.resolve(__dirname, '../frontend/src/utils/markdownRenderer.ts'), 'utf-8');
+
+    expect(webTermContent.toLowerCase()).toContain("background: '#07080a'");
+    expect(webTermContent.toLowerCase()).toContain("background: '#ffffff'");
+    expect(webTermContent).not.toContain('bg-[#160E12]');
+
+    expect(monacoContent.toLowerCase()).toContain("'#0b0d11'");
+    expect(monacoContent.toLowerCase()).toContain("'#ffffff'");
+
+    expect(appContent).toContain('text-[var(--accent-primary)]');
+    expect(loginContent).toContain('ui-btn-primary');
+    expect(loginContent).not.toContain('bg-emerald-600');
+
     expect(mdContent).toContain('var(--text-primary)');
     expect(mdContent).toContain('var(--code-bg)');
     expect(mdContent).not.toContain('bg-black/20');
   });
 
-  test('WebTerminalView defines calibrated DARK_TERMINAL_THEME (#090D16) and LIGHT_TERMINAL_THEME (#FFFFFF) and UnifiedTerminalView removes hardcoded #18181b menu', () => {
-    const webTermContent = fs.readFileSync(path.resolve(__dirname, '../frontend/src/components/WebTerminalView.tsx'), 'utf-8');
-    const unifiedContent = fs.readFileSync(path.resolve(__dirname, '../frontend/src/components/UnifiedTerminalView.tsx'), 'utf-8');
-
-    expect(webTermContent).toContain("background: '#090D16'");
-    expect(webTermContent).toContain("background: '#FFFFFF'");
-    expect(webTermContent).not.toContain('bg-[#160E12]');
-    expect(unifiedContent).not.toContain('bg-[#18181b]');
-    expect(unifiedContent).not.toContain('border-[#27272a]');
-  });
-
-  test('Cron, Task views, Modals, and ScriptDrawer contain no hardcoded dark hex backgrounds (#121316, #18181b, #0c1017, #090d16, #121214)', () => {
-    const filesToCheck = [
-      '../frontend/src/components/terminal/TerminalCronView.tsx',
-      '../frontend/src/components/terminal/TerminalTaskView.tsx',
+  test('All modal-bearing components use ModalShell and zero raw fixed inset-0 z-50 wrappers', () => {
+    const modalFiles = [
+      '../frontend/src/components/terminal/components/CreateTaskModal.tsx',
       '../frontend/src/components/terminal/components/CronJobModal.tsx',
       '../frontend/src/components/terminal/components/CronLogModal.tsx',
-      '../frontend/src/components/terminal/components/CreateTaskModal.tsx',
       '../frontend/src/components/terminal/components/TaskLogModal.tsx',
       '../frontend/src/components/terminal/TerminalScriptDrawer.tsx',
+      '../frontend/src/components/terminal/TerminalImagePreviewModal.tsx',
+      '../frontend/src/components/terminal/TerminalPdfPreviewModal.tsx',
+      '../frontend/src/components/terminal/TerminalHostSelector.tsx',
+      '../frontend/src/components/terminal/TerminalFileManagerView.tsx',
     ];
 
-    for (const relPath of filesToCheck) {
+    for (const relPath of modalFiles) {
       const content = fs.readFileSync(path.resolve(__dirname, relPath), 'utf-8');
-      expect(content).not.toMatch(/#(121316|18181b|0c1017|090d16|121214)/i);
+      expect(content).toContain('ModalShell');
+      expect(content).not.toMatch(/fixed inset-0 z-50/);
     }
-  });
-
-  test('FileManager, Image/PDF Preview Modals, and ProxyView use semantic surface/elevated tokens instead of hardcoded bg-slate-900/bg-zinc-900 modal shells', () => {
-    const fileManagerContent = fs.readFileSync(
-      path.resolve(__dirname, '../frontend/src/components/terminal/TerminalFileManagerView.tsx'),
-      'utf-8'
-    );
-    const imageModalContent = fs.readFileSync(
-      path.resolve(__dirname, '../frontend/src/components/terminal/TerminalImagePreviewModal.tsx'),
-      'utf-8'
-    );
-    const pdfModalContent = fs.readFileSync(
-      path.resolve(__dirname, '../frontend/src/components/terminal/TerminalPdfPreviewModal.tsx'),
-      'utf-8'
-    );
-    const proxyContent = fs.readFileSync(
-      path.resolve(__dirname, '../frontend/src/components/terminal/TerminalProxyView.tsx'),
-      'utf-8'
-    );
-
-    expect(fileManagerContent).toContain('var(--bg-surface)');
-    expect(imageModalContent).toContain('var(--bg-elevated)');
-    expect(pdfModalContent).toContain('var(--bg-elevated)');
-    expect(proxyContent).toContain('var(--bg-surface)');
-    expect(proxyContent).not.toContain('bg-slate-950');
   });
 });
