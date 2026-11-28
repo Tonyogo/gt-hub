@@ -2298,6 +2298,9 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
   useEffect(() => {
     if (xtermRef.current) {
       xtermRef.current.options.theme = resolvedTheme === 'dark' ? DARK_TERMINAL_THEME : LIGHT_TERMINAL_THEME;
+      if (xtermRef.current.rows > 0) {
+        xtermRef.current.refresh(0, xtermRef.current.rows - 1);
+      }
     }
   }, [resolvedTheme]);
 

@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
+import { flushSync } from 'react-dom';
 
 export type ThemeMode = 'system' | 'dark' | 'light';
 export type ResolvedTheme = 'dark' | 'light';
@@ -576,15 +577,15 @@ export function detectParentDocumentTheme(win?: any): ResolvedTheme | null {
 export function getInitialThemeMode(win?: any, storage?: Pick<Storage, 'getItem'> | null): ThemeMode {
   const w = win !== undefined ? win : typeof window !== 'undefined' ? window : null;
 
-  // 1. Explicit theme from URL query or hash query
+  // 1. In an embedded iframe, always stay in dynamic 'system' mode so host postMessage / DOM updates are never locked to the initial URL query
+  if (isEmbeddedIframe(w)) {
+    return 'system';
+  }
+
+  // 2. Standalone explicit theme from URL query or hash query
   const urlTheme = parseThemeFromUrl(w?.location?.search, w?.location?.hash);
   if (urlTheme) {
     return urlTheme;
-  }
-
-  // 2. In an embedded iframe, default to 'system' to dynamically match the host
-  if (isEmbeddedIframe(w)) {
-    return 'system';
   }
 
   // 3. Standalone mode: check saved preference in localStorage (using gt_hub_theme_mode or app_hub_theme_mode)
@@ -606,16 +607,16 @@ export function resolveAutoTheme(win?: any): ResolvedTheme {
   const w = win !== undefined ? win : typeof window !== 'undefined' ? window : null;
   if (!w) return 'dark';
 
-  // 1. Explicit theme from URL
-  const urlTheme = parseThemeFromUrl(w?.location?.search, w?.location?.hash);
-  if (urlTheme === 'dark' || urlTheme === 'light') {
-    return urlTheme;
-  }
-
-  // 2. Parent document theme (for embedded iframes)
+  // 1. Live parent document theme (for same-origin embedded iframes; takes precedence over stale initial URL query params)
   const parentTheme = detectParentDocumentTheme(w);
   if (parentTheme) {
     return parentTheme;
+  }
+
+  // 2. Explicit theme from URL (initial fallback for cross-origin iframes or standalone links)
+  const urlTheme = parseThemeFromUrl(w?.location?.search, w?.location?.hash);
+  if (urlTheme === 'dark' || urlTheme === 'light') {
+    return urlTheme;
   }
 
   // 3. System matchMedia preference
@@ -634,10 +635,18 @@ export function resolveAutoTheme(win?: any): ResolvedTheme {
 function applyThemeToRootDocument(resolved: ResolvedTheme): void {
   if (typeof document === 'undefined' || !document.documentElement) return;
   const root = document.documentElement;
+  const bgColor = resolveThemeBackgroundColor(resolved);
   root.classList.toggle('dark', resolved === 'dark');
   root.setAttribute('data-theme', resolved);
   root.style.colorScheme = resolved;
-  root.style.backgroundColor = resolveThemeBackgroundColor(resolved);
+  root.style.backgroundColor = bgColor;
+  if (document.body) {
+    document.body.style.backgroundColor = bgColor;
+  }
+  const metaThemeColor = document.querySelector('meta[name="theme-color"]');
+  if (metaThemeColor) {
+    metaThemeColor.setAttribute('content', bgColor);
+  }
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
@@ -647,6 +656,8 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [theme, setThemeState] = useState<ThemeMode>(() => getInitialThemeMode());
   const [autoResolvedTheme, setAutoResolvedTheme] = useState<ResolvedTheme>(() => resolveAutoTheme());
   const [externalThemeOverride, setExternalThemeOverride] = useState<ResolvedTheme | null>(null);
+  const externalThemeOverrideRef = useRef<ResolvedTheme | null>(null);
+  externalThemeOverrideRef.current = externalThemeOverride;
 
   const resolvedTheme: ResolvedTheme = externalThemeOverride ?? (theme === 'system' ? autoResolvedTheme : theme);
 
@@ -654,6 +665,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   applyThemeToRootDocument(resolvedTheme);
 
   const setTheme = useCallback((newTheme: ThemeMode) => {
+    externalThemeOverrideRef.current = null;
     setExternalThemeOverride(null);
     setThemeState(newTheme);
     try {
@@ -668,6 +680,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   const toggleTheme = useCallback(() => {
+    externalThemeOverrideRef.current = null;
     setExternalThemeOverride(null);
     const nextResolved: ResolvedTheme = resolvedTheme === 'dark' ? 'light' : 'dark';
     const currentAuto = resolveAutoTheme();
@@ -696,21 +709,35 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
+    const notifyHostThemeApplied = (applied: ResolvedTheme) => {
+      if (window.parent && window.parent !== window) {
+        try {
+          window.parent.postMessage({ type: 'app-hub:theme-applied', theme: applied }, '*');
+        } catch {
+          // Ignore cross-origin postMessage restrictions
+        }
+      }
+    };
+
     const updateAuto = (syncToSystem = false) => {
       if (syncToSystem) {
+        externalThemeOverrideRef.current = null;
         setExternalThemeOverride(null);
         setThemeState('system');
       }
       setAutoResolvedTheme(resolveAutoTheme());
     };
 
-    // 1. matchMedia listener
+    // 1. matchMedia listener (do not clobber explicit host postMessage override inside embedded iframe)
     let mql: MediaQueryList | null = null;
     let mqlHandler: ((e: MediaQueryListEvent | MediaQueryList) => void) | null = null;
     if (typeof window.matchMedia === 'function') {
       try {
         mql = window.matchMedia('(prefers-color-scheme: dark)');
         mqlHandler = () => {
+          if (isEmbeddedIframe(window) && externalThemeOverrideRef.current !== null) {
+            return;
+          }
           updateAuto(true);
         };
         if (typeof mql.addEventListener === 'function') {
@@ -726,15 +753,24 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // 2. Same-origin parent DOM MutationObserver & parent storage listener
     let observer: MutationObserver | null = null;
     let parentWin: Window | null = null;
+    const syncFromLiveParent = () => {
+      const liveParentTheme = detectParentDocumentTheme(window);
+      if (liveParentTheme) {
+        externalThemeOverrideRef.current = null;
+        setExternalThemeOverride(null);
+        setThemeState('system');
+        setAutoResolvedTheme(liveParentTheme);
+      }
+    };
     const handleParentStorage = () => {
-      updateAuto(true);
+      syncFromLiveParent();
     };
     try {
       if (window.parent && window.parent !== window && window.parent.document) {
         parentWin = window.parent;
         const parentDoc = window.parent.document;
         observer = new MutationObserver(() => {
-          updateAuto(true);
+          syncFromLiveParent();
         });
         const config: MutationObserverInit = {
           attributes: true,
@@ -767,18 +803,38 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       // Cross-origin SecurityError, ignore
     }
 
-    // 3. postMessage listener
+    // 3. postMessage listener (with synchronous flush + host repaint acknowledgment)
     const handleMessage = (event: MessageEvent) => {
       try {
+        if (window.parent && window.parent !== window && event.source && event.source !== window.parent) {
+          return;
+        }
         const parsed = parseThemeFromMessage(event.data);
         if (!parsed) return;
         if (parsed === 'system') {
-          setExternalThemeOverride(null);
-          setThemeState('system');
-          updateAuto();
+          externalThemeOverrideRef.current = null;
+          const nextAuto = resolveAutoTheme();
+          flushSync(() => {
+            setExternalThemeOverride(null);
+            setThemeState('system');
+            setAutoResolvedTheme(nextAuto);
+          });
+          applyThemeToRootDocument(nextAuto);
+          if (typeof window.getComputedStyle === 'function' && document.documentElement) {
+            void window.getComputedStyle(document.documentElement).color;
+          }
+          notifyHostThemeApplied(nextAuto);
         } else {
-          setExternalThemeOverride(parsed);
-          setAutoResolvedTheme(parsed);
+          externalThemeOverrideRef.current = parsed;
+          flushSync(() => {
+            setExternalThemeOverride(parsed);
+            setAutoResolvedTheme(parsed);
+          });
+          applyThemeToRootDocument(parsed);
+          if (typeof window.getComputedStyle === 'function' && document.documentElement) {
+            void window.getComputedStyle(document.documentElement).color;
+          }
+          notifyHostThemeApplied(parsed);
         }
       } catch {
         // Ignore invalid message payloads
@@ -786,8 +842,19 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
     window.addEventListener('message', handleMessage);
 
+    if (isEmbeddedIframe(window) && window.parent && window.parent !== window) {
+      try {
+        window.parent.postMessage({ type: 'app-hub:theme-request' }, '*');
+      } catch {
+        // Ignore cross-origin postMessage restrictions
+      }
+    }
+
     // 4. Single-page navigation / URL hash & query changes & storage changes
     const handleLocationChange = () => {
+      if (externalThemeOverrideRef.current !== null && !detectParentDocumentTheme(window)) {
+        return;
+      }
       updateAuto();
     };
     window.addEventListener('popstate', handleLocationChange);

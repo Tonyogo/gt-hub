@@ -432,4 +432,54 @@ describe('Auto System & Embedded Host Theme Sync Engine', () => {
     expect(unifiedCode).toContain('toggleTheme');
     expect(unifiedCode).toMatch(/<Sun\b|<Moon\b/);
   });
+
+  test('embedded iframe keeps dynamic system mode even with initial ?theme= URL and prefers live parent theme over stale URL query', () => {
+    const embeddedWithUrlTheme = {
+      self: { id: 1 },
+      top: { id: 2 },
+      location: { search: '?theme=dark&colorScheme=dark', hash: '' },
+    };
+    expect(getInitialThemeMode(embeddedWithUrlTheme)).toBe('system');
+
+    const sameOriginSwitchedToLight = {
+      self: { id: 1 },
+      top: { id: 2 },
+      location: { search: '?theme=dark&colorScheme=dark', hash: '' },
+      parent: {
+        document: {
+          documentElement: {
+            classList: { contains: () => false },
+            getAttribute: (name: string) => (name === 'data-theme' ? 'light' : null),
+            style: {},
+          },
+          body: null,
+        },
+        getComputedStyle: () => ({}),
+      },
+      matchMedia: () => ({ matches: true }),
+    };
+    expect(resolveAutoTheme(sameOriginSwitchedToLight)).toBe('light');
+  });
+
+  test('ThemeContext emits app-hub:theme-request, flushes DOM + app-hub:theme-applied on host theme-change, and refreshes xterm canvas in WebTerminalView', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const contextCode = fs.readFileSync(
+      path.resolve(__dirname, '../frontend/src/theme/ThemeContext.tsx'),
+      'utf-8'
+    );
+    const terminalCode = fs.readFileSync(
+      path.resolve(__dirname, '../frontend/src/components/WebTerminalView.tsx'),
+      'utf-8'
+    );
+
+    expect(contextCode).toContain('flushSync');
+    expect(contextCode).toContain('app-hub:theme-request');
+    expect(contextCode).toContain('app-hub:theme-applied');
+    expect(contextCode).toContain('document.body.style.backgroundColor');
+    expect(contextCode).toContain('externalThemeOverrideRef');
+    expect(terminalCode).toMatch(
+      /xtermRef\.current\.options\.theme\s*=[\s\S]{0,160}xtermRef\.current\.refresh\(/
+    );
+  });
 });
