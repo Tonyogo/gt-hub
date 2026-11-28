@@ -78,51 +78,51 @@ import { TerminalWriteScheduler, BackgroundBufferQueue } from '../utils/terminal
 
 
 const DARK_TERMINAL_THEME = {
-  background: '#090D16',
-  foreground: '#F1F5F9',
-  cursor: '#6366F1',
-  cursorAccent: '#090D16',
-  selectionBackground: 'rgba(99, 102, 241, 0.35)',
-  black: '#090D16',
-  red: '#F43F5E',
-  green: '#10B981',
-  yellow: '#F59E0B',
-  blue: '#6366F1',
-  magenta: '#D946EF',
-  cyan: '#06B6D4',
-  white: '#F8FAFC',
-  brightBlack: '#475569',
-  brightRed: '#FB7185',
-  brightGreen: '#34D399',
-  brightYellow: '#FBBF24',
-  brightBlue: '#818CF8',
-  brightMagenta: '#E879F9',
-  brightCyan: '#22D3EE',
-  brightWhite: '#FFFFFF',
+  background: '#07080a',
+  foreground: '#f4f6f9',
+  cursor: '#60a5fa',
+  cursorAccent: '#07080a',
+  selectionBackground: 'rgba(59, 130, 246, 0.32)',
+  black: '#07080a',
+  red: '#f43f5e',
+  green: '#10b981',
+  yellow: '#f59e0b',
+  blue: '#3b82f6',
+  magenta: '#d946ef',
+  cyan: '#06b6d4',
+  white: '#f4f6f9',
+  brightBlack: '#646b7a',
+  brightRed: '#fb7185',
+  brightGreen: '#34d399',
+  brightYellow: '#fbbf24',
+  brightBlue: '#60a5fa',
+  brightMagenta: '#e879f9',
+  brightCyan: '#38bdf8',
+  brightWhite: '#ffffff',
 };
 
 const LIGHT_TERMINAL_THEME = {
-  background: '#FFFFFF',
-  foreground: '#0F172A',
-  cursor: '#4F46E5',
-  cursorAccent: '#FFFFFF',
-  selectionBackground: 'rgba(79, 70, 229, 0.18)',
-  black: '#0F172A',
-  red: '#DC2626',
+  background: '#ffffff',
+  foreground: '#111318',
+  cursor: '#2563eb',
+  cursorAccent: '#ffffff',
+  selectionBackground: 'rgba(37, 99, 235, 0.2)',
+  black: '#111318',
+  red: '#dc2626',
   green: '#059669',
-  yellow: '#B45309',
-  blue: '#2563EB',
-  magenta: '#7C3AED',
-  cyan: '#0891B2',
-  white: '#475569',
-  brightBlack: '#64748B',
-  brightRed: '#E11D48',
-  brightGreen: '#10B981',
-  brightYellow: '#D97706',
-  brightBlue: '#4F46E5',
-  brightMagenta: '#9333EA',
-  brightCyan: '#06B6D4',
-  brightWhite: '#0F172A',
+  yellow: '#b45309',
+  blue: '#2563eb',
+  magenta: '#7c3aed',
+  cyan: '#0891b2',
+  white: '#4b5262',
+  brightBlack: '#646b7a',
+  brightRed: '#e11d48',
+  brightGreen: '#10b981',
+  brightYellow: '#d97706',
+  brightBlue: '#3b82f6',
+  brightMagenta: '#9333ea',
+  brightCyan: '#06b6d4',
+  brightWhite: '#111318',
 };
 
 function initSafeCanvasAddon(term: Terminal): { canvasAddon: CanvasAddon | null; dispose: () => void } {
@@ -2853,7 +2853,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
             <button
               type="button"
               onClick={onExitStandalone}
-              className="mr-1 px-1.5 sm:px-2 py-1 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-slate-300 hover:text-white border border-white/[0.08] transition-all flex items-center space-x-1 text-xs active:scale-95"
+              className="mr-1 px-1.5 sm:px-2 py-1 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all flex items-center space-x-1 text-xs active:scale-95"
               title={t('webTerminal.backToDashboard')}
             >
               <ArrowLeft className="w-3.5 h-3.5" />
@@ -2868,8 +2868,8 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
                 onClick={() => onSubTabChange('interactive')}
                 className={`flex items-center space-x-1.5 px-2 sm:px-2.5 py-1 rounded-lg transition-all ${
                   (subTab || 'interactive') === 'interactive'
-                    ? 'ui-tab-pill-active font-semibold shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
+                    ? 'ui-tab-pill-active font-semibold shadow-xs'
+                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 }`}
               >
                 <TerminalSquare className="w-3.5 h-3.5" />
@@ -2880,8 +2880,8 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
                 onClick={() => onSubTabChange('logs')}
                 className={`flex items-center space-x-1.5 px-2 sm:px-2.5 py-1 rounded-lg transition-all ${
                   subTab === 'logs'
-                    ? 'ui-tab-pill-active font-semibold shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
+                    ? 'ui-tab-pill-active font-semibold shadow-xs'
+                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
                 }`}
               >
                 <FileText className="w-3.5 h-3.5" />
@@ -2904,18 +2904,18 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           <div
             className={`hidden sm:flex items-center space-x-1 sm:space-x-1.5 px-1.5 sm:px-2 py-0.5 rounded-full text-[10px] font-medium border shrink-0 ${
               !activeHostId
-                ? 'bg-slate-500/10 text-slate-400 border-slate-500/20'
+                ? 'bg-[var(--bg-control)] text-[var(--text-muted)] border-[var(--border-subtle)]'
                 : isConnected
-                ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                ? 'bg-[var(--status-success-bg)] text-[var(--status-success-text)] border-[var(--status-success-border)]'
                 : isConnecting
-                ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
+                ? 'bg-[var(--status-warning-bg)] text-[var(--status-warning-text)] border-[var(--status-warning-border)]'
+                : 'bg-[var(--status-danger-bg)] text-[var(--status-danger-text)] border-[var(--status-danger-border)]'
             }`}
           >
             <span
               className={`w-1.5 h-1.5 rounded-full shrink-0 ${
                 !activeHostId
-                  ? 'bg-slate-500'
+                  ? 'bg-zinc-400 dark:bg-zinc-500'
                   : isConnected
                   ? 'bg-emerald-400 animate-pulse'
                   : isConnecting
@@ -2972,7 +2972,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
             className="p-1 sm:p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all flex items-center justify-center shrink-0"
             title={t('scripts.title', '常用脚本库')}
           >
-            <ScrollText className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+            <ScrollText className="w-3.5 h-3.5 text-[var(--accent-text)] shrink-0" />
           </button>
 
           {/* Zoom Out */}
@@ -3002,14 +3002,14 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
             className="p-1 sm:p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all"
             title={t('webTerminal.reconnect')}
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${isConnecting ? 'animate-spin text-indigo-400' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 ${isConnecting ? 'animate-spin text-[var(--accent-primary)]' : ''}`} />
           </button>
 
           {/* Reset Terminal Session */}
           <button
             type="button"
             onClick={handleResetSession}
-            className="p-1 sm:p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-rose-500/20 text-[var(--text-secondary)] hover:text-rose-600 dark:hover:text-rose-300 border border-[var(--border-subtle)] hover:border-rose-500/30 transition-all"
+            className="p-1 sm:p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--status-danger-bg)] text-[var(--text-secondary)] hover:text-[var(--status-danger-text)] border border-[var(--border-subtle)] hover:border-[var(--status-danger-border)] transition-all"
             title={t('webTerminal.resetSession')}
           >
             <Trash2 className="w-3.5 h-3.5" />
@@ -3021,12 +3021,12 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
             onClick={handleFullscreenToggle}
             className={`p-1 sm:p-1.5 rounded-lg border transition-all ${
               standalone
-                ? 'hidden sm:inline-flex bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 border-indigo-500/30'
+                ? 'hidden sm:inline-flex bg-[var(--accent-soft-bg)] text-[var(--accent-text)] border-[var(--accent-soft-border)]'
                 : 'bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)]'
             }`}
             title={standalone ? t('webTerminal.exitFullscreen') : t('webTerminal.fullscreen')}
           >
-            {standalone ? <Minimize2 className="w-3.5 h-3.5 text-indigo-400" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            {standalone ? <Minimize2 className="w-3.5 h-3.5 text-[var(--accent-text)]" /> : <Maximize2 className="w-3.5 h-3.5" />}
           </button>
         </div>
       </div>
@@ -3056,20 +3056,20 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       >
         {/* Floating Disconnect & Auto-Reconnect Toast */}
         {!isConnected && !isConnecting && reconnectCountdown > 0 && (
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center space-x-2.5 px-3.5 py-1.5 rounded-xl bg-[var(--bg-elevated)]/95 border border-rose-500/40 text-rose-600 dark:text-rose-300 text-xs backdrop-blur-md shadow-2xl animate-in fade-in slide-in-from-top-2 select-none">
+          <div className="ui-elevated-glass absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center space-x-2.5 px-3.5 py-1.5 rounded-xl border border-[var(--status-danger-border)] text-[var(--status-danger-text)] text-xs shadow-[var(--shadow-popover)] select-none">
             <div className="relative flex items-center justify-center">
               <span className="w-2 h-2 rounded-full bg-rose-500" />
               <span className="absolute w-2 h-2 rounded-full bg-rose-500 animate-ping opacity-75" />
             </div>
-            <span className="font-mono text-[11px]">
+            <span className="font-mono text-[11px] tabular-nums">
               {t('webTerminal.reconnectCountdown', { count: reconnectCountdown.toString() }).replace('{count}', reconnectCountdown.toString())}
             </span>
             <button
               type="button"
               onClick={handleManualReconnect}
-              className="px-2 py-0.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 active:scale-95 text-rose-600 dark:text-white font-medium text-[11px] transition-all border border-rose-500/30 flex items-center space-x-1"
+              className="px-2 py-0.5 rounded-lg bg-[var(--status-danger-bg)] hover:opacity-90 active:scale-95 text-[var(--status-danger-text)] font-medium text-[11px] transition-all border border-[var(--status-danger-border)] flex items-center space-x-1"
             >
-              <RefreshCw className="w-3 h-3 text-rose-500 dark:text-rose-300" />
+              <RefreshCw className="w-3 h-3" />
               <span>{t('webTerminal.reconnectNow')}</span>
             </button>
           </div>
@@ -3123,8 +3123,8 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
         {/* Floating Quick Action Toast */}
         {toastMessage && (
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-[var(--bg-elevated)]/95 border border-[var(--border-default)] text-[var(--text-primary)] text-xs backdrop-blur-md shadow-2xl animate-in fade-in slide-in-from-bottom-2 pointer-events-none select-none">
-            <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+          <div className="ui-elevated-glass absolute bottom-4 left-1/2 -translate-x-1/2 z-30 flex items-center space-x-1.5 px-3 py-1.5 rounded-xl border border-[var(--border-default)] text-[var(--text-primary)] text-xs shadow-[var(--shadow-popover)] pointer-events-none select-none">
+            <Check className="w-3.5 h-3.5 text-[var(--status-success-text)]" />
             <span className="text-[11px] font-medium">{toastMessage}</span>
           </div>
         )}
@@ -3136,11 +3136,11 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
             onClick={handleScrollToBottom}
             aria-label={t('webTerminal.scrollToBottom', '跳到最后')}
             title={t('webTerminal.scrollToBottom', '跳到最后')}
-            className={`absolute right-4 z-20 w-9 h-9 rounded-full bg-[var(--bg-surface)]/95 hover:bg-[var(--bg-surface-hover)] border border-[var(--border-subtle)] shadow-xl flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all active:scale-95 cursor-pointer animate-in fade-in zoom-in-90 ${
+            className={`ui-surface-glass absolute right-4 z-20 w-9 h-9 rounded-full hover:bg-[var(--bg-surface-hover)] border border-[var(--border-subtle)] shadow-[var(--shadow-popover)] flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all active:scale-95 cursor-pointer ${
               isMobile && !hideAccessoryBar ? 'bottom-14' : 'bottom-4'
             }`}
           >
-            <ArrowDown className="w-4 h-4 text-indigo-500 dark:text-indigo-400" />
+            <ArrowDown className="w-4 h-4 text-[var(--accent-text)]" />
           </button>
         )}
 
