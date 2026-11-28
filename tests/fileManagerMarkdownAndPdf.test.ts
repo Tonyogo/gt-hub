@@ -51,4 +51,21 @@ describe('File Manager Markdown & PDF Preview Integration', () => {
     expect(fmCode).toContain("t('files.previewMode'");
     expect(fmCode).toContain("t('files.editMode'");
   });
+
+  test('TerminalFileManagerView and markdownRenderer use ModalShell, ui-surface-glass, Obsidian Azure tokens, and zero indigo/slate classes', () => {
+    const fmCode = fs.readFileSync(fileManagerPath, 'utf-8');
+    const mdRendererCode = fs.readFileSync(
+      path.resolve(__dirname, '../frontend/src/utils/markdownRenderer.ts'),
+      'utf-8'
+    );
+    expect(fmCode).toContain('ModalShell');
+    expect(fmCode).toContain('ui-surface-glass');
+    expect(fmCode).not.toContain('bg-[var(--bg-surface)]/80');
+    expect(fmCode).not.toMatch(/\bindigo-\d+/);
+    expect(fmCode).not.toMatch(/\bslate-\d+/);
+    expect(mdRendererCode).toContain('var(--accent-text)');
+    expect(mdRendererCode).toContain('var(--accent-primary)');
+    expect(mdRendererCode).not.toMatch(/\bindigo-\d+/);
+    expect(mdRendererCode).not.toMatch(/\bslate-\d+/);
+  });
 });

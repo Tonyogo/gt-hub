@@ -101,4 +101,14 @@ describe('Frontend TerminalProxyView & UnifiedTerminalView Integration', () => {
     expect(content).toContain('data-testid="proxy-curl-input"');
     expect(content).toContain('data-testid="proxy-curl-apply-btn"');
   });
+
+  it('uses Obsidian Azure primitives, tabular-nums, and zero legacy indigo/slate/opacity classes', () => {
+    const content = fs.readFileSync(proxyViewPath, 'utf-8');
+    expect(content).toContain('ui-btn-primary');
+    expect(content).toContain('ui-elevated-glass');
+    expect(content).toContain('tabular-nums');
+    expect(content).not.toMatch(/\bindigo-\d+/);
+    expect(content).not.toMatch(/\bslate-\d+/);
+    expect(content).not.toContain('bg-[var(--bg-elevated)]/95');
+  });
 });

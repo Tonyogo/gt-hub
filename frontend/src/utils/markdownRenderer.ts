@@ -149,7 +149,7 @@ function renderInline(str: string): string {
   let text = str.replace(/`([^`\n]+)`/g, (_, code) => {
     const idx = inlineCodes.length;
     inlineCodes.push(
-      `<code class="px-1.5 py-0.5 mx-0.5 rounded text-xs font-mono bg-[var(--code-bg)] text-indigo-600 dark:text-amber-300 border border-[var(--border-subtle)]">${escapeHtml(code)}</code>`
+      `<code class="px-1.5 py-0.5 mx-0.5 rounded text-xs font-mono bg-[var(--code-bg)] text-[var(--accent-text)] dark:text-amber-300 border border-[var(--border-subtle)]">${escapeHtml(code)}</code>`
     );
     return `@@INLINECODE${idx}@@`;
   });
@@ -166,7 +166,7 @@ function renderInline(str: string): string {
   text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, linkText, url) => {
     const idx = links.length;
     const safeUrl = sanitizeUrl(url);
-    links.push(`<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer" class="text-indigo-600 dark:text-indigo-400 hover:underline underline-offset-2">${escapeHtml(linkText)}</a>`);
+    links.push(`<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener noreferrer" class="text-[var(--accent-text)] hover:underline underline-offset-2">${escapeHtml(linkText)}</a>`);
     return `@@LINK${idx}@@`;
   });
 
@@ -282,7 +282,7 @@ export function renderMarkdownToHtml(
       }
       const quoteHtml = quoteLines.map(ql => renderInline(ql)).join('<br />');
       output.push(
-        `<blockquote class="border-l-4 border-indigo-500 pl-4 py-1.5 my-3 text-[var(--text-secondary)] italic bg-[var(--bg-surface-sub)] rounded-r">${quoteHtml}</blockquote>`
+        `<blockquote class="border-l-4 border-[var(--accent-primary)] pl-4 py-1.5 my-3 text-[var(--text-secondary)] italic bg-[var(--bg-surface-sub)] rounded-r">${quoteHtml}</blockquote>`
       );
       continue;
     }
@@ -380,7 +380,7 @@ export function renderMarkdownToHtml(
           listItems.push(
             `<li class="flex items-center space-x-2 my-1"><input type="checkbox" ${
               checked ? 'checked ' : ''
-            }disabled class="rounded border-[var(--border-default)] text-indigo-600 focus:ring-0 cursor-default" /><span>${text}</span></li>`
+            }disabled class="rounded border-[var(--border-default)] accent-[var(--accent-primary)] focus:ring-0 cursor-default" /><span>${text}</span></li>`
           );
           i++;
         } else if (curUnordered && !isOrdered) {

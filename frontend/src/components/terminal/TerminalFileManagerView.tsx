@@ -34,6 +34,7 @@ import { TerminalMarkdownViewer } from './TerminalMarkdownViewer';
 import { TerminalPdfPreviewModal } from './TerminalPdfPreviewModal';
 import { isMarkdownExtension, isPdfExtension } from '../../utils/markdownRenderer';
 import { apiFetch, requestAuthTicket } from '../../utils/apiClient';
+import { ModalShell } from '../ui/ModalShell';
 
 export interface ToastMessage {
   id: string;
@@ -735,7 +736,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
       return <FileText className="w-4 h-4 text-sky-400 shrink-0" />;
     }
     if (CODE_EXTENSIONS.has(ext)) {
-      return <FileCode className="w-4 h-4 text-indigo-400 shrink-0" />;
+      return <FileCode className="w-4 h-4 text-blue-500 dark:text-blue-400 shrink-0" />;
     }
     if (ARCHIVE_EXTENSIONS.has(ext)) {
       return <Archive className="w-4 h-4 text-orange-400 shrink-0" />;
@@ -782,597 +783,611 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
 
       {/* Empty State Guard */}
       {!activeHostId ? (
-        <div className="flex-1 flex flex-col items-center justify-center p-6 text-center select-none bg-[var(--bg-canvas)]">
-          <div className="w-12 h-12 rounded-xl bg-[var(--bg-surface-sub)] border border-[var(--border-subtle)] flex items-center justify-center text-[var(--text-muted)] mb-3">
-            <Folder className="w-6 h-6" />
+        <div className="ui-ambient-stage flex-1 flex flex-col items-center justify-center p-6 text-center select-none bg-[var(--bg-canvas)]">
+          <div className="relative z-10 flex flex-col items-center">
+            <div className="w-12 h-12 rounded-xl bg-[var(--accent-soft-bg)] border border-[var(--accent-soft-border)] flex items-center justify-center text-[var(--accent-text)] mb-3 dark:shadow-[0_0_24px_rgba(59,130,246,0.18)]">
+              <Folder className="w-6 h-6" />
+            </div>
+            <p className="text-sm font-medium text-[var(--text-primary)] font-sans">
+              {t('webTerminal.emptyState.title', '当前暂无在线终端节点')}
+            </p>
+            <p className="text-xs text-[var(--text-muted)] mt-1.5 max-w-sm leading-relaxed font-sans">
+              {t('webTerminal.emptyState.fileManagerDesc', '反向连接终端 Agent 节点后，即可在此实时浏览、编辑、上传和下载远程文件。')}
+            </p>
+            {onRequestAddNode && (
+              <button
+                type="button"
+                onClick={onRequestAddNode}
+                className="mt-4 px-3.5 py-1.5 ui-btn-primary flex items-center space-x-1.5 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>{t('webTerminal.hostSelector.addNode', '接入内网新节点')}</span>
+              </button>
+            )}
           </div>
-          <p className="text-sm font-medium text-[var(--text-secondary)] font-sans">
-            {t('webTerminal.emptyState.title', '当前暂无在线终端节点')}
-          </p>
-          <p className="text-xs text-[var(--text-muted)] mt-1.5 max-w-sm leading-relaxed font-sans">
-            {t('webTerminal.emptyState.fileManagerDesc', '反向连接终端 Agent 节点后，即可在此实时浏览、编辑、上传和下载远程文件。')}
-          </p>
-          {onRequestAddNode && (
-            <button
-              type="button"
-              onClick={onRequestAddNode}
-              className="mt-4 px-3.5 py-1.5 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-xs font-medium flex items-center space-x-1.5 transition-all active:scale-95 cursor-pointer shadow-xs"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>{t('webTerminal.hostSelector.addNode', '接入内网新节点')}</span>
-            </button>
-          )}
         </div>
       ) : (
         <>
-          {/* Top Action & Breadcrumb Bar */}
-          <div className="ui-card p-2 sm:p-2.5 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-subtle)] shrink-0 mb-2">
-        {/* Left: Breadcrumbs / Path input */}
-        <div className="flex items-center space-x-1.5 flex-1 min-w-[160px] sm:min-w-[240px] overflow-hidden text-xs sm:text-sm">
-          {parentPath !== null && (
-            <button
-              onClick={() => loadFiles(parentPath)}
-              title={t('files.parentDir', '返回上级')}
-              className="p-1 rounded-md hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors shrink-0"
-            >
-              <ArrowUp className="w-4 h-4" />
-            </button>
-          )}
+          {/* Edge-to-Edge Top Action & Breadcrumb Bar */}
+          <div className="bg-[var(--bg-surface)] px-3 py-2 flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-subtle)] shrink-0">
+            {/* Left: Breadcrumbs / Path input */}
+            <div className="flex items-center space-x-1.5 flex-1 min-w-[160px] sm:min-w-[240px] overflow-hidden text-xs sm:text-sm">
+              {parentPath !== null && (
+                <button
+                  onClick={() => loadFiles(parentPath)}
+                  title={t('files.parentDir', '返回上级')}
+                  className="p-1 rounded-md hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors shrink-0"
+                >
+                  <ArrowUp className="w-4 h-4" />
+                </button>
+              )}
 
-          {isEditingPath ? (
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                setIsEditingPath(false);
-                if (pathInput.trim()) loadFiles(pathInput.trim());
-              }}
-              className="flex-1 flex items-center gap-1 min-w-0"
-            >
-              <input
-                type="text"
-                value={pathInput}
-                onChange={(e) => setPathInput(e.target.value)}
-                autoFocus
-                onBlur={() => setIsEditingPath(false)}
-                className="flex-1 min-w-0 bg-[var(--bg-surface-sub)] border border-[var(--border-subtle)] rounded px-2 py-0.5 text-xs text-[var(--text-primary)] focus:outline-hidden focus:border-indigo-500"
-              />
-            </form>
-          ) : (
-            <div className="flex items-center flex-nowrap gap-1 overflow-x-auto py-0.5 no-scrollbar min-w-0">
-              {breadcrumbs.map((crumb, idx) => (
-                <React.Fragment key={crumb.fullPath}>
-                  {idx > 0 && <ChevronRight className="w-3.5 h-3.5 text-[var(--text-muted)] shrink-0" />}
+              {isEditingPath ? (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    setIsEditingPath(false);
+                    if (pathInput.trim()) loadFiles(pathInput.trim());
+                  }}
+                  className="flex-1 flex items-center gap-1 min-w-0"
+                >
+                  <input
+                    type="text"
+                    value={pathInput}
+                    onChange={(e) => setPathInput(e.target.value)}
+                    autoFocus
+                    onBlur={() => setIsEditingPath(false)}
+                    className="ui-input flex-1 min-w-0 px-2 py-0.5 font-mono"
+                  />
+                </form>
+              ) : (
+                <div className="flex items-center flex-nowrap gap-1 overflow-x-auto py-0.5 no-scrollbar min-w-0">
+                  {breadcrumbs.map((crumb, idx) => (
+                    <React.Fragment key={crumb.fullPath}>
+                      {idx > 0 && <ChevronRight className="w-3.5 h-3.5 text-[var(--text-muted)] shrink-0" />}
+                      <button
+                        onClick={() => loadFiles(crumb.fullPath)}
+                        className="hover:underline text-[var(--text-primary)] hover:text-[var(--accent-text)] truncate max-w-[100px] sm:max-w-[140px] font-medium font-mono shrink-0"
+                        title={crumb.fullPath}
+                      >
+                        {crumb.name}
+                      </button>
+                    </React.Fragment>
+                  ))}
                   <button
-                    onClick={() => loadFiles(crumb.fullPath)}
-                    className="hover:underline text-[var(--text-primary)] hover:text-[var(--accent-primary)] truncate max-w-[100px] sm:max-w-[140px] font-medium shrink-0"
-                    title={crumb.fullPath}
+                    onClick={() => setIsEditingPath(true)}
+                    title="Edit path manually"
+                    className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] shrink-0"
                   >
-                    {crumb.name}
+                    <Edit2 className="w-3 h-3" />
                   </button>
-                </React.Fragment>
-              ))}
+                </div>
+              )}
+
               <button
-                onClick={() => setIsEditingPath(true)}
-                title="Edit path manually"
-                className="p-1 text-[var(--text-muted)] hover:text-[var(--text-primary)] shrink-0"
+                onClick={handleCopyPath}
+                title={t('files.copyPath', '复制路径')}
+                className="p-1 rounded hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors shrink-0 ml-1"
               >
-                <Edit2 className="w-3 h-3" />
+                {copiedPath ? <Check className="w-3.5 h-3.5 text-[var(--status-success-text)]" /> : <Copy className="w-3.5 h-3.5" />}
               </button>
+            </div>
+
+            {/* Right: Search, Refresh, Upload, New Folder */}
+            <div className="flex items-center space-x-1 sm:space-x-1.5 shrink-0">
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder={t('files.searchPlaceholder', '过滤当前目录文件...')}
+                  className="ui-input pl-7 pr-2 py-1 w-24 sm:w-36 focus:w-36 sm:focus:w-48 transition-all"
+                />
+              </div>
+
+              <button
+                onClick={() => loadFiles(currentPath)}
+                disabled={loading}
+                title={t('files.refresh', '刷新')}
+                className="ui-icon-btn shrink-0"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-[var(--accent-primary)]' : ''}`} />
+              </button>
+
+              <button
+                type="button"
+                onClick={handleToggleHiddenFiles}
+                title={showHiddenFiles ? t('files.hideHidden', '不显示隐藏文件') : t('files.showHidden', '显示隐藏文件')}
+                className={`p-1.5 rounded-lg border transition-colors shrink-0 ${
+                  showHiddenFiles
+                    ? 'border-[var(--accent-soft-border)] bg-[var(--accent-soft-bg)] text-[var(--accent-text)]'
+                    : 'border-[var(--border-subtle)] bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                {showHiddenFiles ? (
+                  <Eye className="w-3.5 h-3.5" />
+                ) : (
+                  <EyeOff className="w-3.5 h-3.5" />
+                )}
+              </button>
+
+              <button
+                onClick={() => setNewFolderOpen(true)}
+                title={t('files.newFolder', '新建文件夹')}
+                className="ui-btn-secondary flex items-center space-x-1 px-2 sm:px-2.5 py-1 shrink-0 whitespace-nowrap"
+              >
+                <FolderPlus className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                <span className="hidden md:inline">{t('files.newFolder', '新建文件夹')}</span>
+              </button>
+
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                title={uploading ? t('files.uploading', '正在上传...') : t('files.upload', '上传文件')}
+                className="ui-btn-primary flex items-center space-x-1 px-2 sm:px-2.5 py-1 shrink-0 whitespace-nowrap cursor-pointer"
+              >
+                {uploading ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-current shrink-0" />
+                ) : (
+                  <Upload className="w-3.5 h-3.5 shrink-0" />
+                )}
+                <span className="hidden sm:inline">{uploading ? t('files.uploading', '正在上传...') : t('files.upload', '上传文件')}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Drag & Drop Visual Overlay */}
+          {isDragging && (
+            <div className="ui-surface-glass absolute inset-0 z-50 border-2 border-dashed border-[var(--accent-primary)] flex flex-col items-center justify-center pointer-events-none rounded-xl">
+              <Upload className="w-12 h-12 text-[var(--accent-primary)] animate-bounce mb-2" />
+              <p className="text-[var(--text-primary)] text-base font-semibold">
+                {t('files.dropToUpload', '释放鼠标以上传文件到此目录')}
+              </p>
             </div>
           )}
 
-          <button
-            onClick={handleCopyPath}
-            title={t('files.copyPath', '复制路径')}
-            className="p-1 rounded hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors shrink-0 ml-1"
-          >
-            {copiedPath ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-          </button>
-        </div>
-
-        {/* Right: Search, Refresh, Upload, New Folder */}
-        <div className="flex items-center space-x-1 sm:space-x-1.5 shrink-0">
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={t('files.searchPlaceholder', '过滤当前目录文件...')}
-              className="pl-7 pr-2 py-1 bg-[var(--bg-surface-sub)] border border-[var(--border-subtle)] rounded-lg text-xs w-24 sm:w-36 focus:w-36 sm:focus:w-48 transition-all focus:outline-hidden focus:border-indigo-500 text-[var(--text-primary)]"
-            />
-          </div>
-
-          <button
-            onClick={() => loadFiles(currentPath)}
-            disabled={loading}
-            title={t('files.refresh', '刷新')}
-            className="p-1.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-sub)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors shrink-0"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          </button>
-
-          <button
-            type="button"
-            onClick={handleToggleHiddenFiles}
-            title={showHiddenFiles ? t('files.hideHidden', '不显示隐藏文件') : t('files.showHidden', '显示隐藏文件')}
-            className={`p-1.5 rounded-lg border transition-colors shrink-0 ${
-              showHiddenFiles
-                ? 'border-indigo-500/40 bg-indigo-500/15 text-indigo-400 hover:bg-indigo-500/25'
-                : 'border-[var(--border-subtle)] bg-[var(--bg-surface-sub)] hover:bg-[var(--bg-surface-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-            }`}
-          >
-            {showHiddenFiles ? (
-              <Eye className="w-3.5 h-3.5" />
+          {/* Main File Table View (Edge-to-Edge) */}
+          <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-[var(--bg-canvas)] relative">
+            {loading && files.length === 0 ? (
+              <div className="flex-1 flex flex-col items-center justify-center text-[var(--text-muted)]">
+                <Loader2 className="w-8 h-8 animate-spin text-[var(--accent-primary)] mb-2" />
+                <span className="text-xs">{t('files.loading', '加载中...')}</span>
+              </div>
+            ) : error ? (
+              <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-[var(--status-danger-text)]">
+                <AlertTriangle className="w-8 h-8 mb-2" />
+                <span className="text-sm font-medium">{error}</span>
+                <button
+                  onClick={() => loadFiles(currentPath)}
+                  className="mt-3 px-3 py-1.5 ui-btn-primary cursor-pointer"
+                >
+                  {t('files.refresh', '重试')}
+                </button>
+              </div>
             ) : (
-              <EyeOff className="w-3.5 h-3.5" />
-            )}
-          </button>
+              <div className="flex-1 overflow-auto overscroll-contain">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead className="sticky top-0 bg-[var(--bg-surface-sub)] border-b border-[var(--border-subtle)] text-[var(--text-secondary)] font-medium z-10">
+                    <tr>
+                      <th className="py-2.5 px-3">{t('files.name', '名称')}</th>
+                      <th className="py-2.5 px-3 w-28 text-right hidden sm:table-cell">{t('files.size', '大小')}</th>
+                      <th className="py-2.5 px-3 w-40 hidden md:table-cell">{t('files.updatedAt', '修改时间')}</th>
+                      <th className="py-2.5 px-3 w-32 text-right">{t('files.actions', '操作')}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--border-subtle)]">
+                    {/* Parent directory row */}
+                    {parentPath !== null && !searchQuery && (
+                      <tr
+                        onClick={() => loadFiles(parentPath)}
+                        className="hover:bg-[var(--bg-surface-hover)] cursor-pointer transition-colors"
+                      >
+                        <td className="py-2 px-3 flex items-center space-x-2 text-[var(--text-secondary)] font-medium">
+                          <Folder className="w-4 h-4 text-amber-500/80" />
+                          <span className="font-mono">.. ({t('files.parentDir', '返回上级')})</span>
+                        </td>
+                        <td className="py-2 px-3 hidden sm:table-cell" />
+                        <td className="py-2 px-3 hidden md:table-cell" />
+                        <td className="py-2 px-3 text-right" />
+                      </tr>
+                    )}
 
-          <button
-            onClick={() => setNewFolderOpen(true)}
-            title={t('files.newFolder', '新建文件夹')}
-            className="flex items-center space-x-1 px-2 sm:px-2.5 py-1 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-sub)] hover:bg-[var(--bg-surface-hover)] text-xs text-[var(--text-primary)] transition-colors shrink-0 whitespace-nowrap"
-          >
-            <FolderPlus className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-            <span className="hidden md:inline">{t('files.newFolder', '新建文件夹')}</span>
-          </button>
-
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            title={uploading ? t('files.uploading', '正在上传...') : t('files.upload', '上传文件')}
-            className="flex items-center space-x-1 px-2 sm:px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-medium text-white shadow-xs transition-colors shrink-0 whitespace-nowrap"
-          >
-            {uploading ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-            ) : (
-              <Upload className="w-3.5 h-3.5 shrink-0" />
-            )}
-            <span className="hidden sm:inline">{uploading ? t('files.uploading', '正在上传...') : t('files.upload', '上传文件')}</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Drag & Drop Visual Overlay */}
-      {isDragging && (
-        <div className="absolute inset-0 z-50 bg-[var(--bg-surface)]/80 backdrop-blur-xs border-2 border-dashed border-[var(--accent-primary)] flex flex-col items-center justify-center pointer-events-none rounded-xl">
-          <Upload className="w-12 h-12 text-[var(--accent-primary)] animate-bounce mb-2" />
-          <p className="text-[var(--text-primary)] text-base font-semibold">
-            {t('files.dropToUpload', '释放鼠标以上传文件到此目录')}
-          </p>
-        </div>
-      )}
-
-      {/* Main File Table View */}
-      <div className="ui-card flex-1 min-h-0 flex flex-col overflow-hidden border border-[var(--border-subtle)] rounded-xl relative">
-        {loading && files.length === 0 ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-[var(--text-muted)]">
-            <Loader2 className="w-8 h-8 animate-spin text-indigo-500 mb-2" />
-            <span className="text-xs">{t('files.loading', '加载中...')}</span>
-          </div>
-        ) : error ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-rose-400">
-            <AlertTriangle className="w-8 h-8 mb-2" />
-            <span className="text-sm font-medium">{error}</span>
-            <button
-              onClick={() => loadFiles(currentPath)}
-              className="mt-3 px-3 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-xs"
-            >
-              {t('files.refresh', '重试')}
-            </button>
-          </div>
-        ) : (
-          <div className="flex-1 overflow-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead className="sticky top-0 bg-[var(--bg-surface-sub)] border-b border-[var(--border-subtle)] text-[var(--text-muted)] font-medium z-10">
-                <tr>
-                  <th className="py-2.5 px-3">{t('files.name', '名称')}</th>
-                  <th className="py-2.5 px-3 w-28 text-right hidden sm:table-cell">{t('files.size', '大小')}</th>
-                  <th className="py-2.5 px-3 w-40 hidden md:table-cell">{t('files.updatedAt', '修改时间')}</th>
-                  <th className="py-2.5 px-3 w-32 text-right">{t('files.actions', '操作')}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[var(--border-subtle)]">
-                {/* Parent directory row */}
-                {parentPath !== null && !searchQuery && (
-                  <tr
-                    onClick={() => loadFiles(parentPath)}
-                    className="hover:bg-[var(--bg-surface-hover)] cursor-pointer transition-colors"
-                  >
-                    <td className="py-2 px-3 flex items-center space-x-2 text-[var(--text-secondary)] font-medium">
-                      <Folder className="w-4 h-4 text-amber-500/80" />
-                      <span>.. ({t('files.parentDir', '返回上级')})</span>
-                    </td>
-                    <td className="py-2 px-3 hidden sm:table-cell" />
-                    <td className="py-2 px-3 hidden md:table-cell" />
-                    <td className="py-2 px-3 text-right" />
-                  </tr>
-                )}
-
-                {filteredFiles.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className="py-12 text-center text-[var(--text-muted)]">
-                      {t('files.emptyDir', '当前目录下没有文件。')}
-                    </td>
-                  </tr>
-                ) : (
-                  filteredFiles.map((item) => {
-                    const isHidden = item.name.startsWith('.');
-                    return (
-                    <tr
-                      key={item.path}
-                      className={`hover:bg-[var(--bg-surface-hover)] transition-colors group ${
-                        isHidden ? 'opacity-75' : ''
-                      }`}
-                      onDoubleClick={() => {
-                        if (item.isDirectory) {
-                          loadFiles(item.path);
-                        } else {
-                          handleOpenFile(item);
-                        }
-                      }}
-                    >
-                      <td className="py-2 px-3">
-                        <div className="flex items-center space-x-2 min-w-0">
-                          {renderItemIcon(item)}
-                          <button
-                            onClick={() => {
+                    {filteredFiles.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="py-12 text-center text-[var(--text-muted)]">
+                          {t('files.emptyDir', '当前目录下没有文件。')}
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredFiles.map((item) => {
+                        const isHidden = item.name.startsWith('.');
+                        return (
+                          <tr
+                            key={item.path}
+                            className={`hover:bg-[var(--bg-surface-hover)] transition-colors group ${
+                              isHidden ? 'opacity-75' : ''
+                            }`}
+                            onDoubleClick={() => {
                               if (item.isDirectory) {
                                 loadFiles(item.path);
                               } else {
                                 handleOpenFile(item);
                               }
                             }}
-                            className={`${
-                              isHidden ? 'text-[var(--text-muted)]' : 'text-[var(--text-primary)]'
-                            } hover:text-[var(--accent-primary)] truncate text-left font-medium transition-colors`}
-                            title={item.name}
                           >
-                            {item.name}
-                          </button>
-                        </div>
-                      </td>
+                            <td className="py-2 px-3">
+                              <div className="flex items-center space-x-2 min-w-0">
+                                {renderItemIcon(item)}
+                                <button
+                                  onClick={() => {
+                                    if (item.isDirectory) {
+                                      loadFiles(item.path);
+                                    } else {
+                                      handleOpenFile(item);
+                                    }
+                                  }}
+                                  className={`${
+                                    isHidden ? 'text-[var(--text-muted)]' : 'text-[var(--text-primary)]'
+                                  } hover:text-[var(--accent-text)] truncate text-left font-medium transition-colors`}
+                                  title={item.name}
+                                >
+                                  {item.name}
+                                </button>
+                              </div>
+                            </td>
 
-                      <td className="py-2 px-3 text-right text-[var(--text-muted)] font-mono hidden sm:table-cell">
-                        {item.isDirectory ? '-' : formatFileSize(item.size)}
-                      </td>
+                            <td className="py-2 px-3 text-right text-[var(--text-muted)] font-mono tabular-nums hidden sm:table-cell">
+                              {item.isDirectory ? '-' : formatFileSize(item.size)}
+                            </td>
 
-                      <td className="py-2 px-3 text-[var(--text-muted)] font-mono hidden md:table-cell">
-                        {formatDate(item.updatedAt)}
-                      </td>
+                            <td className="py-2 px-3 text-[var(--text-muted)] font-mono tabular-nums hidden md:table-cell">
+                              {formatDate(item.updatedAt)}
+                            </td>
 
-                      <td className="py-2 px-3 text-right">
-                        <div className="flex items-center justify-end space-x-1 opacity-80 group-hover:opacity-100 transition-opacity">
-                          {!item.isDirectory && (
-                            <>
-                              <button
-                                onClick={() => handleOpenFile(item)}
-                                title={t('files.preview', '查看 / 编辑')}
-                                className="p-1 rounded hover:bg-[var(--bg-control-hover)] text-[var(--text-muted)] hover:text-[var(--accent-primary)]"
-                              >
-                                <Eye className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => handleDownload(item)}
-                                title={t('files.download', '下载')}
-                                className="p-1 rounded hover:bg-[var(--bg-control-hover)] text-[var(--text-muted)] hover:text-emerald-400"
-                              >
-                                <Download className="w-3.5 h-3.5" />
-                              </button>
-                            </>
-                          )}
+                            <td className="py-2 px-3 text-right">
+                              <div className="flex items-center justify-end space-x-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                                {!item.isDirectory && (
+                                  <>
+                                    <button
+                                      onClick={() => handleOpenFile(item)}
+                                      title={t('files.preview', '查看 / 编辑')}
+                                      className="p-1 rounded hover:bg-[var(--bg-control-hover)] text-[var(--text-muted)] hover:text-[var(--accent-text)]"
+                                    >
+                                      <Eye className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDownload(item)}
+                                      title={t('files.download', '下载')}
+                                      className="p-1 rounded hover:bg-[var(--bg-control-hover)] text-[var(--text-muted)] hover:text-[var(--status-success-text)]"
+                                    >
+                                      <Download className="w-3.5 h-3.5" />
+                                    </button>
+                                  </>
+                                )}
 
-                          <button
-                            onClick={() => {
-                              setRenameTarget(item);
-                              setRenameInput(item.name);
-                            }}
-                            title={t('files.rename', '重命名')}
-                            className="p-1 rounded hover:bg-[var(--bg-control-hover)] text-[var(--text-muted)] hover:text-amber-400"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
+                                <button
+                                  onClick={() => {
+                                    setRenameTarget(item);
+                                    setRenameInput(item.name);
+                                  }}
+                                  title={t('files.rename', '重命名')}
+                                  className="p-1 rounded hover:bg-[var(--bg-control-hover)] text-[var(--text-muted)] hover:text-[var(--status-warning-text)]"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
 
-                          <button
-                            onClick={() => setDeleteTarget(item)}
-                            title={t('files.delete', '删除')}
-                            className="p-1 rounded hover:bg-[var(--bg-control-hover)] text-[var(--text-muted)] hover:text-rose-400"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                }))}
-              </tbody>
-            </table>
+                                <button
+                                  onClick={() => setDeleteTarget(item)}
+                                  title={t('files.delete', '删除')}
+                                  className="p-1 rounded hover:bg-[var(--bg-control-hover)] text-[var(--text-muted)] hover:text-[var(--status-danger-text)]"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-        )}
-      </div>
-      </>
+        </>
       )}
 
       {/* Modal: New Folder */}
-      {newFolderOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <form
-            onSubmit={handleCreateFolder}
-            className="ui-card w-full max-w-sm p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] shadow-2xl"
-          >
-            <h3 className="text-sm font-semibold mb-3 flex items-center space-x-2 text-[var(--text-primary)]">
-              <FolderPlus className="w-4 h-4 text-amber-400" />
-              <span>{t('files.createFolderTitle', '新建文件夹')}</span>
-            </h3>
-            <input
-              type="text"
-              value={newFolderName}
-              onChange={(e) => setNewFolderName(e.target.value)}
-              placeholder={t('files.folderNamePlaceholder', '输入文件夹名称')}
-              autoFocus
-              className="w-full px-3 py-1.5 mb-4 rounded-lg bg-[var(--bg-surface-sub)] border border-[var(--border-subtle)] text-xs text-[var(--text-primary)] focus:outline-hidden focus:border-indigo-500"
-            />
-            <div className="flex justify-end space-x-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setNewFolderOpen(false);
-                  setNewFolderName('');
-                }}
-                className="px-3 py-1 rounded-lg border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] transition-colors"
-              >
-                {t('files.cancel', '取消')}
-              </button>
-              <button
-                type="submit"
-                disabled={!newFolderName.trim()}
-                className="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-medium"
-              >
-                {t('files.confirm', '确定')}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
+      <ModalShell
+        isOpen={newFolderOpen}
+        onClose={() => {
+          setNewFolderOpen(false);
+          setNewFolderName('');
+        }}
+        maxWidthClassName="max-w-sm"
+        title={t('files.createFolderTitle', '新建文件夹')}
+        icon={<FolderPlus className="w-4 h-4 text-[var(--status-warning-text)]" />}
+        footer={
+          <div className="flex justify-end space-x-2">
+            <button
+              type="button"
+              onClick={() => {
+                setNewFolderOpen(false);
+                setNewFolderName('');
+              }}
+              className="ui-btn-secondary px-3 py-1.5"
+            >
+              {t('files.cancel', '取消')}
+            </button>
+            <button
+              type="submit"
+              form="fm-mkdir-form"
+              disabled={!newFolderName.trim()}
+              className="ui-btn-primary px-3 py-1.5 cursor-pointer"
+            >
+              {t('files.confirm', '确定')}
+            </button>
+          </div>
+        }
+      >
+        <form id="fm-mkdir-form" onSubmit={handleCreateFolder}>
+          <input
+            type="text"
+            value={newFolderName}
+            onChange={(e) => setNewFolderName(e.target.value)}
+            placeholder={t('files.folderNamePlaceholder', '输入文件夹名称')}
+            autoFocus
+            className="ui-input w-full"
+          />
+        </form>
+      </ModalShell>
 
       {/* Modal: Rename */}
-      {renameTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <form
-            onSubmit={handleRename}
-            className="ui-card w-full max-w-sm p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] shadow-2xl"
-          >
-            <h3 className="text-sm font-semibold mb-3 flex items-center space-x-2 text-[var(--text-primary)]">
-              <Edit2 className="w-4 h-4 text-amber-400" />
-              <span>{t('files.renameTitle', '重命名')}</span>
-            </h3>
-            <input
-              type="text"
-              value={renameInput}
-              onChange={(e) => setRenameInput(e.target.value)}
-              placeholder={t('files.newNamePlaceholder', '输入新名称')}
-              autoFocus
-              className="w-full px-3 py-1.5 mb-4 rounded-lg bg-[var(--bg-surface-sub)] border border-[var(--border-subtle)] text-xs text-[var(--text-primary)] focus:outline-hidden focus:border-indigo-500"
-            />
-            <div className="flex justify-end space-x-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setRenameTarget(null);
-                  setRenameInput('');
-                }}
-                className="px-3 py-1 rounded-lg border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] transition-colors"
-              >
-                {t('files.cancel', '取消')}
-              </button>
-              <button
-                type="submit"
-                disabled={!renameInput.trim() || renameInput === renameTarget.name}
-                className="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-medium"
-              >
-                {t('files.confirm', '确定')}
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
+      <ModalShell
+        isOpen={Boolean(renameTarget)}
+        onClose={() => {
+          setRenameTarget(null);
+          setRenameInput('');
+        }}
+        maxWidthClassName="max-w-sm"
+        title={t('files.renameTitle', '重命名')}
+        icon={<Edit2 className="w-4 h-4 text-[var(--status-warning-text)]" />}
+        footer={
+          <div className="flex justify-end space-x-2">
+            <button
+              type="button"
+              onClick={() => {
+                setRenameTarget(null);
+                setRenameInput('');
+              }}
+              className="ui-btn-secondary px-3 py-1.5"
+            >
+              {t('files.cancel', '取消')}
+            </button>
+            <button
+              type="submit"
+              form="fm-rename-form"
+              disabled={!renameInput.trim() || renameInput === renameTarget?.name}
+              className="ui-btn-primary px-3 py-1.5 cursor-pointer"
+            >
+              {t('files.confirm', '确定')}
+            </button>
+          </div>
+        }
+      >
+        <form id="fm-rename-form" onSubmit={handleRename}>
+          <input
+            type="text"
+            value={renameInput}
+            onChange={(e) => setRenameInput(e.target.value)}
+            placeholder={t('files.newNamePlaceholder', '输入新名称')}
+            autoFocus
+            className="ui-input w-full"
+          />
+        </form>
+      </ModalShell>
 
       {/* Modal: Delete Confirmation */}
-      {deleteTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="ui-card w-full max-w-sm p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] shadow-2xl">
-            <h3 className="text-sm font-semibold mb-2 text-rose-400 flex items-center space-x-2">
-              <AlertTriangle className="w-4 h-4" />
+      <ModalShell
+        isOpen={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        disableClose={deleting}
+        maxWidthClassName="max-w-sm"
+        title={t('files.delete', '删除')}
+        icon={<AlertTriangle className="w-4 h-4 text-[var(--status-danger-text)]" />}
+        footer={
+          <div className="flex justify-end space-x-2">
+            <button
+              type="button"
+              onClick={() => setDeleteTarget(null)}
+              disabled={deleting}
+              className="ui-btn-secondary px-3 py-1.5 disabled:opacity-50"
+            >
+              {t('files.cancel', '取消')}
+            </button>
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={deleting}
+              className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-medium disabled:opacity-50"
+            >
+              {deleting && <Loader2 className="w-3 h-3 animate-spin" />}
               <span>{t('files.delete', '删除')}</span>
-            </h3>
-            <p className="text-xs text-[var(--text-secondary)] mb-4">
-              {t('files.deleteConfirm', '确定要删除 "{name}" 吗？此操作不可逆！').replace('{name}', deleteTarget.name)}
-            </p>
-            <div className="flex justify-end space-x-2">
-              <button
-                type="button"
-                onClick={() => setDeleteTarget(null)}
-                disabled={deleting}
-                className="px-3 py-1 rounded-lg border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] transition-colors"
-              >
-                {t('files.cancel', '取消')}
-              </button>
-              <button
-                type="button"
-                onClick={handleDelete}
-                disabled={deleting}
-                className="flex items-center space-x-1 px-3 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-medium"
-              >
-                {deleting && <Loader2 className="w-3 h-3 animate-spin" />}
-                <span>{t('files.delete', '删除')}</span>
-              </button>
-            </div>
+            </button>
           </div>
-        </div>
-      )}
+        }
+      >
+        <p className="text-xs text-[var(--text-secondary)]">
+          {deleteTarget
+            ? t('files.deleteConfirm', '确定要删除 "{name}" 吗？此操作不可逆！').replace('{name}', deleteTarget.name)
+            : ''}
+        </p>
+      </ModalShell>
 
       {/* Modal: Text/Code Editor */}
-      {editorTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-2 sm:p-4">
-          <div className="ui-card w-full max-w-5xl h-[90vh] flex flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] shadow-2xl overflow-hidden">
-            {/* Header */}
-            <div className="p-3 border-b border-[var(--border-subtle)] flex items-center justify-between shrink-0 bg-[var(--bg-surface-sub)]">
-              <div className="flex items-center space-x-2 min-w-0">
-                {renderItemIcon(editorTarget.file)}
-                <span className="font-semibold text-xs sm:text-sm text-[var(--text-primary)] truncate" title={editorTarget.file.path}>
-                  {editorTarget.file.name}
+      <ModalShell
+        isOpen={Boolean(editorTarget)}
+        onClose={() => {
+          monacoEditorRef.current = null;
+          setEditorTarget(null);
+        }}
+        maxWidthClassName="max-w-5xl"
+        heightClassName="h-[88dvh]"
+        bodyClassName="p-0 flex flex-col relative"
+        icon={editorTarget ? renderItemIcon(editorTarget.file) : undefined}
+        title={
+          editorTarget ? (
+            <div className="flex items-center space-x-2 min-w-0">
+              <span className="truncate" title={editorTarget.file.path}>
+                {editorTarget.file.name}
+              </span>
+              <span className="ui-badge-neutral text-[10px] font-mono tabular-nums px-1.5 py-0.5 hidden sm:inline shrink-0">
+                {formatFileSize(editorTarget.file.size)}
+              </span>
+              {editorTarget.savedAlert && (
+                <span className="text-[10px] text-[var(--status-success-text)] font-medium animate-pulse flex items-center space-x-1 shrink-0">
+                  <Check className="w-3 h-3" />
+                  <span>{t('files.saved', '文件保存成功！')}</span>
                 </span>
-                <span className="text-[10px] text-[var(--text-muted)] font-mono px-1.5 py-0.5 rounded bg-[var(--bg-control)] hidden sm:inline">
-                  {formatFileSize(editorTarget.file.size)}
-                </span>
-                {editorTarget.savedAlert && (
-                  <span className="text-[10px] text-emerald-400 font-medium animate-pulse flex items-center space-x-1">
-                    <Check className="w-3 h-3" />
-                    <span>{t('files.saved', '文件保存成功！')}</span>
-                  </span>
-                )}
-              </div>
-
-              <div className="flex items-center space-x-2 shrink-0">
-                {isMarkdownExtension(editorTarget.file.extension) && !editorTarget.isBinary && (
-                  <div className="flex items-center rounded-lg bg-[var(--bg-canvas)] p-0.5 border border-[var(--border-subtle)] text-xs font-medium mr-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const liveContent =
-                          typeof monacoEditorRef.current?.getValue === 'function'
-                            ? monacoEditorRef.current.getValue()
-                            : undefined;
-                        monacoEditorRef.current = null;
-                        setEditorTarget((prev) =>
-                          prev
-                            ? {
-                                ...prev,
-                                content: liveContent !== undefined ? liveContent : prev.content,
-                                viewMode: 'preview',
-                              }
-                            : null
-                        );
-                      }}
-                      className={`flex items-center space-x-1 px-2.5 py-1 rounded-md transition-colors ${
-                        editorTarget.viewMode === 'preview'
-                          ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                      }`}
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>{t('files.previewMode', '预览')}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setEditorTarget((prev) => (prev ? { ...prev, viewMode: 'edit' } : null))}
-                      className={`flex items-center space-x-1 px-2.5 py-1 rounded-md transition-colors ${
-                        editorTarget.viewMode === 'edit'
-                          ? 'bg-indigo-600 text-white shadow-xs'
-                          : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                      }`}
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                      <span>{t('files.editMode', '编辑')}</span>
-                    </button>
-                  </div>
-                )}
-
-                <button
-                  onClick={() => handleDownload(editorTarget.file)}
-                  title={t('files.download', '下载')}
-                  className="flex items-center space-x-1 px-2 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] text-xs transition-colors"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">{t('files.download', '下载')}</span>
-                </button>
-
-                {!editorTarget.isBinary && (
-                  <button
-                    onClick={handleSaveEditor}
-                    disabled={editorTarget.saving || editorTarget.loading}
-                    className="flex items-center space-x-1 px-3 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-colors"
-                  >
-                    {editorTarget.saving ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Save className="w-3.5 h-3.5" />
-                    )}
-                    <span>{t('files.save', '保存 (Ctrl+S)')}</span>
-                  </button>
-                )}
-
-                <button
-                  onClick={() => {
-                    monacoEditorRef.current = null;
-                    setEditorTarget(null);
-                  }}
-                  className="p-1 rounded hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Editor Content Area */}
-            <div className="flex-1 min-h-0 relative">
-              {editorTarget.loading ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-[var(--text-muted)]">
-                  <Loader2 className="w-8 h-8 animate-spin text-indigo-500 mb-2" />
-                  <span className="text-xs">{t('files.loading', '加载中...')}</span>
-                </div>
-              ) : editorTarget.error ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center text-rose-400">
-                  <AlertTriangle className="w-8 h-8 mb-2" />
-                  <span className="text-sm font-medium">{editorTarget.error}</span>
-                </div>
-              ) : editorTarget.isBinary ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center text-[var(--text-muted)]">
-                  <File className="w-12 h-12 text-[var(--text-muted)] mb-3" />
-                  <p className="text-xs sm:text-sm max-w-md mb-4 text-[var(--text-secondary)]">
-                    {t('files.unsupportedPreview', '此文件为二进制格式，暂不支持在线预览。您可以直接下载查看。')}
-                  </p>
-                  <button
-                    onClick={() => handleDownload(editorTarget.file)}
-                    className="flex items-center space-x-1.5 px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium"
-                  >
-                    <Download className="w-4 h-4" />
-                    <span>{t('files.download', '下载文件')}</span>
-                  </button>
-                </div>
-              ) : editorTarget.viewMode === 'preview' && isMarkdownExtension(editorTarget.file.extension) ? (
-                <TerminalMarkdownViewer
-                  content={editorTarget.content}
-                  onRequestEdit={() => setEditorTarget((prev) => (prev ? { ...prev, viewMode: 'edit' } : null))}
-                />
-              ) : (
-                <Editor
-                  key={editorTarget.file.path}
-                  height="100%"
-                  language={getMonacoLanguage(editorTarget.file.extension)}
-                  theme={monacoTheme}
-                  beforeMount={defineGeminiProxyTheme}
-                  defaultValue={editorTarget.content}
-                  onMount={(editor) => {
-                    monacoEditorRef.current = editor;
-                  }}
-                  options={{
-                    minimap: { enabled: false },
-                    fontSize: 13,
-                    scrollBeyondLastLine: false,
-                    lineNumbers: 'on',
-                    automaticLayout: true,
-                    tabSize: 2,
-                    wordWrap: 'on',
-                    padding: { top: 12, bottom: 12 },
-                  }}
-                />
               )}
             </div>
+          ) : undefined
+        }
+        headerExtra={
+          editorTarget ? (
+            <div className="flex items-center space-x-2">
+              {isMarkdownExtension(editorTarget.file.extension) && !editorTarget.isBinary && (
+                <div className="flex items-center rounded-lg bg-[var(--bg-canvas)] p-0.5 border border-[var(--border-subtle)] text-xs font-medium mr-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const liveContent =
+                        typeof monacoEditorRef.current?.getValue === 'function'
+                          ? monacoEditorRef.current.getValue()
+                          : undefined;
+                      monacoEditorRef.current = null;
+                      setEditorTarget((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              content: liveContent !== undefined ? liveContent : prev.content,
+                              viewMode: 'preview',
+                            }
+                          : null
+                      );
+                    }}
+                    className={`flex items-center space-x-1 px-2.5 py-1 rounded-md border transition-colors ${
+                      editorTarget.viewMode === 'preview'
+                        ? 'bg-[var(--accent-soft-bg)] text-[var(--accent-text)] border-[var(--accent-soft-border)]'
+                        : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                    }`}
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>{t('files.previewMode', '预览')}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditorTarget((prev) => (prev ? { ...prev, viewMode: 'edit' } : null))}
+                    className={`flex items-center space-x-1 px-2.5 py-1 rounded-md border transition-colors ${
+                      editorTarget.viewMode === 'edit'
+                        ? 'bg-[var(--accent-soft-bg)] text-[var(--accent-text)] border-[var(--accent-soft-border)]'
+                        : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                    }`}
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                    <span>{t('files.editMode', '编辑')}</span>
+                  </button>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => handleDownload(editorTarget.file)}
+                title={t('files.download', '下载')}
+                className="ui-btn-secondary flex items-center space-x-1 px-2 py-1"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">{t('files.download', '下载')}</span>
+              </button>
+
+              {!editorTarget.isBinary && (
+                <button
+                  type="button"
+                  onClick={handleSaveEditor}
+                  disabled={editorTarget.saving || editorTarget.loading}
+                  className="ui-btn-primary flex items-center space-x-1 px-3 py-1 cursor-pointer"
+                >
+                  {editorTarget.saving ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-current" />
+                  ) : (
+                    <Save className="w-3.5 h-3.5" />
+                  )}
+                  <span>{t('files.save', '保存 (Ctrl+S)')}</span>
+                </button>
+              )}
+            </div>
+          ) : undefined
+        }
+      >
+        {editorTarget && (
+          <div className="flex-1 min-h-0 relative">
+            {editorTarget.loading ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center text-[var(--text-muted)]">
+                <Loader2 className="w-8 h-8 animate-spin text-[var(--accent-primary)] mb-2" />
+                <span className="text-xs">{t('files.loading', '加载中...')}</span>
+              </div>
+            ) : editorTarget.error ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center text-[var(--status-danger-text)]">
+                <AlertTriangle className="w-8 h-8 mb-2" />
+                <span className="text-sm font-medium">{editorTarget.error}</span>
+              </div>
+            ) : editorTarget.isBinary ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center text-[var(--text-muted)]">
+                <File className="w-12 h-12 text-[var(--text-muted)] mb-3" />
+                <p className="text-xs sm:text-sm max-w-md mb-4 text-[var(--text-secondary)]">
+                  {t('files.unsupportedPreview', '此文件为二进制格式，暂不支持在线预览。您可以直接下载查看。')}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => handleDownload(editorTarget.file)}
+                  className="ui-btn-primary flex items-center space-x-1.5 px-4 py-1.5 cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>{t('files.download', '下载文件')}</span>
+                </button>
+              </div>
+            ) : editorTarget.viewMode === 'preview' && isMarkdownExtension(editorTarget.file.extension) ? (
+              <TerminalMarkdownViewer
+                content={editorTarget.content}
+                onRequestEdit={() => setEditorTarget((prev) => (prev ? { ...prev, viewMode: 'edit' } : null))}
+              />
+            ) : (
+              <Editor
+                key={editorTarget.file.path}
+                height="100%"
+                language={getMonacoLanguage(editorTarget.file.extension)}
+                theme={monacoTheme}
+                beforeMount={defineGeminiProxyTheme}
+                defaultValue={editorTarget.content}
+                onMount={(editor) => {
+                  monacoEditorRef.current = editor;
+                }}
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 13,
+                  scrollBeyondLastLine: false,
+                  lineNumbers: 'on',
+                  automaticLayout: true,
+                  tabSize: 2,
+                  wordWrap: 'on',
+                  padding: { top: 12, bottom: 12 },
+                }}
+              />
+            )}
           </div>
-        </div>
-      )}
+        )}
+      </ModalShell>
 
       {/* Modal: PDF Preview */}
       {pdfPreviewTarget && (
@@ -1403,12 +1418,12 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
           {toasts.map((toast) => (
             <div
               key={toast.id}
-              className={`pointer-events-auto flex items-center justify-between p-3.5 rounded-lg shadow-lg text-sm transition-all duration-200 ${
+              className={`ui-elevated-glass pointer-events-auto flex items-center justify-between p-3.5 rounded-xl border shadow-[var(--shadow-popover)] text-sm transition-all duration-200 ${
                 toast.type === 'error'
-                  ? 'bg-red-600 text-white'
+                  ? 'border-[var(--status-danger-border)] text-[var(--status-danger-text)]'
                   : toast.type === 'success'
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-[var(--bg-elevated)] text-[var(--text-primary)] border border-[var(--border-subtle)]'
+                  ? 'border-[var(--status-success-border)] text-[var(--status-success-text)]'
+                  : 'border-[var(--border-default)] text-[var(--text-primary)]'
               }`}
             >
               <div className="flex items-center gap-2.5 flex-1 min-w-0">
@@ -1420,7 +1435,7 @@ const TerminalFileManagerView = React.forwardRef<TerminalFileManagerHandle, Term
               <button
                 type="button"
                 onClick={() => dismissToast(toast.id)}
-                className="ml-3 p-1 hover:bg-white/20 rounded transition"
+                className="ml-3 p-1 hover:bg-[var(--bg-control-hover)] rounded transition"
               >
                 <X className="w-4 h-4" />
               </button>

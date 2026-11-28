@@ -60,7 +60,7 @@ export const TerminalMarkdownViewer: React.FC<TerminalMarkdownViewerProps> = ({
           <button
             type="button"
             onClick={onRequestEdit}
-            className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-colors"
+            className="ui-btn-primary flex items-center space-x-1.5 px-3.5 py-1.5 cursor-pointer"
           >
             <Edit2 className="w-3.5 h-3.5" />
             <span>{t('files.editMode', '编辑')}</span>
