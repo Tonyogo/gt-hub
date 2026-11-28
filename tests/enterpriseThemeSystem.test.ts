@@ -5,48 +5,54 @@ describe('Enterprise Light & Dark Theme System Architecture', () => {
   const indexCssPath = path.resolve(__dirname, '../frontend/src/index.css');
   const tailwindConfigPath = path.resolve(__dirname, '../frontend/tailwind.config.js');
 
-  test('index.css defines complete Light and Dark semantic surface, text, and border tokens', () => {
-    const css = fs.readFileSync(indexCssPath, 'utf-8');
-    const requiredTokens = [
-      '--bg-canvas:',
-      '--bg-surface:',
-      '--bg-surface-sub:',
-      '--bg-elevated:',
-      '--bg-terminal:',
-      '--bg-control:',
-      '--bg-control-hover:',
-      '--bg-overlay:',
-      '--text-primary:',
-      '--text-secondary:',
-      '--text-muted:',
-      '--border-subtle:',
-      '--border-default:',
-      '--border-hover:',
-      '--border-focus:',
-    ];
-    for (const token of requiredTokens) {
-      expect(css).toContain(token);
-    }
-    // Verify Dark canvas is #090D16 and Light canvas is #F8FAFC
-    expect(css).toContain('#090D16');
-    expect(css).toContain('#F8FAFC');
-  });
+  describe('Obsidian Azure Foundation Tokens & Fonts', () => {
+    test('index.css defines complete Obsidian Azure Light & Dark tokens and primitives', () => {
+      const css = fs.readFileSync(indexCssPath, 'utf-8');
+      const requiredTokens = [
+        '--font-sans:', '--font-mono:',
+        '--bg-canvas: #f5f6f8;', '--bg-sidebar: #fafbfc;', '--bg-surface: #ffffff;', '--bg-surface-sub: #f8f9fb;',
+        '--bg-canvas: #07080a;', '--bg-sidebar: #0b0d11;', '--bg-surface: #101216;', '--bg-surface-sub: #161920;',
+        '--cta-bg: #111318;', '--cta-bg: #f4f6f9;', '--cta-text: #09090b;',
+        '--accent-primary: #2563eb;', '--accent-primary: #3b82f6;',
+        '--status-success-text: #047857;', '--status-success-text: #34d399;',
+        '--status-warning-text: #92400e;', '--status-warning-text: #fbbf24;',
+        '--status-danger-text: #be123c;', '--status-danger-text: #fb7185;',
+        '--status-info-text: #0369a1;', '--status-info-text: #38bdf8;',
+        '--shadow-card:', '--shadow-popover:',
+      ];
+      for (const token of requiredTokens) {
+        expect(css).toContain(token);
+      }
+      const requiredPrimitives = [
+        '.ui-card', '.ui-card-interactive', '.ui-btn-primary', '.ui-btn-secondary',
+        '.ui-ambient-stage', '.ui-row-indicator', '.ui-modal-shell', '.ui-composer-shell',
+        '.ui-tab-underline', '.ui-tab-underline-active',
+        '.ui-badge-success', '.ui-badge-warning', '.ui-badge-danger', '.ui-badge-info', '.ui-badge-neutral',
+        '.ui-elevated-glass', '.ui-surface-glass',
+      ];
+      for (const cls of requiredPrimitives) {
+        expect(css).toContain(cls);
+      }
+      expect(css).toContain('color-mix(in srgb');
+      expect(css).toContain(':not(.xterm-helper-textarea)');
+      expect(css).toContain('font-size: 16px !important');
+      expect(css).toContain('prefers-reduced-motion: reduce');
+      expect(css).not.toContain('indigo-');
+      expect(css).not.toContain('slate-');
+    });
 
-  test('index.css removes the brittle :root:not(.dark) slate/border override hack and purple button gradient', () => {
-    const css = fs.readFileSync(indexCssPath, 'utf-8');
-    expect(css).not.toContain('.border-white\\/\\[0\\.08\\]');
-    expect(css).not.toContain('to-purple-600');
-    expect(css).toContain('.ui-elevated');
-    expect(css).toContain('.ui-icon-btn');
-    expect(css).toContain('.ansi-log-container');
-  });
-
-  test('tailwind.config.js extends semantic colors mapped to CSS variables', () => {
-    const config = fs.readFileSync(tailwindConfigPath, 'utf-8');
-    expect(config).toContain('var(--bg-canvas)');
-    expect(config).toContain('var(--bg-surface)');
-    expect(config).toContain('var(--bg-elevated)');
-    expect(config).toContain('var(--bg-terminal)');
+    test('frontend self-hosts @fontsource-variable/inter and @fontsource-variable/jetbrains-mono', () => {
+      const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../frontend/package.json'), 'utf-8'));
+      const mainTsx = fs.readFileSync(path.resolve(__dirname, '../frontend/src/main.tsx'), 'utf-8');
+      const twConfig = fs.readFileSync(tailwindConfigPath, 'utf-8');
+      expect(pkg.dependencies['@fontsource-variable/inter']).toBeDefined();
+      expect(pkg.dependencies['@fontsource-variable/jetbrains-mono']).toBeDefined();
+      expect(mainTsx).toContain("@fontsource-variable/inter");
+      expect(mainTsx).toContain("@fontsource-variable/jetbrains-mono");
+      expect(twConfig).toContain('var(--font-sans)');
+      expect(twConfig).toContain('var(--font-mono)');
+      expect(twConfig).toContain('var(--bg-sidebar)');
+    });
   });
 
   test('App.tsx and LoginView.tsx use Indigo as primary brand accent instead of Emerald', () => {

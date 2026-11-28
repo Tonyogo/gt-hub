@@ -4,27 +4,82 @@
 
 @layer base {
   :root {
-    --bg-canvas: #F8FAFC;
-    --bg-surface: #FFFFFF;
-    --bg-surface-sub: #F1F5F9;
-    --bg-elevated: #FFFFFF;
-    --bg-terminal: #FFFFFF;
-    --bg-control: rgba(15, 23, 42, 0.04);
-    --bg-control-hover: rgba(15, 23, 42, 0.08);
-    --bg-surface-hover: rgba(15, 23, 42, 0.04);
-    --bg-overlay: rgba(15, 23, 42, 0.45);
-    --text-primary: #0F172A;
-    --text-secondary: #475569;
-    --text-muted: #64748B;
-    --border-subtle: #E2E8F0;
-    --border-default: #CBD5E1;
-    --border-hover: #94A3B8;
-    --border-focus: #4F46E5;
-    --code-bg: #F1F5F9;
-    --code-text: #0F172A;
-    --scrollbar-thumb: rgba(15, 23, 42, 0.18);
-    --scrollbar-thumb-hover: rgba(15, 23, 42, 0.32);
-    color-scheme: light dark;
+    --font-sans: 'Inter Variable', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+    /* Four-layer surfaces (Light) */
+    --bg-canvas: #f5f6f8;
+    --bg-sidebar: #fafbfc;
+    --bg-surface: #ffffff;
+    --bg-surface-sub: #f8f9fb;
+
+    /* Inputs & interaction states */
+    --bg-input: #ffffff;
+    --bg-surface-hover: rgba(17, 19, 24, 0.04);
+
+    /* Compatibility aliases */
+    --bg-elevated: #ffffff;
+    --bg-terminal: #ffffff;
+    --bg-control: rgba(17, 19, 24, 0.04);
+    --bg-control-hover: rgba(17, 19, 24, 0.075);
+    --bg-overlay: rgba(9, 9, 11, 0.35);
+
+    /* Borders */
+    --border-subtle: #e2e5eb;
+    --border-hover: #cfd5df;
+    --border-input: #d5dbe4;
+    --border-default: #d5dbe4;
+    --border-focus: #2563eb;
+
+    /* Text hierarchy */
+    --text-primary: #111318;
+    --text-secondary: #4b5262;
+    --text-muted: #646b7a;
+
+    /* Monochrome primary CTA */
+    --cta-bg: #111318;
+    --cta-hover: #262b36;
+    --cta-text: #ffffff;
+
+    /* Telemetry Azure accent */
+    --accent-primary: #2563eb;
+    --accent-fill: #2563eb;
+    --accent-hover: #1d4ed8;
+    --accent-text: #1d4ed8;
+    --accent-soft-bg: #eff6ff;
+    --accent-soft-border: #bfdbfe;
+
+    /* Semantic statuses */
+    --status-success-text: #047857;
+    --status-success-bg: #ecfdf5;
+    --status-success-border: #a7f3d0;
+    --status-warning-text: #92400e;
+    --status-warning-bg: #fffbeb;
+    --status-warning-border: #fde68a;
+    --status-danger-text: #be123c;
+    --status-danger-bg: #fff1f2;
+    --status-danger-border: #fecdd3;
+    --status-info-text: #0369a1;
+    --status-info-bg: #f0f9ff;
+    --status-info-border: #bae6fd;
+
+    /* Code & charts */
+    --code-bg: #ffffff;
+    --code-text: #111318;
+    --chart-grid: #e7eaef;
+    --chart-axis: #646b7a;
+
+    /* Shadows */
+    --shadow-card: 0 1px 2px rgba(17, 19, 24, 0.04), 0 6px 16px -4px rgba(17, 19, 24, 0.05);
+    --shadow-card-hover: 0 2px 6px rgba(17, 19, 24, 0.05), 0 12px 24px -6px rgba(17, 19, 24, 0.08);
+    --shadow-input: 0 1px 2px rgba(17, 19, 24, 0.02);
+    --shadow-popover: 0 14px 34px -6px rgba(17, 19, 24, 0.12), 0 4px 12px -2px rgba(17, 19, 24, 0.06);
+
+    /* Scrollbar */
+    --scrollbar-thumb: rgba(0, 0, 0, 0.15);
+    --scrollbar-thumb-hover: rgba(0, 0, 0, 0.28);
+
+    color-scheme: light;
   }
 
   :root[data-theme="light"] {
@@ -33,26 +88,78 @@
 
   :root.dark,
   :root[data-theme="dark"] {
-    --bg-canvas: #090D16;
-    --bg-surface: #0F1523;
-    --bg-surface-sub: #151D2E;
-    --bg-elevated: #182235;
-    --bg-terminal: #090D16;
-    --bg-control: rgba(255, 255, 255, 0.05);
-    --bg-control-hover: rgba(255, 255, 255, 0.10);
-    --bg-surface-hover: rgba(255, 255, 255, 0.05);
-    --bg-overlay: rgba(2, 6, 23, 0.72);
-    --text-primary: #F8FAFC;
-    --text-secondary: #94A3B8;
-    --text-muted: #64748B;
-    --border-subtle: rgba(255, 255, 255, 0.08);
-    --border-default: rgba(255, 255, 255, 0.14);
-    --border-hover: rgba(255, 255, 255, 0.22);
-    --border-focus: #6366F1;
-    --code-bg: #090D16;
-    --code-text: #E2E8F0;
-    --scrollbar-thumb: rgba(255, 255, 255, 0.14);
-    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.28);
+    /* Four-layer surfaces (Dark) */
+    --bg-canvas: #07080a;
+    --bg-sidebar: #0b0d11;
+    --bg-surface: #101216;
+    --bg-surface-sub: #161920;
+
+    /* Inputs & interaction states */
+    --bg-input: #0b0d11;
+    --bg-surface-hover: rgba(255, 255, 255, 0.045);
+
+    /* Compatibility aliases */
+    --bg-elevated: #13161d;
+    --bg-terminal: #07080a;
+    --bg-control: rgba(255, 255, 255, 0.045);
+    --bg-control-hover: rgba(255, 255, 255, 0.09);
+    --bg-overlay: rgba(0, 0, 0, 0.6);
+
+    /* Borders */
+    --border-subtle: rgba(255, 255, 255, 0.085);
+    --border-hover: rgba(255, 255, 255, 0.16);
+    --border-input: rgba(255, 255, 255, 0.12);
+    --border-default: rgba(255, 255, 255, 0.12);
+    --border-focus: #3b82f6;
+
+    /* Text hierarchy */
+    --text-primary: #f4f6f9;
+    --text-secondary: #a1a8b8;
+    --text-muted: #858d9e;
+
+    /* Monochrome primary CTA */
+    --cta-bg: #f4f6f9;
+    --cta-hover: #e2e7f0;
+    --cta-text: #09090b;
+
+    /* Telemetry Azure accent */
+    --accent-primary: #3b82f6;
+    --accent-fill: #3b82f6;
+    --accent-hover: #60a5fa;
+    --accent-text: #60a5fa;
+    --accent-soft-bg: rgba(59, 130, 246, 0.14);
+    --accent-soft-border: rgba(96, 165, 250, 0.28);
+
+    /* Semantic statuses */
+    --status-success-text: #34d399;
+    --status-success-bg: rgba(16, 185, 129, 0.14);
+    --status-success-border: rgba(52, 211, 153, 0.28);
+    --status-warning-text: #fbbf24;
+    --status-warning-bg: rgba(245, 158, 11, 0.14);
+    --status-warning-border: rgba(251, 191, 36, 0.28);
+    --status-danger-text: #fb7185;
+    --status-danger-bg: rgba(244, 63, 94, 0.14);
+    --status-danger-border: rgba(251, 113, 133, 0.28);
+    --status-info-text: #38bdf8;
+    --status-info-bg: rgba(56, 189, 248, 0.14);
+    --status-info-border: rgba(56, 189, 248, 0.28);
+
+    /* Code & charts */
+    --code-bg: #0b0d11;
+    --code-text: #e5e9f0;
+    --chart-grid: rgba(255, 255, 255, 0.07);
+    --chart-axis: #858d9e;
+
+    /* Shadows */
+    --shadow-card: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 10px 28px -12px rgba(0, 0, 0, 0.68);
+    --shadow-card-hover: inset 0 1px 0 rgba(255, 255, 255, 0.13), 0 14px 32px -10px rgba(0, 0, 0, 0.8);
+    --shadow-input: none;
+    --shadow-popover: inset 0 1px 0 rgba(255, 255, 255, 0.09), 0 22px 52px -12px rgba(0, 0, 0, 0.85);
+
+    /* Scrollbar */
+    --scrollbar-thumb: rgba(255, 255, 255, 0.12);
+    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.24);
+
     color-scheme: dark;
   }
 
@@ -65,8 +172,11 @@
   }
 
   body {
+    font-family: var(--font-sans);
     background-color: var(--bg-canvas);
     color: var(--text-primary);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 
@@ -96,35 +206,35 @@
   }
 }
 
-/* Light mode high-contrast ANSI log overrides for TaskLogModal and CronLogModal */
+/* Light mode high-contrast ANSI log overrides for TaskLogModal, CronLogModal, and TerminalLogsView */
 :root:not(.dark) .ansi-log-container {
-  color: #0F172A;
+  color: #111318;
 }
 :root:not(.dark) .ansi-log-container .text-emerald-400 {
   color: #047857;
 }
 :root:not(.dark) .ansi-log-container .text-rose-400 {
-  color: #BE123C;
+  color: #be123c;
 }
 :root:not(.dark) .ansi-log-container .text-amber-400 {
-  color: #B45309;
+  color: #b45309;
 }
-:root:not(.dark) .ansi-log-container .text-indigo-400 {
-  color: #4338CA;
+:root:not(.dark) .ansi-log-container .text-blue-400 {
+  color: #1d4ed8;
 }
 :root:not(.dark) .ansi-log-container .text-cyan-400 {
-  color: #0E7490;
+  color: #0e7490;
 }
 :root:not(.dark) .ansi-log-container .text-purple-400 {
-  color: #6D28D9;
+  color: #6d28d9;
 }
-:root:not(.dark) .ansi-log-container .text-slate-100,
-:root:not(.dark) .ansi-log-container .text-slate-200,
+:root:not(.dark) .ansi-log-container .text-zinc-100,
+:root:not(.dark) .ansi-log-container .text-zinc-200,
 :root:not(.dark) .ansi-log-container .text-white {
-  color: #0F172A;
+  color: #111318;
 }
-:root:not(.dark) .ansi-log-container .text-slate-400 {
-  color: #475569;
+:root:not(.dark) .ansi-log-container .text-zinc-400 {
+  color: #4b5262;
 }
 
 @keyframes pulse-slow {
@@ -148,75 +258,382 @@
   }
 
   .glow-subtle {
-    box-shadow: 0 0 20px -5px rgba(99, 102, 241, 0.15);
+    box-shadow: 0 0 20px -5px rgba(59, 130, 246, 0.16);
   }
 
   .glow-emerald {
-    box-shadow: 0 0 20px -5px rgba(16, 185, 129, 0.15);
+    box-shadow: 0 0 20px -5px rgba(16, 185, 129, 0.16);
   }
 
   .glow-amber {
-    box-shadow: 0 0 20px -5px rgba(245, 158, 11, 0.15);
+    box-shadow: 0 0 20px -5px rgba(245, 158, 11, 0.16);
   }
 
   .glow-rose {
-    box-shadow: 0 0 20px -5px rgba(244, 63, 94, 0.15);
+    box-shadow: 0 0 20px -5px rgba(244, 63, 94, 0.16);
   }
 
   .font-mono-refined {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-family: var(--font-mono);
     font-feature-settings: "liga" 0, "calt" 0;
     letter-spacing: -0.01em;
   }
 }
 
 @layer components {
-  /* 主卡片面板 */
+  /* Primary Card (12px radius + top micro-gradient in dark mode) */
   .ui-card {
-    @apply bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-primary)] rounded-2xl shadow-sm dark:shadow-none;
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-primary);
+    border-radius: 12px;
+    box-shadow: var(--shadow-card);
   }
 
-  /* 内嵌子卡片 / 表格行 */
+  :root.dark .ui-card,
+  :root[data-theme="dark"] .ui-card {
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.025) 0%, transparent 100%);
+  }
+
+  .ui-card-interactive {
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-primary);
+    border-radius: 12px;
+    box-shadow: var(--shadow-card);
+    transition: border-color 0.2s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.2s cubic-bezier(0.22, 1, 0.36, 1), transform 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  :root.dark .ui-card-interactive,
+  :root[data-theme="dark"] .ui-card-interactive {
+    background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.025) 0%, transparent 100%);
+  }
+
+  .ui-card-interactive:hover {
+    border-color: var(--border-hover);
+    box-shadow: var(--shadow-card-hover);
+  }
+
+  /* Sub Card / Recessed Well */
   .ui-card-sub {
-    @apply bg-[var(--bg-surface-sub)] border border-[var(--border-subtle)] text-[var(--text-primary)] rounded-xl;
+    background-color: var(--bg-surface-sub);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-primary);
+    border-radius: 12px;
   }
 
-  /* 高阶浮层面板 / 弹窗外壳 */
+  /* Elevated Panel */
   .ui-elevated {
-    @apply bg-[var(--bg-elevated)] border border-[var(--border-default)] text-[var(--text-primary)] rounded-2xl shadow-xl dark:shadow-2xl;
+    background-color: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    color: var(--text-primary);
+    border-radius: 12px;
+    box-shadow: var(--shadow-popover);
   }
 
-  /* 胶囊 Tab 切换容器与按键 */
+  /* Color-mix Glass Surfaces (Tailwind v3 CSS variable opacity modifier replacement) */
+  .ui-elevated-glass {
+    background-color: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  .ui-surface-glass {
+    background-color: color-mix(in srgb, var(--bg-surface) 84%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  /* Monochrome High-Contrast Primary CTA (never pair with text-white) */
+  .ui-btn-primary {
+    background-color: var(--cta-bg);
+    color: var(--cta-text);
+    border-radius: 8px;
+    font-weight: 500;
+    font-size: 0.75rem;
+    line-height: 1rem;
+    box-shadow: var(--shadow-input);
+    transition: background-color 0.18s ease, transform 0.15s ease, opacity 0.18s ease;
+  }
+
+  .ui-btn-primary:hover:not(:disabled) {
+    background-color: var(--cta-hover);
+  }
+
+  .ui-btn-primary:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+
+  .ui-btn-primary:disabled {
+    opacity: 0.5;
+    pointer-events: none;
+  }
+
+  /* Secondary Button */
+  .ui-btn-secondary {
+    background-color: var(--bg-control);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
+    border-radius: 8px;
+    font-weight: 500;
+    font-size: 0.75rem;
+    line-height: 1rem;
+    transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.15s ease;
+  }
+
+  .ui-btn-secondary:hover:not(:disabled) {
+    background-color: var(--bg-control-hover);
+    border-color: var(--border-hover);
+    color: var(--text-primary);
+  }
+
+  .ui-btn-secondary:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+
+  .ui-btn-secondary:disabled {
+    opacity: 0.5;
+    pointer-events: none;
+  }
+
+  /* Icon Action Button */
+  .ui-icon-btn {
+    padding: 0.375rem;
+    border-radius: 8px;
+    background-color: var(--bg-control);
+    border: 1px solid var(--border-subtle);
+    color: var(--text-secondary);
+    transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.15s ease;
+  }
+
+  .ui-icon-btn:hover:not(:disabled) {
+    background-color: var(--bg-control-hover);
+    border-color: var(--border-hover);
+    color: var(--text-primary);
+  }
+
+  .ui-icon-btn:active:not(:disabled) {
+    transform: scale(0.95);
+  }
+
+  /* Unified Input */
+  .ui-input {
+    background-color: var(--bg-input);
+    border: 1px solid var(--border-input);
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.75rem;
+    line-height: 1rem;
+    color: var(--text-primary);
+    box-shadow: var(--shadow-input);
+    transition: border-color 0.18s ease, box-shadow 0.18s ease;
+  }
+
+  .ui-input::placeholder {
+    color: var(--text-muted);
+  }
+
+  .ui-input:hover {
+    border-color: var(--border-hover);
+  }
+
+  .ui-input:focus {
+    outline: none;
+    border-color: var(--accent-fill);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.14);
+  }
+
+  /* Composer / Key Input Shell */
+  .ui-composer-shell {
+    background-color: var(--bg-input);
+    border: 1px solid var(--border-input);
+    border-radius: 12px;
+    box-shadow: var(--shadow-card);
+    transition: border-color 0.18s ease, box-shadow 0.18s ease;
+  }
+
+  .ui-composer-shell:focus-within {
+    border-color: var(--accent-fill);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.14);
+  }
+
+  /* Ambient Aurora Stage (Login & Empty States only) */
+  .ui-ambient-stage {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .ui-ambient-stage::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 260px;
+    pointer-events: none;
+    background: radial-gradient(60% 100% at 50% 0%, rgba(37, 99, 235, 0.055), transparent 70%);
+  }
+
+  :root.dark .ui-ambient-stage::before,
+  :root[data-theme="dark"] .ui-ambient-stage::before {
+    background: radial-gradient(60% 100% at 50% 0%, rgba(56, 189, 248, 0.08), transparent 70%);
+  }
+
+  /* Active Row Left Indicator */
+  .ui-row-indicator {
+    position: absolute;
+    left: 0;
+    top: 6px;
+    bottom: 6px;
+    width: 2.5px;
+    border-radius: 0 2px 2px 0;
+    background: var(--accent-primary);
+  }
+
+  :root.dark .ui-row-indicator,
+  :root[data-theme="dark"] .ui-row-indicator {
+    background: linear-gradient(180deg, #38bdf8, #3b82f6);
+    box-shadow: 0 0 8px rgba(56, 189, 248, 0.65);
+  }
+
+  /* Modal / Drawer Entrance (Opacity only, zero transform scale/zoom) */
+  @keyframes uiModalFadeIn {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  .ui-modal-shell {
+    animation: uiModalFadeIn 0.18s ease-out;
+  }
+
+  /* Underline Sub-Navigation Tabs */
+  .ui-tab-underline {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    border-radius: 8px;
+    transition: color 0.18s ease, background-color 0.18s ease;
+  }
+
+  .ui-tab-underline:hover {
+    color: var(--text-primary);
+    background-color: var(--bg-surface-hover);
+  }
+
+  .ui-tab-underline-active {
+    color: var(--text-primary);
+  }
+
+  .ui-tab-underline-active::after {
+    content: "";
+    position: absolute;
+    left: 0.5rem;
+    right: 0.5rem;
+    bottom: 0;
+    height: 2px;
+    border-radius: 9999px;
+    background: var(--accent-fill);
+  }
+
+  :root.dark .ui-tab-underline-active::after,
+  :root[data-theme="dark"] .ui-tab-underline-active::after {
+    background: linear-gradient(90deg, #38bdf8, #3b82f6);
+    box-shadow: 0 0 8px rgba(56, 189, 248, 0.55);
+  }
+
+  /* Compatibility Pill Tabs (uses Azure soft accent tokens) */
   .ui-tab-container {
-    @apply flex items-center p-1 bg-[var(--bg-surface-sub)] rounded-xl border border-[var(--border-subtle)];
+    display: flex;
+    align-items: center;
+    padding: 0.25rem;
+    background-color: var(--bg-surface-sub);
+    border-radius: 10px;
+    border: 1px solid var(--border-subtle);
   }
+
   .ui-tab-pill {
-    @apply px-3 py-1.5 rounded-lg text-xs font-medium transition-all text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)];
+    padding: 0.375rem 0.75rem;
+    border-radius: 8px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    transition: color 0.18s ease, background-color 0.18s ease;
   }
+
+  .ui-tab-pill:hover {
+    color: var(--text-primary);
+    background-color: var(--bg-control-hover);
+  }
+
   .ui-tab-pill-active,
   .ui-tab-pill-active:hover,
   .ui-tab-pill-active:focus,
   .ui-tab-pill-active:active {
-    @apply !bg-indigo-600 !text-white shadow-xs;
+    background-color: var(--accent-soft-bg) !important;
+    color: var(--accent-text) !important;
+    border: 1px solid var(--accent-soft-border);
   }
 
-  /* 统一主按钮（纯色 Indigo，去除紫渐变） */
-  .ui-btn-primary {
-    @apply bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white rounded-xl font-medium text-xs shadow-xs transition-all active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none;
-  }
-  /* 统一次级按钮 */
-  .ui-btn-secondary {
-    @apply bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] border border-[var(--border-subtle)] hover:border-[var(--border-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] rounded-xl text-xs font-medium transition-all active:scale-[0.98];
-  }
-
-  /* 图标操作按钮 */
-  .ui-icon-btn {
-    @apply p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all active:scale-95;
+  /* Semantic Badges (6px radius) */
+  .ui-badge-success {
+    background-color: var(--status-success-bg);
+    color: var(--status-success-text);
+    border: 1px solid var(--status-success-border);
+    border-radius: 6px;
   }
 
-  /* 统一输入框与下拉框 */
-  .ui-input {
-    @apply bg-[var(--bg-surface-sub)] border border-[var(--border-default)] hover:border-[var(--border-hover)] focus:border-indigo-500 rounded-xl px-3 py-2 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-indigo-500/30 font-mono transition-all;
+  .ui-badge-warning {
+    background-color: var(--status-warning-bg);
+    color: var(--status-warning-text);
+    border: 1px solid var(--status-warning-border);
+    border-radius: 6px;
+  }
+
+  .ui-badge-danger {
+    background-color: var(--status-danger-bg);
+    color: var(--status-danger-text);
+    border: 1px solid var(--status-danger-border);
+    border-radius: 6px;
+  }
+
+  .ui-badge-info {
+    background-color: var(--status-info-bg);
+    color: var(--status-info-text);
+    border: 1px solid var(--status-info-border);
+    border-radius: 6px;
+  }
+
+  .ui-badge-neutral {
+    background-color: var(--bg-control);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: 6px;
+  }
+}
+
+/* Mobile input 16px zoom guard (excludes xterm helper textarea to preserve IME metrics) */
+@media screen and (max-width: 767px) {
+  input:not(.xterm-helper-textarea),
+  textarea:not(.xterm-helper-textarea),
+  select {
+    font-size: 16px !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-card-interactive,
+  .ui-composer-shell,
+  .ui-modal-shell,
+  .animate-pulse-slow {
+    animation: none !important;
+    transition: none !important;
   }
 }
 
@@ -291,4 +708,3 @@
   opacity: 0 !important;
   pointer-events: none !important;
 }
-

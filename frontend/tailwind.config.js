@@ -7,14 +7,21 @@ export default {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['var(--font-sans)'],
+        mono: ['var(--font-mono)'],
+      },
       colors: {
         canvas: 'var(--bg-canvas)',
+        sidebar: 'var(--bg-sidebar)',
         surface: 'var(--bg-surface)',
         'surface-sub': 'var(--bg-surface-sub)',
+        input: 'var(--bg-input)',
         elevated: 'var(--bg-elevated)',
         terminal: 'var(--bg-terminal)',
         control: 'var(--bg-control)',
         'control-hover': 'var(--bg-control-hover)',
+        accent: 'var(--accent-primary)',
       },
       boxShadow: {
         xs: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
