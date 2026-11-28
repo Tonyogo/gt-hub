@@ -37,4 +37,14 @@ describe('Frontend TerminalCronView Component Standards and Capabilities', () =>
     expect(cronViewContent).toContain('showToast');
     expect(cronViewContent).toMatch(/(emptyTitle|emptyDesc|noOnlineHosts|noNode)/);
   });
+
+  it('uses Obsidian Azure primitives, tabular-nums, and zero legacy indigo/slate/opacity classes', () => {
+    expect(cronViewContent).toContain('ui-ambient-stage');
+    expect(cronViewContent).toContain('ui-btn-primary');
+    expect(cronViewContent).toContain('ui-elevated-glass');
+    expect(cronViewContent).toContain('tabular-nums');
+    expect(cronViewContent).not.toMatch(/\bindigo-\d+/);
+    expect(cronViewContent).not.toMatch(/\bslate-\d+/);
+    expect(cronViewContent).not.toContain('bg-[var(--bg-elevated)]/95');
+  });
 });

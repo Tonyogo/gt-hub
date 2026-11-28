@@ -31,4 +31,17 @@ describe('UnifiedTerminalView SubTab Integration with Tasks & Timezone', () => {
     expect(content).toContain('<TerminalTaskView');
     expect(content).toContain("subTab === 'tasks'");
   });
+
+  it('TerminalTaskView uses 4-column seamless KPI strip, SWR refresh, Obsidian Azure primitives, and zero legacy classes', () => {
+    const taskViewPath = path.resolve(__dirname, '../frontend/src/components/terminal/TerminalTaskView.tsx');
+    const taskContent = fs.readFileSync(taskViewPath, 'utf-8');
+    expect(taskContent).toContain('divide-x');
+    expect(taskContent).toContain('tabular-nums');
+    expect(taskContent).toContain('ui-ambient-stage');
+    expect(taskContent).toContain('ui-btn-primary');
+    expect(taskContent).toContain('ui-elevated-glass');
+    expect(taskContent).not.toMatch(/\bindigo-\d+/);
+    expect(taskContent).not.toMatch(/\bslate-\d+/);
+    expect(taskContent).not.toContain('bg-[var(--bg-elevated)]/95');
+  });
 });
