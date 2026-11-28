@@ -31,4 +31,13 @@ describe('LoginView Component Architecture', () => {
     expect(content).toContain('useAuth()');
     expect(content).toContain('login(');
   });
+
+  it('uses Obsidian Azure primitives, embedded shell visibility, and zero legacy indigo/slate classes', () => {
+    expect(content).toContain('ui-ambient-stage');
+    expect(content).toContain('ui-card');
+    expect(content).toContain('ui-btn-primary');
+    expect(content).toContain('getEmbeddedShellVisibility');
+    expect(content).not.toMatch(/\bindigo-\d+/);
+    expect(content).not.toMatch(/\bslate-\d+/);
+  });
 });

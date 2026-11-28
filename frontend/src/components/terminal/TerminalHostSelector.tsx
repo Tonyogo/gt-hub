@@ -6,7 +6,6 @@ import {
   Check,
   Plus,
   Copy,
-  X,
   Search,
   RefreshCw,
   Terminal,
@@ -16,6 +15,7 @@ import {
 import { useTranslation } from '../../i18n/LanguageContext';
 import { formatRelativeTime, formatUptime } from '../../utils/timeHelpers';
 import { apiFetch, getStoredAdminKey } from '../../utils/apiClient';
+import { ModalShell } from '../ui/ModalShell';
 
 export interface ManagedHostItem {
   id: string;
@@ -268,17 +268,6 @@ export function TerminalHostSelector({
     };
   }, [isOpen, updateDropdownPosition]);
 
-  useEffect(() => {
-    if (!isAddModalOpen) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setIsAddModalOpen(false);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isAddModalOpen]);
-
   const activeHost = useMemo(() => {
     return hosts.find((h) => h.id === activeHostId) || null;
   }, [hosts, activeHostId]);
@@ -392,13 +381,13 @@ export function TerminalHostSelector({
         left: `${dropdownPos.left}px`,
         maxHeight: dropdownPos.maxHeight ? `${dropdownPos.maxHeight}px` : undefined,
       }}
-      className="w-72 sm:w-80 rounded-xl bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-2xl z-[9999] overflow-hidden animate-in fade-in zoom-in-95 font-sans flex flex-col"
+      className="ui-modal-shell w-72 sm:w-80 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] shadow-[var(--shadow-popover)] z-[9999] overflow-hidden font-sans flex flex-col"
     >
       {/* Header with Search, Add Node Button & Clear Offline */}
       <div className="p-2 border-b border-[var(--border-subtle)] bg-[var(--bg-surface-sub)] space-y-2 shrink-0">
         <div className="flex flex-wrap items-center justify-between gap-1 text-xs px-1">
           <span className="font-semibold text-[var(--text-secondary)] flex items-center space-x-1.5 min-w-0">
-            <Server className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+            <Server className="w-3.5 h-3.5 text-[var(--accent-text)] shrink-0" />
             <span>
               {t('webTerminal.hostSelector.hostsCount', {
                 online: onlineCount.toString(),
@@ -409,7 +398,7 @@ export function TerminalHostSelector({
             </span>
             {serverUptimeText && (
               <span
-                className="text-[10px] font-normal text-[var(--text-muted)] font-mono truncate"
+                className="text-[10px] font-normal text-[var(--text-muted)] font-mono tabular-nums truncate"
                 title={
                   serverStartTime
                     ? `${t('webTerminal.hostSelector.serverStartedAt', '服务启动时间: ')}${new Date(serverStartTime).toLocaleString()}`
@@ -427,7 +416,7 @@ export function TerminalHostSelector({
                 type="button"
                 onClick={handleClearOfflineHosts}
                 disabled={isClearingOffline}
-                className="flex items-center space-x-1 px-1.5 py-0.5 rounded-md bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-[11px] font-medium transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+                className="flex items-center space-x-1 px-1.5 py-0.5 rounded-md bg-[var(--status-danger-bg)] hover:opacity-90 text-[var(--status-danger-text)] border border-[var(--status-danger-border)] text-[11px] font-medium transition-all active:scale-95 cursor-pointer disabled:opacity-50"
                 title={t('webTerminal.hostSelector.clearOfflineTooltip', '清除当前所有已离线的主机节点')}
               >
                 <Trash2 className="w-3 h-3" />
@@ -441,7 +430,7 @@ export function TerminalHostSelector({
                 setIsOpen(false);
                 setIsAddModalOpen(true);
               }}
-              className="flex items-center space-x-1 px-2 py-0.5 rounded-md bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-600 dark:text-indigo-300 border border-indigo-500/30 text-[11px] font-medium transition-all active:scale-95 cursor-pointer"
+              className="flex items-center space-x-1 px-2 py-0.5 rounded-md bg-[var(--accent-soft-bg)] hover:opacity-90 text-[var(--accent-text)] border border-[var(--accent-soft-border)] text-[11px] font-medium transition-all active:scale-95 cursor-pointer"
             >
               <Plus className="w-3 h-3" />
               <span>{t('webTerminal.hostSelector.addNode')}</span>
@@ -457,14 +446,14 @@ export function TerminalHostSelector({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={t('webTerminal.hostSelector.filterPlaceholder')}
-            className="w-full pl-8 pr-8 py-1 bg-[var(--bg-surface-sub)] border border-[var(--border-subtle)] rounded-lg text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            className="w-full pl-8 pr-8 py-1 bg-[var(--bg-input)] border border-[var(--border-input)] rounded-lg text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-fill)]"
           />
           <button
             type="button"
             onClick={toggleHideOffline}
             className={`absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded-md transition-all ${
               hideOffline
-                ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/15 border border-emerald-500/30'
+                ? 'text-[var(--status-success-text)] bg-[var(--status-success-bg)] border border-[var(--status-success-border)]'
                 : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             }`}
             title={hideOffline ? t('webTerminal.hostSelector.showAllHosts') : t('webTerminal.hostSelector.showOnlyOnline')}
@@ -475,7 +464,7 @@ export function TerminalHostSelector({
       </div>
 
       {/* Host Item List */}
-      <div className="max-h-64 sm:max-h-80 overflow-y-auto overscroll-contain p-1 pb-2 divide-y divide-[var(--border-subtle)]/40">
+      <div className="max-h-64 sm:max-h-80 overflow-y-auto overscroll-contain p-1 pb-2 divide-y divide-[var(--border-subtle)]">
         {filteredHosts.map((h) => {
           const isSelected = h.id === activeHostId;
           const isOnline = h.status === 'online';
@@ -499,20 +488,21 @@ export function TerminalHostSelector({
                 setIsOpen(false);
               }}
               title={buttonTooltip}
-              className={`w-full p-2 rounded-lg flex items-center justify-between text-left transition-all ${
+              className={`relative w-full p-2 rounded-lg flex items-center justify-between text-left transition-all ${
                 isSelected
-                  ? 'bg-indigo-600/15 text-indigo-600 dark:text-indigo-300 font-medium'
+                  ? 'bg-[var(--accent-soft-bg)] text-[var(--accent-text)] font-medium'
                   : 'hover:bg-[var(--bg-control-hover)] text-[var(--text-primary)]'
               }`}
             >
+              {isSelected && <span className="ui-row-indicator" />}
               <div className="flex items-center space-x-2.5 min-w-0">
                 <div
                   className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
                     isSelected
-                      ? 'bg-indigo-500/20 text-indigo-400'
+                      ? 'bg-[var(--accent-soft-bg)] text-[var(--accent-text)]'
                       : isOnline
-                      ? 'bg-emerald-500/10 text-emerald-400'
-                      : 'bg-slate-500/10 text-slate-400'
+                      ? 'bg-[var(--status-success-bg)] text-[var(--status-success-text)]'
+                      : 'bg-[var(--bg-control)] text-[var(--text-muted)]'
                   }`}
                 >
                   <Server className="w-4 h-4" />
@@ -525,11 +515,11 @@ export function TerminalHostSelector({
                     </span>
                     <span
                       className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                        isOnline ? 'bg-emerald-400' : 'bg-slate-500'
+                        isOnline ? 'bg-emerald-400 dark:shadow-[0_0_8px_rgba(52,211,153,0.65)]' : 'bg-zinc-400 dark:bg-zinc-500'
                       }`}
                     />
                   </div>
-                  <div className="text-[10px] text-[var(--text-muted)] truncate font-mono">
+                  <div className="text-[10px] text-[var(--text-muted)] truncate font-mono tabular-nums">
                     {isOnline
                       ? `${h.ip} · ${h.platform}${nodeUptimeText ? ` · ${nodeUptimeText}` : ''}`
                       : `${h.ip} · ${formatRelativeTime(h.lastSeen, lang)}`}
@@ -537,14 +527,14 @@ export function TerminalHostSelector({
                 </div>
               </div>
 
-              {isSelected && <Check className="w-4 h-4 text-indigo-400 shrink-0 ml-2" />}
+              {isSelected && <Check className="w-4 h-4 text-[var(--accent-text)] shrink-0 ml-2" />}
             </button>
           );
         })}
 
         {filteredHosts.length === 0 && (
           <div className="p-4 text-center text-xs text-[var(--text-muted)] font-sans space-y-1.5">
-            {isLoading ? <RefreshCw className="w-4 h-4 animate-spin mx-auto mb-1 text-indigo-400" /> : null}
+            {isLoading ? <RefreshCw className="w-4 h-4 animate-spin mx-auto mb-1 text-[var(--accent-text)]" /> : null}
             <div>{t('webTerminal.hostSelector.noHosts', '未找到匹配的主机节点')}</div>
             {hideOffline && hasOfflineHosts && (
               <button
@@ -555,7 +545,7 @@ export function TerminalHostSelector({
                     localStorage.setItem('terminal_hide_offline_hosts', 'false');
                   } catch {}
                 }}
-                className="text-[11px] text-indigo-400 hover:underline inline-flex items-center space-x-1"
+                className="text-[11px] text-[var(--accent-text)] hover:underline inline-flex items-center space-x-1"
               >
                 <span>{t('webTerminal.hostSelector.clickToShowAll', '显示全部')}</span>
               </button>
@@ -565,7 +555,7 @@ export function TerminalHostSelector({
 
         {/* Helper tip when no hosts exist */}
         {hosts.length === 0 && !searchQuery.trim() && (
-          <div className="p-2.5 bg-indigo-500/5 rounded-lg m-1 border border-indigo-500/10 text-[11px] text-[var(--text-secondary)] font-sans leading-relaxed">
+          <div className="p-2.5 bg-[var(--accent-soft-bg)] rounded-lg m-1 border border-[var(--accent-soft-border)] text-[11px] text-[var(--text-secondary)] font-sans leading-relaxed">
             {t(
               'webTerminal.hostSelector.onlyLocalTip',
               '当前暂无在线主机。点击上方「接入内网新节点」即可通过反向隧道将服务器接入此终端。'
@@ -592,12 +582,12 @@ export function TerminalHostSelector({
         }}
         className={`flex items-center space-x-1.5 px-2 py-1 rounded-lg border text-xs font-mono transition-all select-none active:scale-95 ${
           isOpen
-            ? 'bg-indigo-500/15 border-indigo-500/40 text-indigo-600 dark:text-indigo-300 shadow-sm'
+            ? 'bg-[var(--accent-soft-bg)] border-[var(--accent-soft-border)] text-[var(--accent-text)] shadow-xs'
             : 'bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)]'
         }`}
         title={t('webTerminal.hostSelector.switchHostPrompt')}
       >
-        <Server className={`w-3.5 h-3.5 shrink-0 ${activeHost && activeHost.status === 'online' ? 'text-emerald-500 dark:text-emerald-400' : 'text-[var(--text-muted)]'}`} />
+        <Server className={`w-3.5 h-3.5 shrink-0 ${activeHost && activeHost.status === 'online' ? 'text-[var(--status-success-text)]' : 'text-[var(--text-muted)]'}`} />
 
         <span className="font-medium text-[11px] max-w-[72px] sm:max-w-[130px] truncate">
           {activeHost ? activeHost.name : t('webTerminal.emptyState.noOnlineHosts', '无在线节点')}
@@ -606,7 +596,7 @@ export function TerminalHostSelector({
         {/* Online/Connection Status Dot */}
         <span className="relative flex items-center justify-center w-2 h-2 shrink-0">
           {!activeHost ? (
-            <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+            <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 dark:bg-zinc-500" />
           ) : connectionStatus ? (
             connectionStatus.isConnected ? (
               <>
@@ -627,11 +617,11 @@ export function TerminalHostSelector({
               <span className="absolute w-2 h-2 rounded-full bg-emerald-400 animate-ping opacity-60" />
             </>
           ) : (
-            <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+            <span className="w-1.5 h-1.5 rounded-full bg-zinc-400 dark:bg-zinc-500" />
           )}
         </span>
 
-        <ChevronDown className={`w-3 h-3 text-[var(--text-muted)] transition-transform duration-200 ${isOpen ? 'rotate-180 text-indigo-500 dark:text-indigo-300' : ''}`} />
+        <ChevronDown className={`w-3 h-3 text-[var(--text-muted)] transition-transform duration-200 ${isOpen ? 'rotate-180 text-[var(--accent-text)]' : ''}`} />
       </button>
 
       {/* Quick Add Node Plus Button Beside Trigger (hidden on mobile to prevent header overcrowding) */}
@@ -655,125 +645,102 @@ export function TerminalHostSelector({
       })()}
 
       {/* Add Intranet Node Guide Modal */}
-      {isAddModalOpen && typeof document !== 'undefined' && createPortal(
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[var(--bg-overlay)] backdrop-blur-xs animate-in fade-in"
-          onClick={() => setIsAddModalOpen(false)}
-        >
-          <div
-            className="w-full max-w-lg rounded-2xl bg-[var(--bg-elevated)] border border-[var(--border-default)] shadow-2xl overflow-hidden animate-in zoom-in-95 font-sans"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Modal Header */}
-            <div className="px-5 py-4 border-b border-[var(--border-subtle)] flex items-center justify-between bg-[var(--bg-surface-sub)]">
-              <div className="flex items-center space-x-2">
-                <Terminal className="w-4 h-4 text-indigo-500 dark:text-indigo-400" />
-                <h3 className="text-sm font-semibold text-[var(--text-primary)]">
-                  {t('webTerminal.hostSelector.addNodeTitle')}
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsAddModalOpen(false)}
-                className="p-1 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] transition-all cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
+      <ModalShell
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        title={t('webTerminal.hostSelector.addNodeTitle')}
+        icon={<Terminal className="w-4 h-4 text-[var(--accent-text)]" />}
+        maxWidthClassName="max-w-lg"
+        footer={
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => setIsAddModalOpen(false)}
+              className="ui-btn-secondary px-4 py-1.5 cursor-pointer"
+            >
+              {t('webTerminal.done')}
+            </button>
+          </div>
+        }
+      >
+        <div className="space-y-4 text-xs font-sans">
+          <p className="text-[var(--text-secondary)] leading-relaxed">
+            {t('webTerminal.hostSelector.addNodeDesc')}
+          </p>
+
+          {/* Step 1: Install gt CLI */}
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] text-[var(--text-muted)]">
+              <span className="font-semibold text-[var(--text-primary)]">
+                {t('webTerminal.hostSelector.step1InstallTitle', '步骤 1：安装 gt 命令行工具')}
+              </span>
+              <span className="font-mono text-[var(--status-success-text)]">
+                {t('webTerminal.hostSelector.installRequirements', '需目标节点具备 Node.js 18+ 环境，支持 Linux & macOS')}
+              </span>
             </div>
 
-            {/* Modal Body */}
-            <div className="p-5 space-y-4 text-xs font-sans">
-              <p className="text-[var(--text-secondary)] leading-relaxed">
-                {t('webTerminal.hostSelector.addNodeDesc')}
-              </p>
-
-              {/* Step 1: Install gt CLI */}
-              <div className="space-y-1.5">
-                <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] text-[var(--text-muted)]">
-                  <span className="font-semibold text-[var(--text-primary)]">
-                    {t('webTerminal.hostSelector.step1InstallTitle', '步骤 1：安装 gt 命令行工具')}
-                  </span>
-                  <span className="font-mono text-emerald-600 dark:text-emerald-400">
-                    {t('webTerminal.hostSelector.installRequirements', '需目标节点具备 Node.js 18+ 环境，支持 Linux & macOS')}
-                  </span>
-                </div>
-
-                <div className="relative group">
-                  <pre className="p-3 pr-10 rounded-xl bg-[var(--bg-terminal)] border border-[var(--border-default)] font-mono text-[11px] text-[var(--text-primary)] overflow-x-auto whitespace-pre-wrap break-all select-all">
-                    {installCommand}
-                  </pre>
-                  <button
-                    type="button"
-                    onClick={handleCopyInstall}
-                    className="absolute top-2 right-2 p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white flex items-center justify-center shadow-md transition-all cursor-pointer"
-                    title={copiedInstall ? t('webTerminal.hostSelector.commandCopied', '命令已复制！') : t('webTerminal.hostSelector.copyInstallCommand', '复制安装命令')}
-                    aria-label={copiedInstall ? t('webTerminal.hostSelector.commandCopied', '命令已复制！') : t('webTerminal.hostSelector.copyInstallCommand', '复制安装命令')}
-                  >
-                    {copiedInstall ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
-                  </button>
-                </div>
-              </div>
-
-              {/* Step 2: Connect & Start Agent */}
-              <div className="space-y-1.5">
-                <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] text-[var(--text-muted)]">
-                  <span className="font-semibold text-[var(--text-primary)]">
-                    {t('webTerminal.hostSelector.step2RunTitle', '步骤 2：连接并启动后台 Agent')}
-                  </span>
-                  <span className="font-mono text-emerald-600 dark:text-emerald-400">
-                    {t('webTerminal.hostSelector.autoConnectTip', '自动建立出站安全长连接，同名节点重启将自动重新上线')}
-                  </span>
-                </div>
-
-                <div className="relative group">
-                  <pre className="p-3 pr-10 rounded-xl bg-[var(--bg-terminal)] border border-[var(--border-default)] font-mono text-[11px] text-[var(--text-primary)] overflow-x-auto whitespace-pre-wrap break-all select-all">
-                    {agentCommand}
-                  </pre>
-                  <button
-                    type="button"
-                    onClick={handleCopyCommand}
-                    className="absolute top-2 right-2 p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white flex items-center justify-center shadow-md transition-all cursor-pointer"
-                    title={copied ? t('webTerminal.hostSelector.commandCopied', '命令已复制！') : t('webTerminal.hostSelector.copyRunCommand', '复制启动命令')}
-                    aria-label={copied ? t('webTerminal.hostSelector.commandCopied', '命令已复制！') : t('webTerminal.hostSelector.copyRunCommand', '复制启动命令')}
-                  >
-                    {copied ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
-                  </button>
-                </div>
-              </div>
-
-              <div className="rounded-xl bg-indigo-500/10 border border-indigo-500/20 p-3 text-[11px] text-indigo-600 dark:text-indigo-300 space-y-1">
-                <div className="font-semibold flex items-center space-x-1">
-                  <span>💡 {t('webTerminal.hostSelector.directTunnelTitle', '反向安全隧道')}</span>
-                </div>
-                <p className="text-indigo-700/80 dark:text-indigo-300/80 leading-normal">
-                  {t(
-                    'webTerminal.hostSelector.directTunnelDesc',
-                    'Agent 启动后会直接与当前代理建立出站 WebSocket 安全长连接，无需公网 IP 和开放端口。连接成功后将立即出现在上方节点列表中。'
-                  )}
-                </p>
-                <p className="text-indigo-700/80 dark:text-indigo-300/80 leading-normal pt-1 border-t border-indigo-500/20">
-                  {t(
-                    'webTerminal.hostSelector.addNodeTip',
-                    '可通过 --name 指定持久化机器标识（如 my-server），同名节点重启时将自动复用并更新状态，避免重复卡片。'
-                  )}
-                </p>
-              </div>
-            </div>
-
-            {/* Modal Footer */}
-            <div className="px-5 py-3 border-t border-[var(--border-subtle)] bg-[var(--bg-surface-sub)] flex justify-end">
+            <div className="relative group">
+              <pre className="p-3 pr-10 rounded-xl bg-[var(--code-bg)] border border-[var(--border-input)] font-mono text-[11px] text-[var(--code-text)] overflow-x-auto whitespace-pre-wrap break-all select-all">
+                {installCommand}
+              </pre>
               <button
                 type="button"
-                onClick={() => setIsAddModalOpen(false)}
-                className="px-4 py-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] active:scale-95 text-[var(--text-primary)] border border-[var(--border-subtle)] text-xs font-medium transition-all cursor-pointer"
+                onClick={handleCopyInstall}
+                className="absolute top-2 right-2 p-1.5 ui-btn-primary flex items-center justify-center cursor-pointer"
+                title={copiedInstall ? t('webTerminal.hostSelector.commandCopied', '命令已复制！') : t('webTerminal.hostSelector.copyInstallCommand', '复制安装命令')}
+                aria-label={copiedInstall ? t('webTerminal.hostSelector.commandCopied', '命令已复制！') : t('webTerminal.hostSelector.copyInstallCommand', '复制安装命令')}
               >
-                {t('webTerminal.done')}
+                {copiedInstall ? <Check className="w-3.5 h-3.5 text-[var(--status-success-text)]" /> : <Copy className="w-3.5 h-3.5" />}
               </button>
             </div>
           </div>
-        </div>,
-        document.body
-      )}
+
+          {/* Step 2: Connect & Start Agent */}
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] text-[var(--text-muted)]">
+              <span className="font-semibold text-[var(--text-primary)]">
+                {t('webTerminal.hostSelector.step2RunTitle', '步骤 2：连接并启动后台 Agent')}
+              </span>
+              <span className="font-mono text-[var(--status-success-text)]">
+                {t('webTerminal.hostSelector.autoConnectTip', '自动建立出站安全长连接，同名节点重启将自动重新上线')}
+              </span>
+            </div>
+
+            <div className="relative group">
+              <pre className="p-3 pr-10 rounded-xl bg-[var(--code-bg)] border border-[var(--border-input)] font-mono text-[11px] text-[var(--code-text)] overflow-x-auto whitespace-pre-wrap break-all select-all">
+                {agentCommand}
+              </pre>
+              <button
+                type="button"
+                onClick={handleCopyCommand}
+                className="absolute top-2 right-2 p-1.5 ui-btn-primary flex items-center justify-center cursor-pointer"
+                title={copied ? t('webTerminal.hostSelector.commandCopied', '命令已复制！') : t('webTerminal.hostSelector.copyRunCommand', '复制启动命令')}
+                aria-label={copied ? t('webTerminal.hostSelector.commandCopied', '命令已复制！') : t('webTerminal.hostSelector.copyRunCommand', '复制启动命令')}
+              >
+                {copied ? <Check className="w-3.5 h-3.5 text-[var(--status-success-text)]" /> : <Copy className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-xl bg-[var(--accent-soft-bg)] border border-[var(--accent-soft-border)] p-3 text-[11px] text-[var(--accent-text)] space-y-1">
+            <div className="font-semibold flex items-center space-x-1">
+              <span>💡 {t('webTerminal.hostSelector.directTunnelTitle', '反向安全隧道')}</span>
+            </div>
+            <p className="text-[var(--text-secondary)] leading-normal">
+              {t(
+                'webTerminal.hostSelector.directTunnelDesc',
+                'Agent 启动后会直接与当前代理建立出站 WebSocket 安全长连接，无需公网 IP 和开放端口。连接成功后将立即出现在上方节点列表中。'
+              )}
+            </p>
+            <p className="text-[var(--text-secondary)] leading-normal pt-1 border-t border-[var(--accent-soft-border)]">
+              {t(
+                'webTerminal.hostSelector.addNodeTip',
+                '可通过 --name 指定持久化机器标识（如 my-server），同名节点重启时将自动复用并更新状态，避免重复卡片。'
+              )}
+            </p>
+          </div>
+        </div>
+      </ModalShell>
     </div>
   );
 }

@@ -5,12 +5,12 @@ import { useAuth } from './auth/AuthContext';
 import { Loader2 } from 'lucide-react';
 
 export default function App() {
-  const { status, adminKey, authRequired, logout } = useAuth();
+  const { status, adminKey, authRequired, isSsoAuthenticated, logout } = useAuth();
 
   if (status === 'checking') {
     return (
       <div className="flex items-center justify-center h-[100dvh] w-screen bg-[var(--bg-canvas)] text-[var(--text-muted)] select-none">
-        <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
+        <Loader2 className="w-6 h-6 animate-spin text-[var(--accent-primary)]" />
       </div>
     );
   }
@@ -24,6 +24,7 @@ export default function App() {
       <UnifiedTerminalView
         adminKey={adminKey}
         isStandalone={true}
+        isSsoAuthenticated={isSsoAuthenticated}
         onLogout={authRequired ? logout : undefined}
       />
     </div>

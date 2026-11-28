@@ -117,4 +117,11 @@ describe('TerminalHostSelector Pure Agent Tests', () => {
     expect((zh as any).webTerminal.hostSelector.nodeOnlineAt).toBeDefined();
     expect((en as any).webTerminal.hostSelector.nodeOnlineAt).toBeDefined();
   });
+
+  test('uses ModalShell for add-node modal, ui-row-indicator for selected host, and zero legacy indigo/slate classes', () => {
+    expect(content).toContain('ModalShell');
+    expect(content).toContain('ui-row-indicator');
+    expect(content).not.toMatch(/\bindigo-\d+/);
+    expect(content).not.toMatch(/\bslate-\d+/);
+  });
 });

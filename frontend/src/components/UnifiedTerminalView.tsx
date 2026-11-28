@@ -31,7 +31,7 @@ import {
   X,
 } from 'lucide-react';
 import { useTranslation } from '../i18n/LanguageContext';
-import { useTheme } from '../theme/ThemeContext';
+import { useTheme, getEmbeddedShellVisibility } from '../theme/ThemeContext';
 import { calculateKeyboardTranslateY } from '../utils/mobileViewportHelper';
 import { apiFetch, onUnauthorized, getStoredAdminKey } from '../utils/apiClient';
 import {
@@ -44,6 +44,7 @@ import { formatTimezoneOffset } from '../utils/timeHelpers';
 export interface UnifiedTerminalViewProps {
   adminKey?: string;
   isStandalone?: boolean;
+  isSsoAuthenticated?: boolean;
   onEnterStandalone?: () => void;
   onExitStandalone?: () => void;
   onLogout?: () => void;
@@ -55,12 +56,18 @@ export type TerminalSubTab = 'interactive' | 'files' | 'cron' | 'tasks' | 'proxy
 export default function UnifiedTerminalView({
   adminKey: propAdminKey,
   isStandalone = true,
+  isSsoAuthenticated = false,
   onEnterStandalone,
   onExitStandalone,
   onLogout,
 }: UnifiedTerminalViewProps) {
   const { t, language, setLanguage } = useTranslation();
-  const { theme, resolvedTheme, setTheme, toggleTheme } = useTheme();
+  const { theme, resolvedTheme, isEmbedded, toggleTheme } = useTheme();
+  const shellVisibility = getEmbeddedShellVisibility({
+    isEmbedded,
+    isSsoAuthenticated: Boolean(isSsoAuthenticated),
+    hasLogout: Boolean(onLogout),
+  });
   const [adminKey, setAdminKey] = useState<string>(() => {
     return propAdminKey || getStoredAdminKey() || (typeof localStorage !== 'undefined' ? localStorage.getItem('admin_secret_key') || '' : '');
   });
@@ -590,10 +597,12 @@ export default function UnifiedTerminalView({
 
   return (
     <div
-      className={`mx-auto flex flex-col bg-[var(--bg-canvas)] border border-[var(--border-subtle)] overflow-hidden shadow-2xl font-mono text-xs transition-none ${
+      className={`mx-auto flex flex-col bg-[var(--bg-canvas)] overflow-hidden font-sans text-xs transition-none ${
         isStandalone
-          ? 'fixed inset-0 z-50 rounded-none h-[100dvh] w-screen overflow-hidden overscroll-none border-none'
-          : 'w-full h-full flex-1 min-h-[420px] md:max-w-7xl md:h-[calc(100vh-140px)] md:min-h-[500px] rounded-none md:rounded-2xl border-x-0 md:border-x border-t-0 md:border-t'
+          ? 'fixed inset-0 z-50 rounded-none h-[100dvh] w-screen overflow-hidden overscroll-none border-none shadow-none'
+          : isEmbedded
+          ? 'w-full h-full flex-1 rounded-none border-none shadow-none'
+          : 'w-full h-full flex-1 min-h-[420px] md:max-w-7xl md:h-[calc(100vh-140px)] md:min-h-[500px] rounded-none md:rounded-xl border border-[var(--border-subtle)] border-x-0 md:border-x border-t-0 md:border-t shadow-[var(--shadow-card)]'
       }`}
     >
       {/* Top Window Bar */}
@@ -624,58 +633,50 @@ export default function UnifiedTerminalView({
 
           <div className="h-4 w-px bg-[var(--border-subtle)] hidden sm:block shrink-0" />
 
-          {/* SubTab Toggle Pills */}
-          <div className="flex items-center p-0.5 rounded-xl bg-[var(--bg-surface-sub)] border border-[var(--border-subtle)] shrink-0">
+          {/* SubTab Underline Navigation */}
+          <div className="flex items-center gap-0.5 shrink-0">
             <button
               type="button"
               onClick={() => handleSubTabChange('interactive')}
               title={t('terminal.interactiveTab', '命令行终端')}
-              className={`flex items-center space-x-1 lg:space-x-1.5 px-2 lg:px-2.5 py-1 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
-                subTab === 'interactive'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'text-slate-400 hover:text-slate-200'
+              className={`ui-tab-underline px-2 lg:px-2.5 py-1.5 whitespace-nowrap ${
+                subTab === 'interactive' ? 'ui-tab-underline-active' : ''
               }`}
             >
-              <TerminalSquare className="w-3.5 h-3.5 shrink-0" />
+              <TerminalSquare className={`w-3.5 h-3.5 shrink-0 ${subTab === 'interactive' ? 'text-[var(--accent-text)]' : ''}`} />
               <span className="hidden md:inline">{t('terminal.interactiveTab', '命令行终端')}</span>
             </button>
             <button
               type="button"
               onClick={() => handleSubTabChange('files')}
               title={t('files.title', '文件管理')}
-              className={`flex items-center space-x-1 lg:space-x-1.5 px-2 lg:px-2.5 py-1 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
-                subTab === 'files'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'text-slate-400 hover:text-slate-200'
+              className={`ui-tab-underline px-2 lg:px-2.5 py-1.5 whitespace-nowrap ${
+                subTab === 'files' ? 'ui-tab-underline-active' : ''
               }`}
             >
-              <FolderOpen className="w-3.5 h-3.5 shrink-0" />
+              <FolderOpen className={`w-3.5 h-3.5 shrink-0 ${subTab === 'files' ? 'text-[var(--accent-text)]' : ''}`} />
               <span className="hidden md:inline">{t('files.title', '文件管理')}</span>
             </button>
             <button
               type="button"
               onClick={() => handleSubTabChange('cron')}
               title={t('cron.title', '定时任务')}
-              className={`flex items-center space-x-1 lg:space-x-1.5 px-2 lg:px-2.5 py-1 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
-                subTab === 'cron'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'text-slate-400 hover:text-slate-200'
+              className={`ui-tab-underline px-2 lg:px-2.5 py-1.5 whitespace-nowrap ${
+                subTab === 'cron' ? 'ui-tab-underline-active' : ''
               }`}
             >
-              <Clock className="w-3.5 h-3.5 shrink-0" />
+              <Clock className={`w-3.5 h-3.5 shrink-0 ${subTab === 'cron' ? 'text-[var(--accent-text)]' : ''}`} />
               <span className="hidden md:inline">{t('cron.title', '定时任务')}</span>
             </button>
             <button
               type="button"
               onClick={() => handleSubTabChange('tasks')}
               title={t('tasks.tabName', '任务管理')}
-              className={`flex items-center space-x-1 lg:space-x-1.5 px-2 lg:px-2.5 py-1 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
-                subTab === 'tasks'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'text-slate-400 hover:text-slate-200'
+              className={`ui-tab-underline px-2 lg:px-2.5 py-1.5 whitespace-nowrap ${
+                subTab === 'tasks' ? 'ui-tab-underline-active' : ''
               }`}
             >
-              <Activity className="w-3.5 h-3.5 shrink-0" />
+              <Activity className={`w-3.5 h-3.5 shrink-0 ${subTab === 'tasks' ? 'text-[var(--accent-text)]' : ''}`} />
               <span className="hidden md:inline">{t('tasks.tabName', '任务管理')}</span>
             </button>
             <button
@@ -683,13 +684,11 @@ export default function UnifiedTerminalView({
               data-testid="subtab-proxy"
               onClick={() => handleSubTabChange('proxy')}
               title={t('proxy.tabName', '网络代理')}
-              className={`flex items-center space-x-1 lg:space-x-1.5 px-2 lg:px-2.5 py-1 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${
-                subTab === 'proxy'
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'text-slate-400 hover:text-slate-200'
+              className={`ui-tab-underline px-2 lg:px-2.5 py-1.5 whitespace-nowrap ${
+                subTab === 'proxy' ? 'ui-tab-underline-active' : ''
               }`}
             >
-              <Globe className="w-3.5 h-3.5 shrink-0" />
+              <Globe className={`w-3.5 h-3.5 shrink-0 ${subTab === 'proxy' ? 'text-[var(--accent-text)]' : ''}`} />
               <span className="hidden md:inline">{t('proxy.tabName', '网络代理')}</span>
             </button>
           </div>
@@ -746,8 +745,8 @@ export default function UnifiedTerminalView({
                 data-testid="split-terminal-btn"
                 className={`hidden sm:inline-flex p-1 sm:p-1.5 rounded-lg border transition-all ${
                   isSplitMode
-                    ? 'bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 border-indigo-500/30'
-                    : 'bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)]'
+                    ? 'bg-[var(--accent-soft-bg)] text-[var(--accent-text)] border-[var(--accent-soft-border)]'
+                    : 'bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border-[var(--border-subtle)]'
                 }`}
                 onClick={() => {
                   if (isSplitMode) {
@@ -769,7 +768,7 @@ export default function UnifiedTerminalView({
                 onClick={() => getActiveTerminalRef()?.openScriptDrawer()}
                 title={t('scripts.title', '常用脚本库')}
               >
-                <ScrollText className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                <ScrollText className="w-3.5 h-3.5 text-[var(--accent-text)] shrink-0" />
               </button>
 
               {/* Zoom Out */}
@@ -809,7 +808,7 @@ export default function UnifiedTerminalView({
                 className="hidden sm:inline-flex p-1 sm:p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all"
                 title={t('webTerminal.reconnect')}
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${connectionStatus.isConnecting ? 'animate-spin text-indigo-400' : ''}`} />
+                <RefreshCw className={`w-3.5 h-3.5 ${connectionStatus.isConnecting ? 'animate-spin text-[var(--accent-primary)]' : ''}`} />
               </button>
 
               {/* Reset Terminal Session */}
@@ -876,12 +875,12 @@ export default function UnifiedTerminalView({
             onClick={handleFullscreenToggle}
             className={`hidden sm:inline-flex p-1 sm:p-1.5 rounded-lg border transition-all ${
               isBrowserFullscreen
-                ? 'bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 border-indigo-500/30'
+                ? 'bg-[var(--accent-soft-bg)] text-[var(--accent-text)] border-[var(--accent-soft-border)]'
                 : 'bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)]'
             }`}
             title={isBrowserFullscreen ? t('webTerminal.exitFullscreen') : t('webTerminal.fullscreen')}
           >
-            {isBrowserFullscreen ? <Minimize2 className="w-3.5 h-3.5 text-indigo-400" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            {isBrowserFullscreen ? <Minimize2 className="w-3.5 h-3.5 text-[var(--accent-text)]" /> : <Maximize2 className="w-3.5 h-3.5" />}
           </button>
 
           {/* Mobile More Actions Menu */}
@@ -892,7 +891,7 @@ export default function UnifiedTerminalView({
               onClick={() => setIsMoreMenuOpen((prev) => !prev)}
               className={`p-1 rounded-lg border transition-all ${
                 isMoreMenuOpen
-                  ? 'bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 border-indigo-500/30'
+                  ? 'bg-[var(--accent-soft-bg)] text-[var(--accent-text)] border-[var(--accent-soft-border)]'
                   : 'bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)]'
               }`}
               title="更多操作"
@@ -903,7 +902,7 @@ export default function UnifiedTerminalView({
             {isMoreMenuOpen && (
               <div
                 data-testid="mobile-more-menu"
-                className="absolute right-0 top-full mt-1.5 w-48 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-xl shadow-xl py-1 z-50 divide-y divide-[var(--border-subtle)] text-xs text-[var(--text-primary)] animate-in fade-in zoom-in-95 duration-100"
+                className="ui-modal-shell absolute right-0 top-full mt-1.5 w-48 bg-[var(--bg-elevated)] border border-[var(--border-default)] rounded-xl shadow-[var(--shadow-popover)] py-1 z-50 divide-y divide-[var(--border-subtle)] text-xs text-[var(--text-primary)]"
               >
                 {subTab === 'interactive' && (
                   <div className="py-1">
@@ -920,7 +919,7 @@ export default function UnifiedTerminalView({
                       }}
                       className="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-[var(--bg-control-hover)] text-left transition-colors"
                     >
-                      <Columns2 className="w-3.5 h-3.5 text-indigo-400" />
+                      <Columns2 className="w-3.5 h-3.5 text-[var(--accent-text)]" />
                       <span>{isSplitMode ? t('webTerminal.closeSplitPane', '关闭分屏') : t('webTerminal.splitPane', '左右分屏')}</span>
                     </button>
 
@@ -932,7 +931,7 @@ export default function UnifiedTerminalView({
                       }}
                       className="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-[var(--bg-control-hover)] text-left transition-colors"
                     >
-                      <ScrollText className="w-3.5 h-3.5 text-indigo-400" />
+                      <ScrollText className="w-3.5 h-3.5 text-[var(--accent-text)]" />
                       <span>{t('scripts.title', '常用脚本库')}</span>
                     </button>
 
@@ -944,7 +943,7 @@ export default function UnifiedTerminalView({
                       }}
                       className="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-[var(--bg-control-hover)] text-left transition-colors"
                     >
-                      <RefreshCw className="w-3.5 h-3.5 text-indigo-400" />
+                      <RefreshCw className="w-3.5 h-3.5 text-[var(--accent-text)]" />
                       <span>{t('webTerminal.reconnect', '重新连接')}</span>
                     </button>
 
@@ -954,7 +953,7 @@ export default function UnifiedTerminalView({
                         handleResetSession();
                         setIsMoreMenuOpen(false);
                       }}
-                      className="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-rose-500/10 text-rose-600 dark:text-rose-300 text-left transition-colors"
+                      className="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-[var(--status-danger-bg)] text-[var(--status-danger-text)] text-left transition-colors"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                       <span>{t('webTerminal.resetSession', '重置会话')}</span>
@@ -976,7 +975,7 @@ export default function UnifiedTerminalView({
                       }}
                       className="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-[var(--bg-control-hover)] text-left transition-colors"
                     >
-                      <RefreshCw className="w-3.5 h-3.5 text-indigo-400" />
+                      <RefreshCw className="w-3.5 h-3.5 text-[var(--accent-text)]" />
                       <span>{t('files.refresh', '刷新')}</span>
                     </button>
                   </div>
@@ -993,50 +992,56 @@ export default function UnifiedTerminalView({
                     className="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-[var(--bg-control-hover)] text-left transition-colors"
                   >
                     {isBrowserFullscreen ? (
-                      <Minimize2 className="w-3.5 h-3.5 text-indigo-400" />
+                      <Minimize2 className="w-3.5 h-3.5 text-[var(--accent-text)]" />
                     ) : (
                       <Maximize2 className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
                     )}
                     <span>{isBrowserFullscreen ? t('webTerminal.exitFullscreen') : t('webTerminal.fullscreen')}</span>
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLanguage(language === 'zh' ? 'en' : 'zh');
-                      setIsMoreMenuOpen(false);
-                    }}
-                    className="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-[var(--bg-control-hover)] text-left transition-colors"
-                  >
-                    <Languages className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
-                    <span>{language === 'zh' ? 'English' : '简体中文'}</span>
-                  </button>
+                  {shellVisibility.showLanguage && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLanguage(language === 'zh' ? 'en' : 'zh');
+                        setIsMoreMenuOpen(false);
+                      }}
+                      className="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-[var(--bg-control-hover)] text-left transition-colors"
+                    >
+                      <Languages className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
+                      <span>{language === 'zh' ? 'English' : '简体中文'}</span>
+                    </button>
+                  )}
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      toggleTheme();
-                      setIsMoreMenuOpen(false);
-                    }}
-                    className="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-[var(--bg-control-hover)] text-left transition-colors"
-                  >
-                    {resolvedTheme === 'dark' ? <Sun className="w-3.5 h-3.5 text-amber-500" /> : <Moon className="w-3.5 h-3.5 text-indigo-500" />}
-                    <span>{resolvedTheme === 'dark' ? '亮色主题' : '暗色主题'}</span>
-                  </button>
+                  {shellVisibility.showThemeToggle && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        toggleTheme();
+                        setIsMoreMenuOpen(false);
+                      }}
+                      className="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-[var(--bg-control-hover)] text-left transition-colors"
+                    >
+                      {resolvedTheme === 'dark' ? <Sun className="w-3.5 h-3.5 text-amber-500" /> : <Moon className="w-3.5 h-3.5 text-[var(--accent-text)]" />}
+                      <span>{resolvedTheme === 'dark' ? '亮色主题' : '暗色主题'}</span>
+                    </button>
+                  )}
 
-                  <a
-                    href="https://github.com/Tonyogo/gt-hub"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={() => setIsMoreMenuOpen(false)}
-                    className="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-[var(--bg-control-hover)] text-left transition-colors"
-                  >
-                    <Github className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
-                    <span>GitHub</span>
-                  </a>
+                  {shellVisibility.showGithub && (
+                    <a
+                      href="https://github.com/Tonyogo/gt-hub"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={() => setIsMoreMenuOpen(false)}
+                      className="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-[var(--bg-control-hover)] text-left transition-colors"
+                    >
+                      <Github className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
+                      <span>GitHub</span>
+                    </a>
+                  )}
                 </div>
 
-                {onLogout && (
+                {shellVisibility.showLogout && onLogout && (
                   <div className="py-1">
                     <button
                       type="button"
@@ -1044,7 +1049,7 @@ export default function UnifiedTerminalView({
                         onLogout();
                         setIsMoreMenuOpen(false);
                       }}
-                      className="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-rose-500/10 text-rose-600 dark:text-rose-400 text-left transition-colors"
+                      className="w-full px-3 py-2 flex items-center space-x-2.5 hover:bg-[var(--status-danger-bg)] text-[var(--status-danger-text)] text-left transition-colors"
                     >
                       <LogOut className="w-3.5 h-3.5" />
                       <span>{t('nav.logout', '退出登录')}</span>
@@ -1059,42 +1064,48 @@ export default function UnifiedTerminalView({
           <div className="h-3.5 w-px bg-[var(--border-subtle)] mx-0.5 sm:mx-1 hidden sm:block" />
 
           {/* GitHub Repository Link */}
-          <a
-            href="https://github.com/Tonyogo/gt-hub"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hidden sm:flex p-1 sm:p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all items-center justify-center"
-            title={t('nav.github', 'GitHub 仓库')}
-          >
-            <Github className="w-3.5 h-3.5" />
-          </a>
+          {shellVisibility.showGithub && (
+            <a
+              href="https://github.com/Tonyogo/gt-hub"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hidden sm:flex p-1 sm:p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all items-center justify-center"
+              title={t('nav.github', 'GitHub 仓库')}
+            >
+              <Github className="w-3.5 h-3.5" />
+            </a>
+          )}
 
           {/* Language Switcher */}
-          <button
-            type="button"
-            onClick={() => setLanguage(language === 'zh' ? 'en' : 'zh')}
-            className="hidden sm:inline-flex p-1 sm:p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all"
-            title="Toggle Language"
-          >
-            <Languages className="w-3.5 h-3.5" />
-          </button>
+          {shellVisibility.showLanguage && (
+            <button
+              type="button"
+              onClick={() => setLanguage(language === 'zh' ? 'en' : 'zh')}
+              className="hidden sm:inline-flex p-1 sm:p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all"
+              title="Toggle Language"
+            >
+              <Languages className="w-3.5 h-3.5" />
+            </button>
+          )}
 
           {/* Theme Switcher */}
-          <button
-            type="button"
-            onClick={toggleTheme}
-            className="hidden sm:inline-flex p-1 sm:p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all"
-            title={`Toggle Theme (${theme}: ${resolvedTheme})`}
-          >
-            {resolvedTheme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
-          </button>
+          {shellVisibility.showThemeToggle && (
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="hidden sm:inline-flex p-1 sm:p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-all"
+              title={`Toggle Theme (${theme}: ${resolvedTheme})`}
+            >
+              {resolvedTheme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+            </button>
+          )}
 
           {/* Logout Action */}
-          {onLogout && (
+          {shellVisibility.showLogout && onLogout && (
             <button
               type="button"
               onClick={onLogout}
-              className="hidden sm:inline-flex p-1 sm:p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-rose-500/20 text-[var(--text-secondary)] hover:text-rose-600 dark:hover:text-rose-300 border border-[var(--border-subtle)] hover:border-rose-500/30 transition-all"
+              className="hidden sm:inline-flex p-1 sm:p-1.5 rounded-lg bg-[var(--bg-control)] hover:bg-[var(--status-danger-bg)] text-[var(--text-secondary)] hover:text-[var(--status-danger-text)] border border-[var(--border-subtle)] hover:border-[var(--status-danger-border)] transition-all"
               title={t('nav.logout', '退出登录')}
             >
               <LogOut className="w-3.5 h-3.5" />
@@ -1120,7 +1131,7 @@ export default function UnifiedTerminalView({
             className={`h-full flex flex-col min-w-0 min-h-0 relative transition-colors duration-150 ${
               isSplitMode
                 ? activePane === 'main'
-                  ? 'border-r border-indigo-500/40 ring-1 ring-inset ring-indigo-500/50'
+                  ? 'border-r border-[var(--accent-soft-border)] ring-1 ring-inset ring-[var(--accent-primary)]'
                   : 'border-r border-[var(--border-subtle)]'
                 : 'w-full flex-1'
             }`}
@@ -1133,7 +1144,7 @@ export default function UnifiedTerminalView({
                 }}
                 className={`flex items-center justify-between px-2.5 py-1 border-t-2 border-b text-[11px] select-none shrink-0 cursor-pointer transition-colors duration-150 ${
                   activePane === 'main'
-                    ? 'border-t-indigo-500 bg-indigo-500/10 dark:bg-indigo-500/15 border-b-indigo-500/30 text-[var(--text-primary)]'
+                    ? 'border-t-[var(--accent-primary)] bg-[var(--accent-soft-bg)] border-b-[var(--accent-soft-border)] text-[var(--text-primary)]'
                     : 'border-t-transparent bg-[var(--bg-surface-sub)] border-b-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
                 }`}
               >
@@ -1142,16 +1153,16 @@ export default function UnifiedTerminalView({
                     className={`w-2 h-2 rounded-full transition-all ${
                       activePane === 'main'
                         ? 'bg-emerald-400 ring-2 ring-emerald-400/30 shadow-xs'
-                        : 'bg-slate-500/50'
+                        : 'bg-[var(--border-hover)]'
                     }`}
                   />
-                  <span className={activePane === 'main' ? 'font-semibold text-indigo-600 dark:text-indigo-300' : 'text-[var(--text-muted)]'}>
+                  <span className={activePane === 'main' ? 'font-semibold text-[var(--accent-text)]' : 'text-[var(--text-muted)]'}>
                     {t('webTerminal.paneMain', '终端 #1')}
                   </span>
                   {activePane === 'main' && (
                     <span
                       data-testid="active-pane-badge"
-                      className="px-1.5 py-0.2 rounded-full text-[9px] font-semibold bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 border border-indigo-500/30 leading-tight"
+                      className="px-1.5 py-0.2 rounded-md text-[9px] font-semibold bg-[var(--accent-soft-bg)] text-[var(--accent-text)] border border-[var(--accent-soft-border)] leading-tight"
                     >
                       {t('webTerminal.activePaneBadge', '当前活动')}
                     </span>
@@ -1195,10 +1206,10 @@ export default function UnifiedTerminalView({
               onMouseDown={handleSplitterMouseDown}
               onTouchStart={handleSplitterTouchStart}
               onDoubleClick={handleSplitterDoubleClick}
-              className="w-1.5 hover:w-2 bg-[var(--border-subtle)] hover:bg-indigo-500/50 cursor-col-resize transition-all shrink-0 z-20 flex items-center justify-center select-none"
+              className="w-1 hover:w-1.5 bg-[var(--border-subtle)] hover:bg-[var(--accent-primary)] cursor-col-resize transition-all shrink-0 z-20 flex items-center justify-center select-none"
               title="双击恢复 50% 居中，拖拽调整比例"
             >
-              <div className="w-0.5 h-6 bg-slate-500/40 rounded-full" />
+              <div className="w-0.5 h-6 bg-[var(--border-hover)] rounded-full" />
             </div>
           )}
 
@@ -1209,7 +1220,7 @@ export default function UnifiedTerminalView({
               style={{ width: `${100 - splitRatio}%` }}
               className={`h-full flex flex-col min-w-0 min-h-0 relative transition-colors duration-150 ${
                 activePane === 'split'
-                  ? 'ring-1 ring-inset ring-indigo-500/50'
+                  ? 'ring-1 ring-inset ring-[var(--accent-primary)]'
                   : ''
               }`}
             >
@@ -1220,7 +1231,7 @@ export default function UnifiedTerminalView({
                 }}
                 className={`flex items-center justify-between px-2.5 py-1 border-t-2 border-b text-[11px] select-none shrink-0 cursor-pointer transition-colors duration-150 ${
                   activePane === 'split'
-                    ? 'border-t-indigo-500 bg-indigo-500/10 dark:bg-indigo-500/15 border-b-indigo-500/30 text-[var(--text-primary)]'
+                    ? 'border-t-[var(--accent-primary)] bg-[var(--accent-soft-bg)] border-b-[var(--accent-soft-border)] text-[var(--text-primary)]'
                     : 'border-t-transparent bg-[var(--bg-surface-sub)] border-b-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
                 }`}
               >
@@ -1229,16 +1240,16 @@ export default function UnifiedTerminalView({
                     className={`w-2 h-2 rounded-full transition-all ${
                       activePane === 'split'
                         ? 'bg-emerald-400 ring-2 ring-emerald-400/30 shadow-xs'
-                        : 'bg-slate-500/50'
+                        : 'bg-[var(--border-hover)]'
                     }`}
                   />
-                  <span className={activePane === 'split' ? 'font-semibold text-indigo-600 dark:text-indigo-300' : 'text-[var(--text-muted)]'}>
+                  <span className={activePane === 'split' ? 'font-semibold text-[var(--accent-text)]' : 'text-[var(--text-muted)]'}>
                     {t('webTerminal.paneSplit', '终端 #2')}
                   </span>
                   {activePane === 'split' && (
                     <span
                       data-testid="active-pane-badge"
-                      className="px-1.5 py-0.2 rounded-full text-[9px] font-semibold bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 border border-indigo-500/30 leading-tight"
+                      className="px-1.5 py-0.2 rounded-md text-[9px] font-semibold bg-[var(--accent-soft-bg)] text-[var(--accent-text)] border border-[var(--accent-soft-border)] leading-tight"
                     >
                       {t('webTerminal.activePaneBadge', '当前活动')}
                     </span>
