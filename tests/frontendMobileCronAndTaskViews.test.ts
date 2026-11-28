@@ -70,24 +70,18 @@ describe('Frontend Mobile Optimization for Cron & Tasks', () => {
   });
 
   describe('Responsive Modals as Bottom Sheets', () => {
-    it('implements bottom sheet positioning on CronJobModal', () => {
-      expect(cronJobModalContent).toMatch(/items-end sm:items-center/);
-      expect(cronJobModalContent).toMatch(/rounded-t-2xl|rounded-t-3xl/);
+    it('implements bottom sheet positioning in shared ModalShell', () => {
+      const modalShellPath = path.resolve(__dirname, '../frontend/src/components/ui/ModalShell.tsx');
+      const modalShellContent = fs.readFileSync(modalShellPath, 'utf-8');
+      expect(modalShellContent).toMatch(/items-end sm:items-center/);
+      expect(modalShellContent).toMatch(/rounded-t-2xl/);
     });
 
-    it('implements bottom sheet positioning on CronLogModal', () => {
-      expect(cronLogModalContent).toMatch(/items-end sm:items-center/);
-      expect(cronLogModalContent).toMatch(/rounded-t-2xl|rounded-t-3xl/);
-    });
-
-    it('implements bottom sheet positioning on CreateTaskModal', () => {
-      expect(createTaskModalContent).toMatch(/items-end sm:items-center/);
-      expect(createTaskModalContent).toMatch(/rounded-t-2xl|rounded-t-3xl/);
-    });
-
-    it('implements bottom sheet positioning on TaskLogModal', () => {
-      expect(taskLogModalContent).toMatch(/items-end sm:items-center/);
-      expect(taskLogModalContent).toMatch(/rounded-t-2xl|rounded-t-3xl/);
+    it('renders CronJobModal, CronLogModal, CreateTaskModal, and TaskLogModal through ModalShell', () => {
+      expect(cronJobModalContent).toContain('<ModalShell');
+      expect(cronLogModalContent).toContain('<ModalShell');
+      expect(createTaskModalContent).toContain('<ModalShell');
+      expect(taskLogModalContent).toContain('<ModalShell');
     });
   });
 });

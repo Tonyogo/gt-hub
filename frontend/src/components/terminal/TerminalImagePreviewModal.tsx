@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from '../../i18n/LanguageContext';
 import { TerminalFileItem } from './TerminalFileManagerView';
+import { ModalShell } from '../ui/ModalShell';
 
 export interface TerminalImagePreviewModalProps {
   file: TerminalFileItem;
@@ -183,10 +184,7 @@ export function TerminalImagePreviewModal({
       const tagName = (e.target as HTMLElement)?.tagName;
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tagName)) return;
 
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-      } else if (e.key === '+' || e.key === '=') {
+      if (e.key === '+' || e.key === '=') {
         e.preventDefault();
         handleZoomIn();
       } else if (e.key === '-' || e.key === '_') {
@@ -206,7 +204,7 @@ export function TerminalImagePreviewModal({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, handleZoomIn, handleZoomOut, handleReset, handleActualSize, handleRotate]);
+  }, [handleZoomIn, handleZoomOut, handleReset, handleActualSize, handleRotate]);
 
   // Pointer Drag Handlers
   const handlePointerDown = (e: React.PointerEvent) => {
@@ -261,180 +259,178 @@ export function TerminalImagePreviewModal({
     }
   };
 
-  const handleBackdropClick = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget && !hasMoved) {
-      onClose();
-    }
-  };
-
   return (
-    <div
-      onClick={handleBackdropClick}
-      className={`fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-xs transition-all ${
-        isMaximized ? 'p-0' : 'p-2 sm:p-4'
-      }`}
+    <ModalShell
+      isOpen={true}
+      onClose={onClose}
+      noHeader={true}
+      ariaLabel={file.name}
+      closeOnBackdrop={!hasMoved}
+      maxWidthClassName={isMaximized ? 'max-w-none' : 'max-w-5xl'}
+      heightClassName={isMaximized ? 'h-[100dvh]' : 'h-[88dvh]'}
+      bodyClassName="p-0 flex flex-col bg-[var(--bg-elevated)]"
     >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className={`ui-card flex flex-col border border-[var(--border-default)] bg-[var(--bg-elevated)] shadow-2xl overflow-hidden text-[var(--text-primary)] transition-all duration-200 ${
-          isMaximized
-            ? 'w-full h-full rounded-none border-none'
-            : 'w-full max-w-5xl h-[88vh] max-h-[88vh] rounded-xl'
-        }`}
-      >
-        {/* Header Toolbar */}
-        <div className="px-3 py-2 sm:px-4 sm:py-2.5 border-b border-[var(--border-subtle)] flex items-center justify-between shrink-0 bg-[var(--bg-surface-sub)] gap-2 select-none">
-          {/* File Info */}
-          <div className="flex items-center space-x-2 min-w-0">
-            <ImageIcon className="w-4 h-4 text-indigo-500 shrink-0" />
-            <span
-              className="font-semibold text-xs sm:text-sm text-[var(--text-primary)] truncate max-w-[110px] sm:max-w-xs md:max-w-md"
-              title={file.name}
-            >
-              {file.name}
-            </span>
-            <span className="text-[10px] text-[var(--text-muted)] font-mono shrink-0 hidden sm:inline">
-              ({formatBytes(file.size)}
-              {naturalDimensions ? ` · ${naturalDimensions.width}×${naturalDimensions.height}` : ''})
-            </span>
-          </div>
-
-          {/* Zoom & Transform Controls */}
-          <div className="flex items-center space-x-0.5 sm:space-x-1 bg-[var(--bg-surface)] rounded-lg p-0.5 border border-[var(--border-subtle)]">
-            <button
-              onClick={handleZoomOut}
-              title="缩小 (快捷键 -)"
-              className="p-1 sm:px-1.5 sm:py-1 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] transition-colors"
-            >
-              <ZoomOut className="w-3.5 h-3.5" />
-            </button>
-
-            <button
-              onClick={handleReset}
-              title="复位自适应 (快捷键 0)"
-              className="text-[10px] sm:text-[11px] font-mono px-1 sm:px-1.5 py-0.5 min-w-[38px] sm:min-w-[44px] text-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] rounded transition-colors"
-            >
-              {Math.round(scale * 100)}%
-            </button>
-
-            <button
-              onClick={handleZoomIn}
-              title="放大 (快捷键 +)"
-              className="p-1 sm:px-1.5 sm:py-1 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] transition-colors"
-            >
-              <ZoomIn className="w-3.5 h-3.5" />
-            </button>
-
-            <div className="w-[1px] h-3.5 bg-[var(--border-subtle)] mx-0.5" />
-
-            <button
-              onClick={handleReset}
-              title="自适应窗口 (快捷键 0)"
-              className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] sm:text-[11px] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] rounded transition-colors"
-            >
-              Fit
-            </button>
-
-            <button
-              onClick={handleActualSize}
-              title="1:1 实际尺寸 (快捷键 1)"
-              className="px-1.5 py-0.5 text-[10px] sm:text-[11px] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] rounded transition-colors"
-            >
-              1:1
-            </button>
-
-            <button
-              onClick={handleRotate}
-              title="顺时针旋转 90° (快捷键 R)"
-              className="p-1 sm:px-1.5 sm:py-1 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] transition-colors"
-            >
-              <RotateCw className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex items-center space-x-1 sm:space-x-1.5 shrink-0">
-            <button
-              onClick={() => setIsMaximized((prev) => !prev)}
-              title={isMaximized ? '还原窗口' : '最大化全屏'}
-              className="p-1.5 rounded border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] transition-colors"
-            >
-              {isMaximized ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-            </button>
-
-            <button
-              onClick={() => onDownload(file)}
-              title={t('files.download', '下载')}
-              className="flex items-center space-x-1 px-2 sm:px-2.5 py-1 rounded border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-xs bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] transition-colors"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span className="hidden md:inline">{t('files.download', '下载')}</span>
-            </button>
-
-            <button
-              onClick={onClose}
-              title="关闭 (Esc)"
-              className="p-1.5 rounded hover:bg-rose-500/20 text-[var(--text-secondary)] hover:text-rose-600 dark:hover:text-rose-300 transition-colors ml-0.5"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
+      {/* Header Toolbar */}
+      <div className="px-3 py-2 sm:px-4 sm:py-2.5 border-b border-[var(--border-subtle)] flex items-center justify-between shrink-0 bg-[var(--bg-surface-sub)] gap-2 select-none">
+        {/* File Info */}
+        <div className="flex items-center space-x-2 min-w-0">
+          <ImageIcon className="w-4 h-4 text-[var(--accent-text)] shrink-0" />
+          <span
+            className="font-semibold text-xs sm:text-sm text-[var(--text-primary)] truncate max-w-[110px] sm:max-w-xs md:max-w-md"
+            title={file.name}
+          >
+            {file.name}
+          </span>
+          <span className="text-[10px] text-[var(--text-muted)] font-mono tabular-nums shrink-0 hidden sm:inline">
+            ({formatBytes(file.size)}
+            {naturalDimensions ? ` · ${naturalDimensions.width}×${naturalDimensions.height}` : ''})
+          </span>
         </div>
 
-        {/* Viewport Canvas */}
-        <div
-          ref={containerRef}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          onDoubleClick={handleDoubleClick}
-          className={`flex-1 min-h-0 relative flex items-center justify-center overflow-hidden select-none bg-black/60 touch-none ${
-            isDragging ? 'cursor-grabbing' : scale > 1 ? 'cursor-grab' : 'cursor-default'
-          }`}
-        >
-          {/* Subtle Grid / Canvas Background */}
-          <div
-            className="absolute inset-0 pointer-events-none opacity-20"
-            style={{
-              backgroundImage:
-                'radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.15) 1px, transparent 0)',
-              backgroundSize: '24px 24px',
-            }}
-          />
-
-          <div
-            style={{
-              transform: `translate3d(${position.x}px, ${position.y}px, 0px) scale(${scale}) rotate(${rotation}deg)`,
-              transformOrigin: 'center center',
-              transition: isDragging ? 'none' : 'transform 0.15s ease-out',
-            }}
-            className="flex items-center justify-center will-change-transform"
+        {/* Zoom & Transform Controls */}
+        <div className="flex items-center space-x-0.5 sm:space-x-1 bg-[var(--bg-surface)] rounded-lg p-0.5 border border-[var(--border-subtle)]">
+          <button
+            type="button"
+            onClick={handleZoomOut}
+            title="缩小 (快捷键 -)"
+            className="p-1 sm:px-1.5 sm:py-1 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] transition-colors"
           >
-            <img
-              ref={imgRef}
-              src={blobUrl}
-              alt={file.name}
-              draggable={false}
-              onLoad={(e) => {
-                const img = e.currentTarget;
-                setNaturalDimensions({ width: img.naturalWidth, height: img.naturalHeight });
-              }}
-              className="max-w-[82vw] max-h-[72vh] object-contain rounded shadow-2xl pointer-events-none select-none transition-shadow"
-            />
-          </div>
+            <ZoomOut className="w-3.5 h-3.5" />
+          </button>
 
-          {/* Bottom Floating Shortcut / Gesture Tips */}
-          <div className="absolute bottom-2.5 left-1/2 -translate-x-1/2 pointer-events-none opacity-60 hover:opacity-100 transition-opacity hidden sm:flex items-center space-x-2 text-[10px] text-slate-400 bg-black/60 px-3 py-1 rounded-full border border-white/5 backdrop-blur-xs font-mono">
-            <span>滚轮 / 捏合缩放</span>
-            <span>·</span>
-            <span>拖拽平移</span>
-            <span>·</span>
-            <span>双击切换</span>
-            <span>·</span>
-            <span>Esc 退出</span>
-          </div>
+          <button
+            type="button"
+            onClick={handleReset}
+            title="复位自适应 (快捷键 0)"
+            className="text-[10px] sm:text-[11px] font-mono tabular-nums px-1 sm:px-1.5 py-0.5 min-w-[38px] sm:min-w-[44px] text-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] rounded transition-colors"
+          >
+            {Math.round(scale * 100)}%
+          </button>
+
+          <button
+            type="button"
+            onClick={handleZoomIn}
+            title="放大 (快捷键 +)"
+            className="p-1 sm:px-1.5 sm:py-1 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] transition-colors"
+          >
+            <ZoomIn className="w-3.5 h-3.5" />
+          </button>
+
+          <div className="w-[1px] h-3.5 bg-[var(--border-subtle)] mx-0.5" />
+
+          <button
+            type="button"
+            onClick={handleReset}
+            title="自适应窗口 (快捷键 0)"
+            className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] sm:text-[11px] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] rounded transition-colors"
+          >
+            Fit
+          </button>
+
+          <button
+            type="button"
+            onClick={handleActualSize}
+            title="1:1 实际尺寸 (快捷键 1)"
+            className="px-1.5 py-0.5 text-[10px] sm:text-[11px] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] rounded transition-colors"
+          >
+            1:1
+          </button>
+
+          <button
+            type="button"
+            onClick={handleRotate}
+            title="顺时针旋转 90° (快捷键 R)"
+            className="p-1 sm:px-1.5 sm:py-1 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-control-hover)] transition-colors"
+          >
+            <RotateCw className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex items-center space-x-1 sm:space-x-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => setIsMaximized((prev) => !prev)}
+            title={isMaximized ? '还原窗口' : '最大化全屏'}
+            className="ui-icon-btn"
+          >
+            {isMaximized ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onDownload(file)}
+            title={t('files.download', '下载')}
+            className="ui-btn-secondary flex items-center space-x-1 px-2 sm:px-2.5 py-1"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span className="hidden md:inline">{t('files.download', '下载')}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={onClose}
+            title="关闭 (Esc)"
+            className="ui-icon-btn hover:bg-[var(--status-danger-bg)] hover:text-[var(--status-danger-text)] ml-0.5"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       </div>
-    </div>
+
+      {/* Viewport Canvas */}
+      <div
+        ref={containerRef}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onDoubleClick={handleDoubleClick}
+        className={`flex-1 min-h-0 relative flex items-center justify-center overflow-hidden select-none bg-zinc-950/90 touch-none ${
+          isDragging ? 'cursor-grabbing' : scale > 1 ? 'cursor-grab' : 'cursor-default'
+        }`}
+      >
+        {/* Subtle Grid / Canvas Background */}
+        <div
+          className="absolute inset-0 pointer-events-none opacity-20"
+          style={{
+            backgroundImage:
+              'radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.15) 1px, transparent 0)',
+            backgroundSize: '24px 24px',
+          }}
+        />
+
+        <div
+          style={{
+            transform: `translate3d(${position.x}px, ${position.y}px, 0px) scale(${scale}) rotate(${rotation}deg)`,
+            transformOrigin: 'center center',
+            transition: isDragging ? 'none' : 'transform 0.15s ease-out',
+          }}
+          className="flex items-center justify-center will-change-transform"
+        >
+          <img
+            ref={imgRef}
+            src={blobUrl}
+            alt={file.name}
+            draggable={false}
+            onLoad={(e) => {
+              const img = e.currentTarget;
+              setNaturalDimensions({ width: img.naturalWidth, height: img.naturalHeight });
+            }}
+            className="max-w-[82vw] max-h-[72vh] object-contain rounded shadow-2xl pointer-events-none select-none transition-shadow"
+          />
+        </div>
+
+        {/* Bottom Floating Shortcut / Gesture Tips */}
+        <div className="ui-elevated-glass absolute bottom-2.5 left-1/2 -translate-x-1/2 pointer-events-none opacity-75 hidden sm:flex items-center space-x-2 text-[10px] text-[var(--text-secondary)] px-3 py-1 rounded-full border border-[var(--border-subtle)] font-mono">
+          <span>滚轮 / 捏合缩放</span>
+          <span>·</span>
+          <span>拖拽平移</span>
+          <span>·</span>
+          <span>双击切换</span>
+          <span>·</span>
+          <span>Esc 退出</span>
+        </div>
+      </div>
+    </ModalShell>
   );
 }
