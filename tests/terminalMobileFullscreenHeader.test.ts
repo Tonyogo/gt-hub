@@ -33,6 +33,6 @@ describe('Terminal Mobile Fullscreen Header Optimization Tests', () => {
 
   it('verifies WebTerminalView hides redundant mobile badge and Minimize2 button when in standalone mode', () => {
     expect(webTerminalContent).toContain('hidden sm:flex items-center space-x-1 sm:space-x-1.5');
-    expect(webTerminalContent).toContain("standalone\n                ? 'hidden sm:inline-flex bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 border-indigo-500/30'");
+    expect(webTerminalContent).toContain("standalone\n                ? 'hidden sm:inline-flex bg-[var(--accent-soft-bg)] text-[var(--accent-text)] border-[var(--accent-soft-border)]'");
   });
 });

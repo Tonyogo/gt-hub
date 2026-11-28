@@ -10,22 +10,22 @@ export interface AnsiParserState {
 }
 
 const ANSI_COLOR_MAP: Record<number, string> = {
-  30: 'text-slate-400',
+  30: 'text-zinc-400',
   31: 'text-rose-400',
   32: 'text-emerald-400',
   33: 'text-amber-400',
-  34: 'text-sky-400',
+  34: 'text-blue-400',
   35: 'text-purple-400',
   36: 'text-cyan-400',
-  37: 'text-slate-100',
-  90: 'text-slate-400',
+  37: 'text-zinc-100',
+  90: 'text-zinc-400',
   91: 'text-rose-400',
   92: 'text-emerald-400',
   93: 'text-amber-400',
-  94: 'text-sky-400',
+  94: 'text-blue-400',
   95: 'text-purple-400',
   96: 'text-cyan-400',
-  97: 'text-slate-100',
+  97: 'text-zinc-100',
 };
 
 function processLineCarriageReturns(line: string): string {

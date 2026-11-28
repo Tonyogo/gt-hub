@@ -7,13 +7,13 @@ export const defineGeminiProxyTheme = (monaco: any) => {
       { token: 'string.value.json', foreground: '34d399' },                // Emerald 400
       { token: 'number', foreground: '60a5fa' },                           // Blue 400
       { token: 'keyword.json', foreground: 'c084fc' },                     // Purple 400
-      { token: 'null', foreground: '64748b', fontStyle: 'italic' }         // Slate 500
+      { token: 'null', foreground: '646b7a', fontStyle: 'italic' }         // Muted neutral
     ],
     colors: {
-      'editor.background': '#090D16',
-      'editor.lineHighlightBackground': '#151D2E80',
-      'editorLineNumber.foreground': '#475569',
-      'editorLineNumber.activeForeground': '#94A3B8'
+      'editor.background': '#0b0d11',
+      'editor.lineHighlightBackground': '#161920',
+      'editorLineNumber.foreground': '#646b7a',
+      'editorLineNumber.activeForeground': '#a1a8b8'
     }
   });
 
@@ -25,13 +25,13 @@ export const defineGeminiProxyTheme = (monaco: any) => {
       { token: 'string.value.json', foreground: '059669' },                // Emerald 600
       { token: 'number', foreground: '2563eb' },                           // Blue 600
       { token: 'keyword.json', foreground: '7c3aed' },                     // Purple 600
-      { token: 'null', foreground: '94a3b8', fontStyle: 'italic' }         // Slate 400
+      { token: 'null', foreground: '858d9e', fontStyle: 'italic' }         // Muted neutral
     ],
     colors: {
-      'editor.background': '#FFFFFF',
-      'editor.lineHighlightBackground': '#F1F5F9',
-      'editorLineNumber.foreground': '#94A3B8',
-      'editorLineNumber.activeForeground': '#334155'
+      'editor.background': '#ffffff',
+      'editor.lineHighlightBackground': '#f8f9fb',
+      'editorLineNumber.foreground': '#858d9e',
+      'editorLineNumber.activeForeground': '#111318'
     }
   });
 };

@@ -113,9 +113,9 @@ export const TerminalAccessoryBar: React.FC<TerminalAccessoryBarProps> = ({
           onTouchStart={(e) => e.preventDefault()}
           onMouseDown={(e) => e.preventDefault()}
           onClick={onToggleCtrl}
-          className={`px-2.5 py-1 rounded-lg font-mono text-xs font-semibold border transition-all shadow-sm active:scale-95 ${
+          className={`px-2.5 py-1 rounded-lg font-mono text-xs font-semibold border transition-all shadow-xs active:scale-95 ${
             isCtrlActive
-              ? 'bg-indigo-600 text-white border-indigo-400 shadow-[0_0_10px_rgba(99,102,241,0.5)]'
+              ? 'bg-[var(--accent-soft-bg)] text-[var(--accent-text)] border-[var(--accent-soft-border)] dark:shadow-[0_0_10px_rgba(59,130,246,0.35)]'
               : 'bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-primary)] border-[var(--border-subtle)]'
           }`}
         >
@@ -243,7 +243,7 @@ export const TerminalAccessoryBar: React.FC<TerminalAccessoryBarProps> = ({
           onTouchStart={(e) => e.preventDefault()}
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => onSendInput('\r')}
-          className="px-2.5 py-1 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 active:scale-95 text-indigo-500 dark:text-indigo-300 font-mono text-xs font-semibold border border-indigo-500/30 transition-all shadow-sm"
+          className="px-2.5 py-1 rounded-lg bg-[var(--accent-soft-bg)] hover:opacity-90 active:scale-95 text-[var(--accent-text)] font-mono text-xs font-semibold border border-[var(--accent-soft-border)] transition-all shadow-xs"
           title="Enter (Return)"
         >
           ↵
@@ -371,12 +371,12 @@ export const TerminalAccessoryBar: React.FC<TerminalAccessoryBarProps> = ({
         >
           {isConciseMode ? (
             <>
-              <MoreHorizontal className="w-3.5 h-3.5 text-indigo-400" />
+              <MoreHorizontal className="w-3.5 h-3.5 text-[var(--accent-text)]" />
               <span className="text-[11px]">{t('webTerminal.accessoryKeys.moreKeys', '更多')}</span>
             </>
           ) : (
             <>
-              <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-400" />
+              <SlidersHorizontal className="w-3.5 h-3.5 text-[var(--accent-text)]" />
               <span className="text-[11px]">{t('webTerminal.accessoryKeys.conciseKeys', '简洁')}</span>
             </>
           )}
@@ -392,7 +392,7 @@ export const TerminalAccessoryBar: React.FC<TerminalAccessoryBarProps> = ({
           onClick={onToggleKeyboard}
           className={`p-1.5 rounded-lg border transition-all active:scale-95 ${
             isKeyboardOpen
-              ? 'bg-indigo-500/20 text-indigo-600 dark:text-indigo-300 border-indigo-500/40 shadow-sm'
+              ? 'bg-[var(--accent-soft-bg)] text-[var(--accent-text)] border-[var(--accent-soft-border)] shadow-xs'
               : 'bg-[var(--bg-control)] hover:bg-[var(--bg-control-hover)] text-[var(--text-primary)] border-[var(--border-subtle)]'
           }`}
           title={isKeyboardOpen ? t('webTerminal.hideKeyboard') : t('webTerminal.showKeyboard')}
