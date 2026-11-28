@@ -3,6 +3,45 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="color-scheme" content="light dark" />
+    <script>
+      (function () {
+        try {
+          var root = document.documentElement;
+          var searchParams = new URLSearchParams(window.location.search || '');
+          var urlTheme = searchParams.get('theme') || searchParams.get('colorScheme') || searchParams.get('colorMode');
+          if (!urlTheme && window.location.hash) {
+            var qIdx = window.location.hash.indexOf('?');
+            if (qIdx !== -1) {
+              var hashParams = new URLSearchParams(window.location.hash.slice(qIdx + 1));
+              urlTheme = hashParams.get('theme') || hashParams.get('colorScheme') || hashParams.get('colorMode');
+            }
+          }
+          var stored = null;
+          try {
+            stored = window.localStorage.getItem('gt_hub_theme_mode') || window.localStorage.getItem('app_hub_theme_mode');
+          } catch (e) {}
+          var raw = urlTheme || stored;
+          var isDark = true;
+          if (raw) {
+            var norm = String(raw).trim().toLowerCase();
+            if (norm === 'light' || norm === 'day' || norm === 'false' || norm === 'light-mode') {
+              isDark = false;
+            } else if (norm === 'dark' || norm === 'night' || norm === 'true' || norm === 'dark-mode') {
+              isDark = true;
+            } else {
+              isDark = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)').matches : true;
+            }
+          } else {
+            isDark = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)').matches : true;
+          }
+          var resolved = isDark ? 'dark' : 'light';
+          root.classList.toggle('dark', isDark);
+          root.setAttribute('data-theme', resolved);
+          root.style.colorScheme = resolved;
+          root.style.backgroundColor = isDark ? '#07080a' : '#f5f6f8';
+        } catch (e) {}
+      })();
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
     <title>gt-hub | Gemini Terminal Hub</title>

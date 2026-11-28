@@ -14,6 +14,7 @@ export interface AuthContextValue {
   status: AuthStatus;
   authRequired: boolean;
   adminKey: string;
+  isSsoAuthenticated: boolean;
   error: string | null;
   setError: (err: string | null) => void;
   login: (key: string) => Promise<boolean>;
@@ -321,20 +322,26 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('checking');
   const [authRequired, setAuthRequired] = useState<boolean>(true);
+  const initialHashSsoRef = React.useRef<boolean>(false);
   const [adminKey, setAdminKey] = useState<string>(() => {
     const hashKey = consumeHashAdminKey();
     if (hashKey) {
+      initialHashSsoRef.current = true;
       return hashKey;
     }
     return getStoredAdminKey();
   });
+  const [isSsoAuthenticated, setIsSsoAuthenticated] = useState<boolean>(() => initialHashSsoRef.current);
   const [error, setError] = useState<string | null>(null);
   const [runtimeAllowedOrigins, setRuntimeAllowedOrigins] = useState<string[]>([]);
   const allowedOriginsRef = React.useRef<string[]>([]);
 
   const checkAuth = useCallback(async () => {
     try {
-      consumeHashAdminKey();
+      const hashKey = consumeHashAdminKey();
+      if (hashKey) {
+        setIsSsoAuthenticated(true);
+      }
       const storedKey = getStoredAdminKey();
       const headers: HeadersInit = storedKey ? { 'x-admin-key': storedKey } : {};
       const res = await fetch('/api/auth/status', { headers });
@@ -410,6 +417,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (ssoKey) {
         setStoredAdminKey(ssoKey);
         setAdminKey(ssoKey);
+        setIsSsoAuthenticated(true);
         void checkAuth();
       }
     };
@@ -438,6 +446,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (res.ok) {
         setStoredAdminKey(key);
         setAdminKey(key);
+        setIsSsoAuthenticated(false);
         setStatus('authenticated');
         return true;
       } else {
@@ -457,6 +466,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       sessionStorage.removeItem('cached_terminal_hosts');
     }
     setAdminKey('');
+    setIsSsoAuthenticated(false);
     setError(null);
     setStatus('unauthenticated');
   }, []);
@@ -467,6 +477,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         status,
         authRequired,
         adminKey,
+        isSsoAuthenticated,
         error,
         setError,
         login,

@@ -6,8 +6,35 @@ export type ResolvedTheme = 'dark' | 'light';
 export interface ThemeContextType {
   theme: ThemeMode;
   resolvedTheme: ResolvedTheme;
+  isEmbedded: boolean;
   setTheme: (theme: ThemeMode) => void;
   toggleTheme: () => void;
+}
+
+export interface EmbeddedShellVisibility {
+  showGithub: boolean;
+  showThemeToggle: boolean;
+  showLogout: boolean;
+  showLanguage: boolean;
+  showFullscreen: boolean;
+}
+
+export function resolveThemeBackgroundColor(resolved: ResolvedTheme): '#07080a' | '#f5f6f8' {
+  return resolved === 'dark' ? '#07080a' : '#f5f6f8';
+}
+
+export function getEmbeddedShellVisibility(opts: {
+  isEmbedded: boolean;
+  isSsoAuthenticated: boolean;
+  hasLogout: boolean;
+}): EmbeddedShellVisibility {
+  return {
+    showGithub: !opts.isEmbedded,
+    showThemeToggle: !opts.isEmbedded,
+    showLogout: opts.hasLogout && !(opts.isEmbedded && opts.isSsoAuthenticated),
+    showLanguage: true,
+    showFullscreen: true,
+  };
 }
 
 const THEME_STORAGE_KEY = 'gt_hub_theme_mode';
@@ -72,6 +99,7 @@ const LIGHT_THEME_TOKENS = new Set([
 ]);
 
 const PARENT_STORAGE_KEYS = [
+  'app_hub_theme_mode',
   'gt_hub_theme_mode',
   'zashboard-theme',
   'vueuse-color-scheme',
@@ -559,11 +587,11 @@ export function getInitialThemeMode(win?: any, storage?: Pick<Storage, 'getItem'
     return 'system';
   }
 
-  // 3. Standalone mode: check saved preference in localStorage (using gt_hub_theme_mode to avoid legacy 2-state lock)
+  // 3. Standalone mode: check saved preference in localStorage (using gt_hub_theme_mode or app_hub_theme_mode)
   try {
     const s = storage !== undefined ? storage : typeof localStorage !== 'undefined' ? localStorage : null;
     if (s) {
-      const saved = s.getItem(THEME_STORAGE_KEY);
+      const saved = s.getItem(THEME_STORAGE_KEY) ?? s.getItem('app_hub_theme_mode');
       const parsed = parseThemeToken(saved);
       if (parsed) return parsed;
     }
@@ -609,11 +637,13 @@ function applyThemeToRootDocument(resolved: ResolvedTheme): void {
   root.classList.toggle('dark', resolved === 'dark');
   root.setAttribute('data-theme', resolved);
   root.style.colorScheme = resolved;
+  root.style.backgroundColor = resolveThemeBackgroundColor(resolved);
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [isEmbedded] = useState<boolean>(() => isEmbeddedIframe());
   const [theme, setThemeState] = useState<ThemeMode>(() => getInitialThemeMode());
   const [autoResolvedTheme, setAutoResolvedTheme] = useState<ResolvedTheme>(() => resolveAutoTheme());
   const [externalThemeOverride, setExternalThemeOverride] = useState<ResolvedTheme | null>(null);
@@ -790,7 +820,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   return (
-    <ThemeContext.Provider value={{ theme, resolvedTheme, setTheme, toggleTheme }}>
+    <ThemeContext.Provider value={{ theme, resolvedTheme, isEmbedded, setTheme, toggleTheme }}>
       {children}
     </ThemeContext.Provider>
   );

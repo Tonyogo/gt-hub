@@ -54,6 +54,13 @@ describe('Frontend AuthContext Architecture', () => {
     expect(content).toContain('parseAuthMessage(event.data)');
     expect(content).toContain('requestParentAuth()');
   });
+
+  it('tracks and exposes isSsoAuthenticated across hash, postMessage SSO, login, and logout', () => {
+    expect(content).toContain('isSsoAuthenticated: boolean');
+    expect(content).toMatch(/setIsSsoAuthenticated\(true\)/);
+    expect(content).toMatch(/setIsSsoAuthenticated\(false\)/);
+    expect(content).toContain('isSsoAuthenticated,');
+  });
 });
 
 describe('SSO Helpers in AuthContext', () => {

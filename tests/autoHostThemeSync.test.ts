@@ -8,6 +8,8 @@ import {
   isEmbeddedIframe,
   getInitialThemeMode,
   resolveAutoTheme,
+  resolveThemeBackgroundColor,
+  getEmbeddedShellVisibility,
 } from '../frontend/src/theme/ThemeContext';
 
 describe('Auto System & Embedded Host Theme Sync Engine', () => {
@@ -334,7 +336,83 @@ describe('Auto System & Embedded Host Theme Sync Engine', () => {
       'utf-8'
     );
     expect(indexHtml).toMatch(/<meta\s+name="color-scheme"\s+content="light dark"\s*\/?>/i);
-    expect(indexCss).toContain('color-scheme: light dark;');
+    expect(indexCss).toContain('color-scheme: light;');
+    expect(indexCss).toContain('color-scheme: dark;');
+  });
+
+  test('resolveThemeBackgroundColor returns Obsidian Azure canvas hex values', () => {
+    expect(resolveThemeBackgroundColor('dark')).toBe('#07080a');
+    expect(resolveThemeBackgroundColor('light')).toBe('#f5f6f8');
+  });
+
+  test('detectParentDocumentTheme reads app_hub_theme_mode from parent.localStorage', () => {
+    const htmlEl = {
+      classList: { contains: () => false },
+      getAttribute: () => null,
+      style: {},
+    };
+    const winWithAppHubStorage = {
+      self: { id: 1 },
+      top: { id: 2 },
+      parent: {
+        localStorage: {
+          getItem: (key: string) => (key === 'app_hub_theme_mode' ? 'light' : null),
+        },
+        document: {
+          documentElement: htmlEl,
+          body: null,
+        },
+        getComputedStyle: () => ({ backgroundColor: 'rgb(255, 255, 255)', colorScheme: '' }),
+      },
+    };
+    expect(detectParentDocumentTheme(winWithAppHubStorage)).toBe('light');
+  });
+
+  test('getEmbeddedShellVisibility collapses duplicate chrome in iframe and hides logout in SSO', () => {
+    expect(
+      getEmbeddedShellVisibility({ isEmbedded: false, isSsoAuthenticated: false, hasLogout: true })
+    ).toEqual({
+      showGithub: true,
+      showThemeToggle: true,
+      showLogout: true,
+      showLanguage: true,
+      showFullscreen: true,
+    });
+
+    expect(
+      getEmbeddedShellVisibility({ isEmbedded: true, isSsoAuthenticated: false, hasLogout: true })
+    ).toEqual({
+      showGithub: false,
+      showThemeToggle: false,
+      showLogout: true,
+      showLanguage: true,
+      showFullscreen: true,
+    });
+
+    expect(
+      getEmbeddedShellVisibility({ isEmbedded: true, isSsoAuthenticated: true, hasLogout: true })
+    ).toEqual({
+      showGithub: false,
+      showThemeToggle: false,
+      showLogout: false,
+      showLanguage: true,
+      showFullscreen: true,
+    });
+  });
+
+  test('frontend/index.html includes synchronous Anti-FOUC theme script and zero Google Fonts CDN links', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const indexHtml = fs.readFileSync(
+      path.resolve(__dirname, '../frontend/index.html'),
+      'utf-8'
+    );
+    expect(indexHtml).toContain('#07080a');
+    expect(indexHtml).toContain('#f5f6f8');
+    expect(indexHtml).toContain('data-theme');
+    expect(indexHtml).toContain('app_hub_theme_mode');
+    expect(indexHtml).toContain('gt_hub_theme_mode');
+    expect(indexHtml).not.toContain('fonts.googleapis.com');
   });
 
   test('LoginView and UnifiedTerminalView wire toggleTheme and keep Sun/Moon icons intact', () => {
