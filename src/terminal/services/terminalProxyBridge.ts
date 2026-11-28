@@ -9,6 +9,10 @@ import {
   DecodedBinaryPacket,
   encodeBinaryPacket,
   decodeBinaryPacket,
+  decodeControlJsonPacket,
+  isBinaryMessageFrame,
+  sendControlFrame,
+  sendWsSafe,
 } from '../../shared/protocol/binaryProtocol';
 import { ListeningPortInfo, TargetProbeResult } from '../../agent/handlers/proxyHandler';
 
@@ -106,9 +110,33 @@ export class TerminalProxyBridge {
     }
   >();
 
+  private tcpStreamKey(hostId: string, streamId: string): string {
+    return `${hostId}\0${streamId}`;
+  }
+
+  private resolveCanonicalHost(hostId: string): string {
+    return terminalHostManager.resolveCanonicalHostId(hostId) || hostId;
+  }
+
+  private getTcpStream(hostId: string, streamId: string): ActiveTcpStreamState | undefined {
+    if (!streamId || typeof streamId !== 'string') return undefined;
+    const canonicalHostId = this.resolveCanonicalHost(hostId);
+    const direct = this.activeTcpStreams.get(this.tcpStreamKey(canonicalHostId, streamId));
+    if (direct && (direct.hostId === canonicalHostId || direct.hostId === hostId)) {
+      return direct;
+    }
+    if (canonicalHostId !== hostId) {
+      const rawMatch = this.activeTcpStreams.get(this.tcpStreamKey(hostId, streamId));
+      if (rawMatch && (rawMatch.hostId === hostId || rawMatch.hostId === canonicalHostId)) {
+        return rawMatch;
+      }
+    }
+    return undefined;
+  }
+
   private sendChunked(ws: any, msgType: number, id: string, payload: Buffer): void {
     if (payload.length <= MAX_CHUNK_BYTES) {
-      ws.send(encodeBinaryPacket(msgType, id, payload), { binary: true, compress: false });
+      sendWsSafe(ws, encodeBinaryPacket(msgType, id, payload), { binary: true, compress: false });
       return;
     }
 
@@ -116,7 +144,7 @@ export class TerminalProxyBridge {
     while (offset < payload.length) {
       const end = Math.min(offset + MAX_CHUNK_BYTES, payload.length);
       const slice = payload.subarray(offset, end);
-      ws.send(encodeBinaryPacket(msgType, id, slice), { binary: true, compress: false });
+      sendWsSafe(ws, encodeBinaryPacket(msgType, id, slice), { binary: true, compress: false });
       offset = end;
     }
   }
@@ -194,9 +222,10 @@ export class TerminalProxyBridge {
     const onClientAbort = () => {
       if (!res.writableEnded && this.activeHttpRequests.has(reqId)) {
         cleanup();
-        if (agentWs.readyState === 1) {
+        const currentAgentWs = terminalHostManager.getAgentWs(canonicalHostId) || agentWs;
+        if (currentAgentWs && currentAgentWs.readyState === 1) {
           try {
-            agentWs.send(`JSON:${JSON.stringify({ type: 'proxy_http_abort', reqId })}`);
+            sendControlFrame(currentAgentWs, { type: 'proxy_http_abort', reqId }, canonicalHostId);
           } catch {}
         }
       }
@@ -222,8 +251,9 @@ export class TerminalProxyBridge {
       (req.headers['content-length'] === '0' && !req.headers['transfer-encoding']);
 
     try {
-      agentWs.send(
-        `JSON:${JSON.stringify({
+      sendControlFrame(
+        agentWs,
+        {
           type: 'proxy_http_start',
           reqId,
           method: req.method || 'GET',
@@ -232,7 +262,8 @@ export class TerminalProxyBridge {
           timeoutMs: options.timeoutMs,
           bodyEnd: isBodyless,
           insecure: options.insecure,
-        })}`
+        },
+        canonicalHostId
       );
     } catch (err: any) {
       cleanup();
@@ -243,26 +274,28 @@ export class TerminalProxyBridge {
     if (!isBodyless) {
       req.on('data', (chunk: Buffer) => {
         if (!this.activeHttpRequests.has(reqId)) return;
-        if (agentWs.readyState === 1) {
+        const currentAgentWs = terminalHostManager.getAgentWs(canonicalHostId) || agentWs;
+        if (currentAgentWs && currentAgentWs.readyState === 1) {
           try {
-            this.sendChunked(agentWs, BIN_MSG_TYPE.PROXY_HTTP_REQ_BODY, reqId, chunk);
+            this.sendChunked(currentAgentWs, BIN_MSG_TYPE.PROXY_HTTP_REQ_BODY, reqId, chunk);
             const isStreamEnded = req.readableEnded || Boolean((req as any)._readableState?.ended);
             if (
               !isStreamEnded &&
-              typeof agentWs.bufferedAmount === 'number' &&
-              agentWs.bufferedAmount >= 512 * 1024
+              typeof currentAgentWs.bufferedAmount === 'number' &&
+              currentAgentWs.bufferedAmount >= 512 * 1024
             ) {
               if (!reqState.reqPauseTimer) {
                 req.pause();
                 reqState.reqPauseTimer = setInterval(() => {
-                  if (!this.activeHttpRequests.has(reqId) || agentWs.readyState !== 1) {
+                  const activeWs = terminalHostManager.getAgentWs(canonicalHostId) || currentAgentWs;
+                  if (!this.activeHttpRequests.has(reqId) || !activeWs || activeWs.readyState !== 1) {
                     if (reqState.reqPauseTimer) {
                       clearInterval(reqState.reqPauseTimer);
                       reqState.reqPauseTimer = undefined;
                     }
                     return;
                   }
-                  if (typeof agentWs.bufferedAmount !== 'number' || agentWs.bufferedAmount < 128 * 1024) {
+                  if (typeof activeWs.bufferedAmount !== 'number' || activeWs.bufferedAmount < 128 * 1024) {
                     if (reqState.reqPauseTimer) {
                       clearInterval(reqState.reqPauseTimer);
                       reqState.reqPauseTimer = undefined;
@@ -281,9 +314,10 @@ export class TerminalProxyBridge {
 
       req.on('end', () => {
         if (!this.activeHttpRequests.has(reqId)) return;
-        if (agentWs.readyState === 1) {
+        const currentAgentWs = terminalHostManager.getAgentWs(canonicalHostId) || agentWs;
+        if (currentAgentWs && currentAgentWs.readyState === 1) {
           try {
-            agentWs.send(`JSON:${JSON.stringify({ type: 'proxy_http_req_end', reqId })}`);
+            sendControlFrame(currentAgentWs, { type: 'proxy_http_req_end', reqId }, canonicalHostId);
           } catch {}
         }
       });
@@ -291,9 +325,12 @@ export class TerminalProxyBridge {
   }
 
   public handleAgentBinaryFrame(hostId: string, decoded: DecodedBinaryPacket): boolean {
+    const canonicalHostId = this.resolveCanonicalHost(hostId);
+    const matchesHost = (entryHostId: string) => entryHostId === hostId || entryHostId === canonicalHostId;
+
     if (decoded.msgType === BIN_MSG_TYPE.PROXY_HTTP_RES_BODY) {
       const state = this.activeHttpRequests.get(decoded.id);
-      if (state && !state.res.writableEnded) {
+      if (state && matchesHost(state.hostId) && !state.res.writableEnded) {
         const canContinue = state.res.write(decoded.payload);
         if (!canContinue || state.res.writableLength >= 256 * 1024) {
           if (!state.downstreamPaused) {
@@ -302,7 +339,7 @@ export class TerminalProxyBridge {
             const agentWs = session?.getAgentWs();
             if (agentWs && agentWs.readyState === 1) {
               try {
-                agentWs.send(`JSON:${JSON.stringify({ type: 'proxy_http_pause', reqId: state.reqId })}`);
+                sendControlFrame(agentWs, { type: 'proxy_http_pause', reqId: state.reqId }, state.hostId);
               } catch {}
             }
             state.res.once('drain', () => {
@@ -312,7 +349,7 @@ export class TerminalProxyBridge {
               const ws = sess?.getAgentWs();
               if (ws && ws.readyState === 1) {
                 try {
-                  ws.send(`JSON:${JSON.stringify({ type: 'proxy_http_resume', reqId: state.reqId })}`);
+                  sendControlFrame(ws, { type: 'proxy_http_resume', reqId: state.reqId }, state.hostId);
                 } catch {}
               }
             });
@@ -323,13 +360,17 @@ export class TerminalProxyBridge {
     }
 
     if (decoded.msgType === BIN_MSG_TYPE.PROXY_TCP_DATA) {
-      const state = this.activeTcpStreams.get(decoded.id);
-      if (state && state.cliWs && state.cliWs.readyState === 1) {
+      const state = this.getTcpStream(canonicalHostId, decoded.id);
+      if (state && matchesHost(state.hostId) && state.cliWs && state.cliWs.readyState === 1) {
         try {
-          state.cliWs.send(encodeBinaryPacket(BIN_MSG_TYPE.PROXY_TCP_DATA, decoded.id, decoded.payload), {
-            binary: true,
-            compress: false,
-          });
+          sendWsSafe(
+            state.cliWs,
+            encodeBinaryPacket(BIN_MSG_TYPE.PROXY_TCP_DATA, decoded.id, decoded.payload),
+            {
+              binary: true,
+              compress: false,
+            }
+          );
         } catch {}
       }
       return true;
@@ -346,10 +387,12 @@ export class TerminalProxyBridge {
     if (!control || typeof control !== 'object' || typeof control.type !== 'string') {
       return false;
     }
+    const canonicalHostId = this.resolveCanonicalHost(hostId);
+    const matchesHost = (entryHostId: string) => entryHostId === hostId || entryHostId === canonicalHostId;
 
     if (control.type === 'proxy_http_headers') {
-      const state = this.activeHttpRequests.get(control.reqId);
-      if (state) {
+      const state = typeof control.reqId === 'string' ? this.activeHttpRequests.get(control.reqId) : undefined;
+      if (state && matchesHost(state.hostId)) {
         const { res } = state;
         if (!res.headersSent) {
           if (control.headers && typeof control.headers === 'object') {
@@ -381,8 +424,8 @@ export class TerminalProxyBridge {
     }
 
     if (control.type === 'proxy_http_end') {
-      const state = this.activeHttpRequests.get(control.reqId);
-      if (state) {
+      const state = typeof control.reqId === 'string' ? this.activeHttpRequests.get(control.reqId) : undefined;
+      if (state && matchesHost(state.hostId)) {
         if (state.reqPauseTimer) {
           clearInterval(state.reqPauseTimer);
           state.reqPauseTimer = undefined;
@@ -412,31 +455,31 @@ export class TerminalProxyBridge {
     }
 
     if (control.type === 'proxy_tcp_connected') {
-      const state = this.activeTcpStreams.get(control.streamId);
-      if (state && state.cliWs && state.cliWs.readyState === 1) {
+      const state = typeof control.streamId === 'string' ? this.getTcpStream(canonicalHostId, control.streamId) : undefined;
+      if (state && matchesHost(state.hostId) && state.cliWs && state.cliWs.readyState === 1) {
         try {
-          state.cliWs.send(`JSON:${JSON.stringify(control)}`);
+          sendControlFrame(state.cliWs, control, state.hostId);
         } catch {}
       }
       return true;
     }
 
     if (control.type === 'proxy_tcp_close') {
-      const state = this.activeTcpStreams.get(control.streamId);
-      if (state) {
+      const state = typeof control.streamId === 'string' ? this.getTcpStream(canonicalHostId, control.streamId) : undefined;
+      if (state && matchesHost(state.hostId)) {
         if (state.cliWs && state.cliWs.readyState === 1) {
           try {
-            state.cliWs.send(`JSON:${JSON.stringify(control)}`);
+            sendControlFrame(state.cliWs, control, state.hostId);
           } catch {}
         }
-        this.cleanupTcpStream(control.streamId);
+        this.cleanupTcpStream(state.hostId, control.streamId);
       }
       return true;
     }
 
     if (control.type === 'proxy_list_ports_res') {
-      const pending = this.pendingPortListRpcs.get(control.reqId);
-      if (pending) {
+      const pending = typeof control.reqId === 'string' ? this.pendingPortListRpcs.get(control.reqId) : undefined;
+      if (pending && matchesHost(pending.hostId)) {
         clearTimeout(pending.timer);
         this.pendingPortListRpcs.delete(control.reqId);
         if (control.success !== false) {
@@ -458,8 +501,8 @@ export class TerminalProxyBridge {
     }
 
     if (control.type === 'proxy_net_ping_res') {
-      const pending = this.pendingPingRpcs.get(control.reqId);
-      if (pending) {
+      const pending = typeof control.reqId === 'string' ? this.pendingPingRpcs.get(control.reqId) : undefined;
+      if (pending && matchesHost(pending.hostId)) {
         clearTimeout(pending.timer);
         this.pendingPingRpcs.delete(control.reqId);
         const endNs = process.hrtime.bigint();
@@ -475,8 +518,8 @@ export class TerminalProxyBridge {
     }
 
     if (control.type === 'proxy_net_probe_res') {
-      const pending = this.pendingProbeRpcs.get(control.reqId);
-      if (pending) {
+      const pending = typeof control.reqId === 'string' ? this.pendingProbeRpcs.get(control.reqId) : undefined;
+      if (pending && matchesHost(pending.hostId)) {
         clearTimeout(pending.timer);
         this.pendingProbeRpcs.delete(control.reqId);
         if (control.success !== false) {
@@ -503,21 +546,27 @@ export class TerminalProxyBridge {
   public handleCliConnection(ws: any, req: http.IncomingMessage): void {
     const parsedUrl = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
     const rawHostId = (parsedUrl.searchParams.get('hostId') || parsedUrl.searchParams.get('id') || '').trim();
+    const binaryControlParam = parsedUrl.searchParams.get('binaryControl');
+    if (binaryControlParam === '1' || binaryControlParam === 'true') {
+      (ws as any)._binaryControl = true;
+    }
 
     const canonicalHostId = terminalHostManager.resolveCanonicalHostId(rawHostId);
     const host = canonicalHostId ? terminalHostManager.getHost(canonicalHostId) : null;
     const session = canonicalHostId ? terminalHostManager.getSession(canonicalHostId) : null;
-    const agentWs = session?.getAgentWs();
+    const initialAgentWs = session?.getAgentWs();
 
-    if (!canonicalHostId || !host || host.status !== 'online' || !agentWs || agentWs.readyState !== 1) {
+    if (!canonicalHostId || !host || host.status !== 'online' || !initialAgentWs || initialAgentWs.readyState !== 1) {
       try {
-        ws.send(
-          `JSON:${JSON.stringify({
+        sendControlFrame(
+          ws,
+          {
             type: 'proxy_tcp_close',
             streamId: '',
             error: 'Host is offline or unavailable',
             code: 'EHOSTUNREACH',
-          })}`
+          },
+          canonicalHostId || rawHostId
         );
         ws.close(1008, 'Host is offline or unavailable');
       } catch {}
@@ -528,54 +577,136 @@ export class TerminalProxyBridge {
 
     ws.on('message', (message: RawData, isBinary: boolean) => {
       try {
-        if (isBinary) {
+        const binaryFrame = isBinaryMessageFrame(message, isBinary);
+        let control: any = null;
+
+        if (binaryFrame) {
           const buf = Buffer.isBuffer(message) ? message : Buffer.from(message as any);
-          const decoded = decodeBinaryPacket(buf);
-          if (decoded && decoded.msgType === BIN_MSG_TYPE.PROXY_TCP_DATA) {
-            if (agentWs.readyState === 1) {
-              agentWs.send(buf);
+          const firstByte = buf.length > 0 ? buf[0] : -1;
+          const decoded =
+            firstByte === BIN_MSG_TYPE.CONTROL_JSON || firstByte === BIN_MSG_TYPE.PROXY_TCP_DATA
+              ? decodeBinaryPacket(buf)
+              : null;
+          if (decoded && decoded.msgType === BIN_MSG_TYPE.CONTROL_JSON) {
+            control = decodeControlJsonPacket(buf);
+          } else if (decoded && decoded.msgType === BIN_MSG_TYPE.PROXY_TCP_DATA) {
+            const streamState = this.getTcpStream(canonicalHostId, decoded.id);
+            if (!streamState || streamState.cliWs !== ws || streamState.hostId !== canonicalHostId) {
+              return;
+            }
+            const currentAgentWs = terminalHostManager.getAgentWs(canonicalHostId);
+            if (currentAgentWs && currentAgentWs.readyState === 1) {
+              sendWsSafe(currentAgentWs, buf, { binary: true, compress: false });
+            }
+            return;
+          } else if (isBinary === true) {
+            return;
+          }
+        }
+
+        if (!control && isBinary !== true) {
+          const msgStr = typeof message === 'string' ? message : message.toString('utf-8');
+          if (msgStr.startsWith('JSON:')) {
+            try {
+              control = JSON.parse(msgStr.slice(5));
+            } catch {
+              return;
             }
           }
+        }
+
+        if (!control || typeof control !== 'object' || typeof control.type !== 'string') {
           return;
         }
 
-        const msgStr = typeof message === 'string' ? message : message.toString('utf-8');
-        if (msgStr.startsWith('JSON:')) {
-          let control: any;
-          try {
-            control = JSON.parse(msgStr.slice(5));
-          } catch {
+        if (control.type === 'ping') {
+          sendControlFrame(ws, { type: 'pong' }, canonicalHostId);
+          return;
+        }
+
+        const currentAgentWs = terminalHostManager.getAgentWs(canonicalHostId);
+
+        if (control.type === 'proxy_tcp_connect') {
+          const { streamId, host: targetHost = '127.0.0.1', port } = control;
+          const validStreamId =
+            typeof streamId === 'string' &&
+            streamId.length > 0 &&
+            !streamId.includes('\0') &&
+            Buffer.byteLength(streamId, 'ascii') <= 255;
+          const parsedPort = Number(port);
+          const validPort = Number.isInteger(parsedPort) && parsedPort >= 1 && parsedPort <= 65535;
+          const validHost = typeof targetHost === 'string' && targetHost.trim().length > 0;
+
+          if (!validStreamId || !validPort || !validHost) {
+            sendControlFrame(
+              ws,
+              {
+                type: 'proxy_tcp_close',
+                streamId: typeof streamId === 'string' ? streamId : '',
+                error: 'Invalid proxy_tcp_connect parameters',
+                code: 'EINVAL',
+              },
+              canonicalHostId
+            );
             return;
           }
 
-          if (control.type === 'proxy_tcp_connect') {
-            const { streamId } = control;
-            this.activeTcpStreams.set(streamId, {
-              streamId,
-              hostId: canonicalHostId,
-              cliWs: ws,
-            });
-
-            if (!this.hostToTcpStreams.has(canonicalHostId)) {
-              this.hostToTcpStreams.set(canonicalHostId, new Set());
-            }
-            this.hostToTcpStreams.get(canonicalHostId)!.add(streamId);
-            this.cliToTcpStreams.get(ws)?.add(streamId);
-
-            if (agentWs.readyState === 1) {
-              agentWs.send(msgStr);
-            }
+          if (!currentAgentWs || currentAgentWs.readyState !== 1) {
+            sendControlFrame(
+              ws,
+              {
+                type: 'proxy_tcp_close',
+                streamId,
+                error: 'Agent is offline or unavailable',
+                code: 'EHOSTUNREACH',
+              },
+              canonicalHostId
+            );
             return;
           }
 
-          if (control.type === 'proxy_tcp_close') {
-            const { streamId } = control;
-            if (agentWs.readyState === 1) {
-              agentWs.send(msgStr);
-            }
-            this.cleanupTcpStream(streamId);
+          const streamKey = this.tcpStreamKey(canonicalHostId, streamId);
+          if (this.activeTcpStreams.has(streamKey)) {
+            sendControlFrame(
+              ws,
+              {
+                type: 'proxy_tcp_close',
+                streamId,
+                error: 'Duplicate streamId already active',
+                code: 'EEXIST',
+              },
+              canonicalHostId
+            );
             return;
           }
+
+          this.activeTcpStreams.set(streamKey, {
+            streamId,
+            hostId: canonicalHostId,
+            cliWs: ws,
+          });
+
+          if (!this.hostToTcpStreams.has(canonicalHostId)) {
+            this.hostToTcpStreams.set(canonicalHostId, new Set());
+          }
+          this.hostToTcpStreams.get(canonicalHostId)!.add(streamId);
+          this.cliToTcpStreams.get(ws)?.add(streamId);
+
+          sendControlFrame(currentAgentWs, control, canonicalHostId);
+          return;
+        }
+
+        if (control.type === 'proxy_tcp_close') {
+          const { streamId } = control;
+          const streamState = typeof streamId === 'string' ? this.getTcpStream(canonicalHostId, streamId) : undefined;
+          if (!streamState || streamState.cliWs !== ws || streamState.hostId !== canonicalHostId) {
+            return;
+          }
+          if (currentAgentWs && currentAgentWs.readyState === 1) {
+            sendControlFrame(currentAgentWs, control, canonicalHostId);
+          }
+          this.cleanupTcpStream(canonicalHostId, streamId);
+          return;
         }
       } catch (err: any) {
         logger.error(`[TerminalProxyBridge] Error handling CLI WS message: ${err.message}`);
@@ -585,13 +716,14 @@ export class TerminalProxyBridge {
     const cleanupCli = () => {
       const streams = this.cliToTcpStreams.get(ws);
       if (streams) {
+        const currentAgentWs = terminalHostManager.getAgentWs(canonicalHostId);
         for (const streamId of Array.from(streams)) {
-          if (agentWs.readyState === 1) {
+          if (currentAgentWs && currentAgentWs.readyState === 1) {
             try {
-              agentWs.send(`JSON:${JSON.stringify({ type: 'proxy_tcp_close', streamId })}`);
+              sendControlFrame(currentAgentWs, { type: 'proxy_tcp_close', streamId }, canonicalHostId);
             } catch {}
           }
-          this.cleanupTcpStream(streamId);
+          this.cleanupTcpStream(canonicalHostId, streamId);
         }
         this.cliToTcpStreams.delete(ws);
       }
@@ -601,11 +733,12 @@ export class TerminalProxyBridge {
     ws.on('error', cleanupCli);
   }
 
-  private cleanupTcpStream(streamId: string): void {
-    const state = this.activeTcpStreams.get(streamId);
+  private cleanupTcpStream(hostId: string, streamId: string): void {
+    const key = this.tcpStreamKey(hostId, streamId);
+    const state = this.activeTcpStreams.get(key);
     if (!state) return;
 
-    this.activeTcpStreams.delete(streamId);
+    this.activeTcpStreams.delete(key);
 
     const hostSet = this.hostToTcpStreams.get(state.hostId);
     if (hostSet) {
@@ -620,54 +753,62 @@ export class TerminalProxyBridge {
   }
 
   public handleAgentDisconnected(hostId: string): void {
-    const reqIds = this.hostToHttpRequests.get(hostId);
-    if (reqIds) {
-      for (const reqId of Array.from(reqIds)) {
-        const state = this.activeHttpRequests.get(reqId);
-        if (state) {
-          if (state.reqPauseTimer) {
-            clearInterval(state.reqPauseTimer);
-            state.reqPauseTimer = undefined;
-          }
-          if (!state.res.headersSent) {
-            state.res.status(502).json({
-              error: 'Agent disconnected unexpectedly',
-              code: 'ECONNRESET',
-            });
-          } else {
-            state.res.destroy();
-          }
-          this.activeHttpRequests.delete(reqId);
-        }
-      }
-      this.hostToHttpRequests.delete(hostId);
-    }
+    const canonicalHostId = this.resolveCanonicalHost(hostId);
+    const hostKeys = canonicalHostId !== hostId ? [hostId, canonicalHostId] : [hostId];
 
-    const streamIds = this.hostToTcpStreams.get(hostId);
-    if (streamIds) {
-      for (const streamId of Array.from(streamIds)) {
-        const state = this.activeTcpStreams.get(streamId);
-        if (state) {
-          if (state.cliWs && state.cliWs.readyState === 1) {
-            try {
-              state.cliWs.send(
-                `JSON:${JSON.stringify({
+    for (const targetHostId of hostKeys) {
+      const reqIds = this.hostToHttpRequests.get(targetHostId);
+      if (reqIds) {
+        for (const reqId of Array.from(reqIds)) {
+          const state = this.activeHttpRequests.get(reqId);
+          if (state) {
+            if (state.reqPauseTimer) {
+              clearInterval(state.reqPauseTimer);
+              state.reqPauseTimer = undefined;
+            }
+            if (!state.res.headersSent) {
+              state.res.status(502).json({
+                error: 'Agent disconnected unexpectedly',
+                code: 'ECONNRESET',
+              });
+            } else {
+              state.res.destroy();
+            }
+            this.activeHttpRequests.delete(reqId);
+          }
+        }
+        this.hostToHttpRequests.delete(targetHostId);
+      }
+
+      const streamIds = this.hostToTcpStreams.get(targetHostId);
+      if (streamIds) {
+        for (const streamId of Array.from(streamIds)) {
+          const state = this.getTcpStream(targetHostId, streamId);
+          if (state) {
+            if (state.cliWs && state.cliWs.readyState === 1) {
+              sendControlFrame(
+                state.cliWs,
+                {
                   type: 'proxy_tcp_close',
                   streamId,
                   error: 'Agent disconnected',
                   code: 'ECONNRESET',
-                })}`
+                },
+                targetHostId
               );
-            } catch {}
+            }
+            this.cleanupTcpStream(state.hostId, streamId);
           }
-          this.cleanupTcpStream(streamId);
         }
+        this.hostToTcpStreams.delete(targetHostId);
       }
-      this.hostToTcpStreams.delete(hostId);
     }
 
+    const matchesDisconnectedHost = (entryHostId: string) =>
+      entryHostId === hostId || entryHostId === canonicalHostId;
+
     for (const [reqId, pending] of Array.from(this.pendingPortListRpcs.entries())) {
-      if (pending.hostId === hostId) {
+      if (matchesDisconnectedHost(pending.hostId)) {
         clearTimeout(pending.timer);
         this.pendingPortListRpcs.delete(reqId);
         pending.resolve({
@@ -679,7 +820,7 @@ export class TerminalProxyBridge {
     }
 
     for (const [reqId, pending] of Array.from(this.pendingPingRpcs.entries())) {
-      if (pending.hostId === hostId) {
+      if (matchesDisconnectedHost(pending.hostId)) {
         clearTimeout(pending.timer);
         this.pendingPingRpcs.delete(reqId);
         pending.resolve({
@@ -691,7 +832,7 @@ export class TerminalProxyBridge {
     }
 
     for (const [reqId, pending] of Array.from(this.pendingProbeRpcs.entries())) {
-      if (pending.hostId === hostId) {
+      if (matchesDisconnectedHost(pending.hostId)) {
         clearTimeout(pending.timer);
         this.pendingProbeRpcs.delete(reqId);
         pending.resolve({
@@ -748,7 +889,7 @@ export class TerminalProxyBridge {
       });
 
       try {
-        agentWs.send(`JSON:${JSON.stringify({ type: 'proxy_net_ping', reqId })}`);
+        sendControlFrame(agentWs, { type: 'proxy_net_ping', reqId }, canonicalHostId);
       } catch (err: any) {
         clearTimeout(timer);
         this.pendingPingRpcs.delete(reqId);
@@ -805,13 +946,15 @@ export class TerminalProxyBridge {
       });
 
       try {
-        agentWs.send(
-          `JSON:${JSON.stringify({
+        sendControlFrame(
+          agentWs,
+          {
             type: 'proxy_net_probe',
             reqId,
             targets,
             timeoutMs: Math.max(1000, timeoutMs - 1000),
-          })}`
+          },
+          canonicalHostId
         );
       } catch (err: any) {
         clearTimeout(timer);
@@ -868,7 +1011,7 @@ export class TerminalProxyBridge {
       });
 
       try {
-        agentWs.send(`JSON:${JSON.stringify({ type: 'proxy_list_ports', reqId })}`);
+        sendControlFrame(agentWs, { type: 'proxy_list_ports', reqId }, canonicalHostId);
       } catch (err: any) {
         clearTimeout(timer);
         this.pendingPortListRpcs.delete(reqId);

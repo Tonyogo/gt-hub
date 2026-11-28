@@ -95,6 +95,8 @@ export interface PtyDriverOptions {
   env: Record<string, string>;
   cols?: number;
   rows?: number;
+  tty?: boolean;
+  rawBinaryStdin?: boolean;
   onData: (data: Buffer | string) => void;
   onExit: (code: number | null, signal: string | null) => void;
 }
@@ -466,12 +468,16 @@ export class InteractivePipeDriver {
   public cols: number;
   public rows: number;
   public proc: ChildProcess;
+  private readonly isTtyMode: boolean;
+  private readonly rawBinaryStdin: boolean;
   private exited = false;
   private killEscalationTimer: NodeJS.Timeout | null = null;
 
-  constructor({ command, shell, cwd, env, cols, rows, onData, onExit }: PtyDriverOptions) {
+  constructor({ command, shell, cwd, env, cols, rows, tty = true, rawBinaryStdin = false, onData, onExit }: PtyDriverOptions) {
     this.onData = onData;
     this.onExit = onExit;
+    this.isTtyMode = tty !== false;
+    this.rawBinaryStdin = Boolean(rawBinaryStdin);
     this.cols = Math.max(10, Math.min(500, Math.floor(cols || 80)));
     this.rows = Math.max(5, Math.min(200, Math.floor(rows || 24)));
 
@@ -520,12 +526,20 @@ export class InteractivePipeDriver {
     if (!this.proc || !this.proc.stdin || this.proc.stdin.destroyed || this.proc.stdin.writableEnded) return;
     try {
       const buffer = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
-      if (buffer.length === 1 && buffer[0] === 0x03) {
+      if (this.rawBinaryStdin) {
+        this.proc.stdin.write(buffer);
+        return;
+      }
+      if (this.isTtyMode && buffer.length === 1 && buffer[0] === 0x03) {
         this.kill('SIGINT');
         return;
       }
       if (buffer.length === 1 && buffer[0] === 0x04) {
         this.proc.stdin.end();
+        return;
+      }
+      if (!this.isTtyMode) {
+        this.proc.stdin.write(buffer);
         return;
       }
 
@@ -535,6 +549,14 @@ export class InteractivePipeDriver {
       }
       this.proc.stdin.write(normalized);
     } catch {}
+  }
+
+  endInput(): void {
+    if (this.proc && this.proc.stdin && !this.proc.stdin.destroyed && !this.proc.stdin.writableEnded) {
+      try {
+        this.proc.stdin.end();
+      } catch {}
+    }
   }
 
   resize(cols: number, rows: number): void {

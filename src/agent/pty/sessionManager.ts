@@ -19,7 +19,7 @@ export interface StreamSession {
   isPty: boolean;
   proc: any;
   timeoutTimer: NodeJS.Timeout | null;
-  batcher?: StreamBatcher;
+  batcher?: { flush: () => void };
   history?: TerminalHistoryBuffer;
   superseded?: boolean;
   exitEmitted?: boolean;
@@ -81,6 +81,7 @@ export class StreamSessionManager {
     timeoutMs = 0,
     tty = true,
     interactive = false,
+    stdinEof = false,
     _forceFallback = false,
     _forcePipeFallback = false,
   }: {
@@ -93,6 +94,7 @@ export class StreamSessionManager {
     timeoutMs?: number;
     tty?: boolean;
     interactive?: boolean;
+    stdinEof?: boolean;
     _forceFallback?: boolean;
     _forcePipeFallback?: boolean;
   }): void {
@@ -142,25 +144,76 @@ export class StreamSessionManager {
     const pty = tryRequirePty();
     const canUseNodePty = Boolean(tty && pty && !_forceFallback && !_forcePipeFallback);
 
-    const paneHistory = taskId.startsWith('pane-')
+    const isPaneStream = taskId.startsWith('pane-');
+    const isRawBinaryOutput = !tty && !isPaneStream;
+    const paneHistory = isPaneStream
       ? new TerminalHistoryBuffer(this.maxScrollbackBytes, false)
       : undefined;
 
-    const decoder = new StringDecoder('utf8');
-    const streamBatcher = new StreamBatcher((batchedText) => {
-      const buf = Buffer.from(batchedText, 'utf-8');
-      if (paneHistory) {
-        paneHistory.push(buf);
+    const decoder = isRawBinaryOutput ? null : new StringDecoder('utf8');
+    const textBatcher = isRawBinaryOutput
+      ? null
+      : new StreamBatcher((batchedText) => {
+          const buf = Buffer.from(batchedText, 'utf-8');
+          if (paneHistory) {
+            paneHistory.push(buf);
+          }
+          this.send(encodeBinaryPacket(BIN_MSG_TYPE.STREAM_OUTPUT, taskId, buf));
+        }, 8, 64 * 1024, 4096);
+
+    const rawChunks: Buffer[] = [];
+    let rawChunkBytes = 0;
+    let rawFlushTimer: NodeJS.Timeout | null = null;
+    const flushRawBatch = () => {
+      if (rawFlushTimer) {
+        clearTimeout(rawFlushTimer);
+        rawFlushTimer = null;
       }
-      this.send(encodeBinaryPacket(BIN_MSG_TYPE.STREAM_OUTPUT, taskId, buf));
-    }, 8, 64 * 1024, 4096);
+      if (rawChunks.length === 0) return;
+      const combined = rawChunks.length === 1 ? rawChunks[0] : Buffer.concat(rawChunks);
+      rawChunks.length = 0;
+      rawChunkBytes = 0;
+      this.send(encodeBinaryPacket(BIN_MSG_TYPE.STREAM_OUTPUT, taskId, combined));
+    };
+    const rawBatcher = isRawBinaryOutput
+      ? {
+          push: (chunk: Buffer) => {
+            if (chunk.length === 0) return;
+            rawChunks.push(chunk);
+            rawChunkBytes += chunk.length;
+            if (rawChunkBytes >= 64 * 1024) {
+              flushRawBatch();
+              return;
+            }
+            if (!rawFlushTimer) {
+              rawFlushTimer = setTimeout(() => {
+                rawFlushTimer = null;
+                flushRawBatch();
+              }, 8);
+              if (typeof rawFlushTimer.unref === 'function') {
+                rawFlushTimer.unref();
+              }
+            }
+          },
+          flush: flushRawBatch,
+        }
+      : null;
+
+    const activeBatcher = textBatcher || rawBatcher!;
 
     const onData = (chunk: any) => {
+      if (isRawBinaryOutput && rawBatcher) {
+        const rawBuf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), 'utf-8');
+        if (rawBuf.length > 0) {
+          rawBatcher.push(rawBuf);
+        }
+        return;
+      }
       const text = typeof chunk === 'string'
         ? chunk
-        : decoder.write(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        : decoder!.write(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
       if (text) {
-        streamBatcher.push(text);
+        textBatcher!.push(text);
       }
     };
 
@@ -168,11 +221,13 @@ export class StreamSessionManager {
       if (!session || session.superseded || session.exitEmitted) return;
       if (this.sessions.has(taskId) && this.sessions.get(taskId) !== session) return;
       session.exitEmitted = true;
-      const tail = decoder.end();
-      if (tail) {
-        streamBatcher.push(tail);
+      if (decoder && textBatcher) {
+        const tail = decoder.end();
+        if (tail) {
+          textBatcher.push(tail);
+        }
       }
-      streamBatcher.flush();
+      activeBatcher.flush();
       if (session.timeoutTimer) {
         clearTimeout(session.timeoutTimer);
         session.timeoutTimer = null;
@@ -218,7 +273,18 @@ export class StreamSessionManager {
         this.send({ type: 'cmd_stream_data', taskId, data: warnMsg.toString('base64') });
       }
       try {
-        driver = new InteractivePipeDriver({ command, shell, cwd: workingDir, env: taskEnv, cols, rows, onData, onExit });
+        driver = new InteractivePipeDriver({
+          command,
+          shell,
+          cwd: workingDir,
+          env: taskEnv,
+          cols,
+          rows,
+          tty,
+          rawBinaryStdin: Boolean(!tty && stdinEof),
+          onData,
+          onExit,
+        });
         driverType = 'pipe-fallback';
       } catch (err) {
         this.send({ type: 'cmd_stream_exit', taskId, exitCode: 1, signal: null });
@@ -233,7 +299,7 @@ export class StreamSessionManager {
       isPty: driverType === 'node-pty' || driverType === 'posix-pty',
       proc: driver.proc,
       timeoutTimer: null,
-      batcher: streamBatcher,
+      batcher: activeBatcher,
       ...(paneHistory ? { history: paneHistory } : {}),
     };
 
@@ -262,6 +328,18 @@ export class StreamSessionManager {
     try {
       const buf = Buffer.isBuffer(rawBuf) ? rawBuf : Buffer.from(rawBuf);
       session.driver.write(buf);
+    } catch {}
+  }
+
+  endInput(taskId: string): void {
+    const session = this.sessions.get(taskId);
+    if (!session || !session.driver) return;
+    try {
+      if (typeof session.driver.endInput === 'function') {
+        session.driver.endInput();
+      } else if (session.isPty) {
+        session.driver.write(Buffer.from([0x04]));
+      }
     } catch {}
   }
 

@@ -1,6 +1,7 @@
 import http from 'http';
 import https from 'https';
 import url from 'url';
+import zlib from 'zlib';
 import { quoteShellArg } from '../../shared/utils/shell';
 import { isValidControlPayload } from '../../shared/protocol/binaryProtocol';
 
@@ -108,14 +109,33 @@ export async function resolveHost(serverUrl: string, apiKey: string, input: stri
   }
 
   const hosts: any[] = res.data.hosts;
-  // 1. Exact match on id or name
-  const exact = hosts.find(h => h.id === cleanInput || (h.name && h.name.toLowerCase() === cleanInput.toLowerCase()));
-  if (exact) return { id: exact.id, name: exact.name || exact.id };
+  const lowerInput = cleanInput.toLowerCase();
+  // 1. Exact ID match
+  const idMatch = hosts.find(h => h.id === cleanInput);
+  if (idMatch) {
+    return { id: idMatch.id, name: idMatch.name || idMatch.id };
+  }
 
-  // 2. Prefix match on id or name
+  // 2. Exact name match (case-sensitive first, then case-insensitive; reject ambiguous multiple online matches)
+  const exactCaseNames = hosts.filter(h => h.name === cleanInput);
+  const namePool = exactCaseNames.length > 0
+    ? exactCaseNames
+    : hosts.filter(h => h.name && h.name.toLowerCase() === lowerInput);
+
+  if (namePool.length > 0) {
+    const onlineMatches = namePool.filter(h => h.status === 'online');
+    if (onlineMatches.length > 1) {
+      const candidates = onlineMatches.map(m => `  - ${m.id} (${m.name || 'unnamed'})`).join('\n');
+      throw new Error(`Ambiguous host identifier '${cleanInput}': matches multiple online hosts:\n${candidates}`);
+    }
+    const picked = onlineMatches[0] || namePool[0];
+    return { id: picked.id, name: picked.name || picked.id };
+  }
+
+  // 3. Prefix match on id or name
   const matches = hosts.filter(h => {
-    const idHit = h.id && h.id.toLowerCase().startsWith(cleanInput.toLowerCase());
-    const nameHit = h.name && h.name.toLowerCase().startsWith(cleanInput.toLowerCase());
+    const idHit = h.id && h.id.toLowerCase().startsWith(lowerInput);
+    const nameHit = h.name && h.name.toLowerCase().startsWith(lowerInput);
     return idHit || nameHit;
   });
 
@@ -123,6 +143,10 @@ export async function resolveHost(serverUrl: string, apiKey: string, input: stri
     return { id: matches[0].id, name: matches[0].name || matches[0].id };
   }
   if (matches.length > 1) {
+    const onlineMatches = matches.filter(h => h.status === 'online');
+    if (onlineMatches.length === 1) {
+      return { id: onlineMatches[0].id, name: onlineMatches[0].name || onlineMatches[0].id };
+    }
     const candidates = matches.map(m => `  - ${m.id} (${m.name || 'unnamed'})`).join('\n');
     throw new Error(`Ambiguous host identifier '${cleanInput}': matches multiple hosts:\n${candidates}`);
   }
@@ -145,6 +169,69 @@ export function parseRemoteSpec(str: string): { host: string; path: string } {
   };
 }
 
+export function resolveEndpointUrl(
+  serverUrl: string,
+  endpoint: string,
+  queryParams: Record<string, any> = {}
+): string {
+  const normalizedHttp = serverUrl.startsWith('http://') ||
+    serverUrl.startsWith('https://') ||
+    serverUrl.startsWith('ws://') ||
+    serverUrl.startsWith('wss://')
+    ? serverUrl
+    : `http://${serverUrl}`;
+  const parsed = new url.URL(normalizedHttp);
+  parsed.search = '';
+  parsed.hash = '';
+
+  const [epPath, epQuery] = endpoint.split('?');
+  const basePath = parsed.pathname.replace(/\/+$/, '');
+  parsed.pathname = `${basePath}/${epPath.replace(/^\/+/, '')}`.replace(/\/+/g, '/');
+
+  if (epQuery) {
+    const epParams = new url.URLSearchParams(epQuery);
+    for (const [k, v] of epParams.entries()) {
+      parsed.searchParams.set(k, v);
+    }
+  }
+  for (const [k, v] of Object.entries(queryParams)) {
+    if (v !== undefined && v !== null && v !== '') {
+      parsed.searchParams.set(k, String(v));
+    }
+  }
+  return parsed.toString();
+}
+
+export function resolveWsEndpointUrl(
+  serverUrl: string,
+  endpoint: string,
+  queryParams: Record<string, any> = {}
+): string {
+  const safeParams: Record<string, any> = {};
+  for (const [k, v] of Object.entries(queryParams)) {
+    const lower = k.toLowerCase();
+    if (
+      lower !== 'key' &&
+      lower !== 'x-admin-key' &&
+      lower !== 'admin_key' &&
+      lower !== 'ticket' &&
+      lower !== 'timezone' &&
+      v !== undefined &&
+      v !== null &&
+      v !== ''
+    ) {
+      safeParams[k] = v;
+    }
+  }
+  const resolved = new url.URL(resolveEndpointUrl(serverUrl, endpoint, safeParams));
+  if (resolved.protocol === 'http:') resolved.protocol = 'ws:';
+  if (resolved.protocol === 'https:') resolved.protocol = 'wss:';
+  if (resolved.protocol !== 'ws:' && resolved.protocol !== 'wss:') {
+    resolved.protocol = 'ws:';
+  }
+  return resolved.toString();
+}
+
 export function resolveWebSocketUrl(
   serverUrl: string,
   metadata: {
@@ -159,20 +246,7 @@ export function resolveWebSocketUrl(
     [key: string]: any;
   } = {}
 ): string {
-  let wsUrl = serverUrl.replace(/^http:\/\//i, 'ws://').replace(/^https:\/\//i, 'wss://');
-  if (!wsUrl.startsWith('ws://') && !wsUrl.startsWith('wss://')) {
-    wsUrl = `ws://${wsUrl}`;
-  }
-  wsUrl = wsUrl.replace(/\/+$/, '');
-  const cleanMeta: Record<string, string> = {};
-  for (const [k, v] of Object.entries(metadata)) {
-    if (k !== 'key' && k !== 'x-admin-key' && k !== 'timezone' && k !== 'timeZone' && v !== undefined && v !== null && v !== '') {
-      cleanMeta[k] = String(v);
-    }
-  }
-  const query = new URLSearchParams(cleanMeta);
-  const qs = query.toString();
-  return qs ? `${wsUrl}/api/terminal/agent-ws?${qs}` : `${wsUrl}/api/terminal/agent-ws`;
+  return resolveWsEndpointUrl(serverUrl, '/api/terminal/agent-ws', metadata);
 }
 
 export function parseControlMessage(msgStr: string): any {
@@ -198,63 +272,136 @@ export function makeRequest({
   method = 'GET',
   body = null,
   apiKey = '',
+  timeoutMs = 30000,
 }: {
   serverUrl: string;
   endpoint: string;
   method?: string;
   body?: any;
   apiKey?: string;
+  timeoutMs?: number;
 }): Promise<{ status: number; data: any }> {
   return new Promise((resolve, reject) => {
-    const normalizedUrl = serverUrl.startsWith('http://') || serverUrl.startsWith('https://')
-      ? serverUrl
-      : `http://${serverUrl}`;
-    const serverParsed = new url.URL(normalizedUrl);
-    const isHttps = serverParsed.protocol === 'https:';
+    let settled = false;
+    let responseStarted = false;
+
+    const safeResolve = (result: { status: number; data: any }) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+
+    const safeReject = (err: Error) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    };
+
+    const targetUrl = new url.URL(resolveEndpointUrl(serverUrl, endpoint));
+    const isHttps = targetUrl.protocol === 'https:';
     const client = isHttps ? https : http;
 
-    const [epPath, epQuery] = endpoint.split('?');
-    const basePath = serverParsed.pathname.replace(/\/+$/, '');
-    const finalPathname = (basePath + '/' + epPath.replace(/^\/+/, '')).replace(/\/+/g, '/');
-    const finalSearch = epQuery ? `?${epQuery}` : '';
-
-    const headers: Record<string, any> = { 'Accept': 'application/json' };
+    const headers: Record<string, any> = {
+      Accept: 'application/json',
+      'Accept-Encoding': 'gzip, deflate',
+    };
     if (apiKey) {
       headers['x-admin-key'] = apiKey;
     }
 
     let payload: string | null = null;
-    if (body) {
+    if (body !== null && body !== undefined) {
       payload = JSON.stringify(body);
       headers['Content-Type'] = 'application/json';
       headers['Content-Length'] = Buffer.byteLength(payload);
     }
 
     const reqOptions = {
-      protocol: serverParsed.protocol,
-      hostname: serverParsed.hostname,
-      port: serverParsed.port || (isHttps ? 443 : 80),
-      path: `${finalPathname}${finalSearch}`,
+      protocol: targetUrl.protocol,
+      hostname: targetUrl.hostname,
+      port: targetUrl.port || (isHttps ? 443 : 80),
+      path: `${targetUrl.pathname}${targetUrl.search}`,
       method: method.toUpperCase(),
       headers,
     };
 
     const req = client.request(reqOptions, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
-      res.on('end', () => {
-        let json: any = null;
-        try {
-          json = JSON.parse(data);
-        } catch {
-          json = { raw: data };
+      responseStarted = true;
+      const chunks: Buffer[] = [];
+      res.on('data', (chunk) => {
+        if (!settled) {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
         }
-        resolve({ status: res.statusCode || 0, data: json });
+      });
+      res.on('error', (err) => {
+        safeReject(err);
+      });
+      res.on('close', () => {
+        if (!settled && !res.complete) {
+          safeReject(new Error(`Response closed prematurely (${method.toUpperCase()} ${endpoint})`));
+        }
+      });
+      res.on('end', () => {
+        if (settled) return;
+        if (!res.complete) {
+          safeReject(new Error(`Response ended prematurely (${method.toUpperCase()} ${endpoint})`));
+          return;
+        }
+        const rawBuf = Buffer.concat(chunks);
+        const encoding = String(res.headers['content-encoding'] || '').toLowerCase();
+        const finish = (decodedBuf: Buffer) => {
+          const text = decodedBuf.toString('utf-8');
+          let json: any = null;
+          try {
+            json = JSON.parse(text);
+          } catch {
+            json = { raw: text };
+          }
+          safeResolve({ status: res.statusCode || 0, data: json });
+        };
+
+        if (rawBuf.length === 0) {
+          finish(rawBuf);
+          return;
+        }
+        if (encoding.includes('gzip')) {
+          zlib.gunzip(rawBuf, (err, unzipped) => {
+            finish(err ? rawBuf : unzipped);
+          });
+          return;
+        }
+        if (encoding.includes('deflate')) {
+          zlib.inflate(rawBuf, (err, inflated) => {
+            if (!err) {
+              finish(inflated);
+              return;
+            }
+            zlib.inflateRaw(rawBuf, (rawErr, rawInflated) => {
+              finish(rawErr ? rawBuf : rawInflated);
+            });
+          });
+          return;
+        }
+        finish(rawBuf);
       });
     });
 
-    req.on('error', (err) => { reject(err); });
-    if (payload) req.write(payload);
+    if (timeoutMs > 0) {
+      req.setTimeout(timeoutMs, () => {
+        const timeoutErr = new Error(`Request timeout after ${timeoutMs}ms (${method.toUpperCase()} ${endpoint})`);
+        try { req.destroy(timeoutErr); } catch {}
+        safeReject(timeoutErr);
+      });
+    }
+    req.on('error', (err) => {
+      safeReject(err);
+    });
+    req.on('close', () => {
+      if (!responseStarted && !settled) {
+        safeReject(new Error(`Connection closed prematurely (${method.toUpperCase()} ${endpoint})`));
+      }
+    });
+    if (payload !== null) req.write(payload);
     req.end();
   });
 }

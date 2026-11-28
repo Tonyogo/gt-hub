@@ -1,4 +1,5 @@
 import { taskManager } from '../tasks/taskManager';
+import { sendControlFrame } from '../../shared/protocol/binaryProtocol';
 
 export function handleCmdExec(control: any, targetWs: any): void {
   const {
@@ -20,15 +21,17 @@ export function handleCmdExec(control: any, targetWs: any): void {
   const reply = (success: boolean, data: any = null, error: string | null = null) => {
     const isOpen = targetWs && (targetWs.readyState === 1 || targetWs.readyState === (targetWs.constructor?.OPEN ?? 1));
     if (isOpen) {
-      targetWs.send(
-        `JSON:${JSON.stringify({
+      sendControlFrame(
+        targetWs,
+        {
           type: 'cmd_exec_res',
           reqId,
           taskId,
           success,
           data,
           error,
-        })}`
+        },
+        reqId || taskId || ''
       );
     }
   };
@@ -39,7 +42,7 @@ export function handleCmdExec(control: any, targetWs: any): void {
         const isOpen = targetWs && (targetWs.readyState === 1 || targetWs.readyState === (targetWs.constructor?.OPEN ?? 1));
         if (isOpen) {
           try {
-            targetWs.send(`JSON:${JSON.stringify({ type: 'cmd_task_finished', ...event })}`);
+            sendControlFrame(targetWs, { type: 'cmd_task_finished', ...event }, event?.taskId || '');
           } catch {}
         }
       };

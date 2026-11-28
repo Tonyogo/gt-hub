@@ -68,6 +68,12 @@ import {
 } from '../utils/terminalImeHelper';
 import { useTerminalWebSocket } from './terminal/hooks/useTerminalWebSocket';
 import { requestAuthTicket } from '../utils/apiClient';
+import {
+  isBinaryControlPacket,
+  decodeBinaryControlFrame,
+  parseTerminalTextControlFrame,
+  toUint8Array,
+} from '../utils/terminalProtocol';
 import { useTerminalSelection } from './terminal/hooks/useTerminalSelection';
 import { useTerminalIme } from './terminal/hooks/useTerminalIme';
 import { TerminalMagnifierBubble } from './terminal/components/TerminalMagnifierBubble';
@@ -318,6 +324,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
   const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const connectSeqRef = useRef<number>(0);
   const lastPongTimeRef = useRef<number>(Date.now());
+  const binaryControlConfirmedRef = useRef<boolean>(false);
 
   const [isMobile, setIsMobile] = useState<boolean>(() => {
     return typeof window !== 'undefined'
@@ -623,6 +630,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
     hasFirstDataFittedRef.current = false;
     lastSentColsRef.current = 0;
     lastSentRowsRef.current = 0;
+    binaryControlConfirmedRef.current = false;
 
     if (wsRef.current) {
       const oldWs = wsRef.current;
@@ -653,7 +661,7 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
       const host = window.location.host;
       const ticketParam = ticket ? `ticket=${encodeURIComponent(ticket)}` : (adminKey ? `x-admin-key=${encodeURIComponent(adminKey)}` : '');
       const paneParam = paneId && paneId !== 'main' ? `&paneId=${encodeURIComponent(paneId)}` : '';
-      const wsUrl = `${protocol}//${host}/api/terminal/ws?${ticketParam ? ticketParam + '&' : ''}hostId=${encodeURIComponent(activeHostIdRef.current)}${paneParam}`;
+      const wsUrl = `${protocol}//${host}/api/terminal/ws?${ticketParam ? ticketParam + '&' : ''}hostId=${encodeURIComponent(activeHostIdRef.current)}${paneParam}&binaryControl=1`;
 
       const ws = new WebSocket(wsUrl);
       ws.binaryType = 'arraybuffer';
@@ -661,12 +669,18 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
 
       ws.onopen = () => {
         lastPongTimeRef.current = Date.now();
+        binaryControlConfirmedRef.current = false;
         console.debug('[WebTerminal] WebSocket connection established successfully');
         setIsConnecting(false);
         setIsConnected(true);
         reconnectAttemptRef.current = 0;
         clearReconnectTimers();
         clearPingInterval();
+
+        // Probe Hub binaryControl support immediately so text JSON:{"type":"reset"} output is safely ignored once confirmed
+        try {
+          ws.send(`JSON:${JSON.stringify({ type: 'ping' })}`);
+        } catch {}
 
         // Start ping heartbeat (every 15 seconds) to prevent reverse proxy/NAT idle drop
         pingIntervalRef.current = setInterval(() => {
@@ -722,126 +736,142 @@ const WebTerminalView = React.forwardRef<WebTerminalHandle, WebTerminalViewProps
           hasFirstDataFittedRef.current = true;
           safeFit(lastSentColsRef.current === 0);
         }
+
+        const handleParsedControl = (parsed: Record<string, any>): boolean => {
+          if (parsed.type === 'agent_offline') {
+            try {
+              ws.close(1012, 'Agent disconnected');
+            } catch {
+              try { ws.close(); } catch {}
+            }
+            return true;
+          }
+          if (parsed.type === 'pane_exit') {
+            isProcessExitedRef.current = true;
+            setIsConnected(false);
+            setIsConnecting(false);
+            clearReconnectTimers();
+            onPaneExitRef.current?.();
+            return true;
+          }
+          if (parsed.type === 'pong') {
+            // Server keepalive heartbeat response
+            return true;
+          }
+          console.debug('[WebTerminal] Received backend control message:', parsed);
+          if (parsed.type === 'reset') {
+            console.debug('[WebTerminal] Received reset signal from backend, clearing buffer and muting synthetic reports');
+            isRemoteAltScreenRef.current = false;
+            altScreenEscapeTailRef.current = '';
+            backgroundQueueRef.current.clear();
+            writeSchedulerRef.current?.clear();
+            streamTextDecoderRef.current.decode();
+            xtermRef.current?.clear();
+            xtermRef.current?.reset();
+            isReplayingRef.current = true;
+            if (replayTimerRef.current) {
+              clearTimeout(replayTimerRef.current);
+            }
+            replayTimerRef.current = setTimeout(() => {
+              isReplayingRef.current = false;
+              scrollToBottomSafe(xtermRef.current);
+            }, 600);
+            if (fitAddonRef.current && xtermRef.current) {
+              fitAddonRef.current.fit();
+              sendResize(xtermRef.current.cols, xtermRef.current.rows);
+              scrollToBottomSafe(xtermRef.current);
+            }
+            return true;
+          }
+          if (parsed.type === 'status' && parsed.event === 'exit') {
+            xtermRef.current?.writeln('\r\n\x1b[33m[Process Completed]\x1b[0m\r\n');
+            isProcessExitedRef.current = true;
+            setIsConnected(false);
+            clearReconnectTimers();
+            return true;
+          }
+          return false;
+        };
+
         const data = event.data;
         if (typeof data === 'string') {
-          if (data.startsWith('JSON:')) {
-            try {
-              const parsed = JSON.parse(data.slice(5));
-              if (parsed.type === 'agent_offline') {
-                try {
-                  ws.close(1012, 'Agent disconnected');
-                } catch {}
-                return;
-              }
-              if (parsed.type === 'pane_exit') {
-                isProcessExitedRef.current = true;
-                setIsConnected(false);
-                setIsConnecting(false);
-                clearReconnectTimers();
-                onPaneExitRef.current?.();
-                return;
-              }
-              if (parsed.type === 'pong') {
-                // Server keepalive heartbeat response
-                return;
-              }
-            console.debug('[WebTerminal] Received backend control message:', parsed);
-            if (parsed.type === 'reset') {
-              console.debug('[WebTerminal] Received reset signal from backend, clearing buffer and muting synthetic reports');
-              isRemoteAltScreenRef.current = false;
-              altScreenEscapeTailRef.current = '';
-              backgroundQueueRef.current.clear();
-              writeSchedulerRef.current?.clear();
-              streamTextDecoderRef.current.decode();
-              xtermRef.current?.clear();
-              xtermRef.current?.reset();
-              isReplayingRef.current = true;
-              if (replayTimerRef.current) {
-                clearTimeout(replayTimerRef.current);
-              }
-              replayTimerRef.current = setTimeout(() => {
-                isReplayingRef.current = false;
-                scrollToBottomSafe(xtermRef.current);
-              }, 600);
-              if (fitAddonRef.current && xtermRef.current) {
-                fitAddonRef.current.fit();
-                sendResize(xtermRef.current.cols, xtermRef.current.rows);
-                scrollToBottomSafe(xtermRef.current);
-              }
+          if (!binaryControlConfirmedRef.current && data.startsWith('JSON:')) {
+            const parsed = parseTerminalTextControlFrame(data);
+            if (parsed && handleParsedControl(parsed)) {
               return;
             }
-            if (parsed.type === 'status' && parsed.event === 'exit') {
-              xtermRef.current?.writeln('\r\n\x1b[33m[Process Completed]\x1b[0m\r\n');
-              isProcessExitedRef.current = true;
-              setIsConnected(false);
-              clearReconnectTimers();
+          }
+
+          const combinedAltChunk = altScreenEscapeTailRef.current ? altScreenEscapeTailRef.current + data : data;
+          isRemoteAltScreenRef.current = updateRemoteAltScreenState(isRemoteAltScreenRef.current, combinedAltChunk);
+          altScreenEscapeTailRef.current = extractIncompleteEscapeTail(combinedAltChunk);
+
+          if (!isActiveRef.current) {
+            backgroundQueueRef.current.push(data);
+            return;
+          }
+
+          if (writeSchedulerRef.current) {
+            writeSchedulerRef.current.push(data);
+          } else {
+            const term = xtermRef.current;
+            const wasAtBottom = isAtBottomRef.current;
+            term?.write(data, () => {
+              if (
+                !isRefittingRef.current &&
+                shouldScrollToBottom({ isReplaying: isReplayingRef.current, wasAtBottom, bufferType: term?.buffer.active.type }) &&
+                (isReplayingRef.current || (term && term.buffer.active.viewportY < term.buffer.active.baseY))
+              ) {
+                scrollToBottomSafe(term);
+              }
+              if (isReplayingRef.current) {
+                term?.refresh(0, Math.max(0, (term.rows || 1) - 1));
+                isReplayingRef.current = false;
+              }
+            });
+          }
+        } else if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
+          const binaryBytes = toUint8Array(data);
+          if (!binaryBytes) return;
+          if (isBinaryControlPacket(binaryBytes)) {
+            const parsed = decodeBinaryControlFrame(binaryBytes);
+            if (parsed) {
+              binaryControlConfirmedRef.current = true;
+              handleParsedControl(parsed);
             }
             return;
-          } catch {
-            // Not json, print as raw text
+          }
+          const text = streamTextDecoderRef.current.decode(binaryBytes, { stream: true });
+          const combinedAltChunk = altScreenEscapeTailRef.current ? altScreenEscapeTailRef.current + text : text;
+          isRemoteAltScreenRef.current = updateRemoteAltScreenState(isRemoteAltScreenRef.current, combinedAltChunk);
+          altScreenEscapeTailRef.current = extractIncompleteEscapeTail(combinedAltChunk);
+
+          if (!isActiveRef.current) {
+            backgroundQueueRef.current.push(binaryBytes);
+            return;
+          }
+
+          if (writeSchedulerRef.current) {
+            writeSchedulerRef.current.push(text);
+          } else {
+            const term = xtermRef.current;
+            const wasAtBottom = isAtBottomRef.current;
+            term?.write(binaryBytes, () => {
+              if (
+                !isRefittingRef.current &&
+                shouldScrollToBottom({ isReplaying: isReplayingRef.current, wasAtBottom, bufferType: term?.buffer.active.type }) &&
+                (isReplayingRef.current || (term && term.buffer.active.viewportY < term.buffer.active.baseY))
+              ) {
+                scrollToBottomSafe(term);
+              }
+              if (isReplayingRef.current) {
+                term?.refresh(0, Math.max(0, (term.rows || 1) - 1));
+                isReplayingRef.current = false;
+              }
+            });
           }
         }
-
-        const combinedAltChunk = altScreenEscapeTailRef.current ? altScreenEscapeTailRef.current + data : data;
-        isRemoteAltScreenRef.current = updateRemoteAltScreenState(isRemoteAltScreenRef.current, combinedAltChunk);
-        altScreenEscapeTailRef.current = extractIncompleteEscapeTail(combinedAltChunk);
-
-        if (!isActiveRef.current) {
-          backgroundQueueRef.current.push(data);
-          return;
-        }
-
-        if (writeSchedulerRef.current) {
-          writeSchedulerRef.current.push(data);
-        } else {
-          const term = xtermRef.current;
-          const wasAtBottom = isAtBottomRef.current;
-          term?.write(data, () => {
-            if (
-              !isRefittingRef.current &&
-              shouldScrollToBottom({ isReplaying: isReplayingRef.current, wasAtBottom, bufferType: term?.buffer.active.type }) &&
-              (isReplayingRef.current || (term && term.buffer.active.viewportY < term.buffer.active.baseY))
-            ) {
-              scrollToBottomSafe(term);
-            }
-            if (isReplayingRef.current) {
-              term?.refresh(0, Math.max(0, (term.rows || 1) - 1));
-              isReplayingRef.current = false;
-            }
-          });
-        }
-      } else if (data instanceof ArrayBuffer) {
-        const text = streamTextDecoderRef.current.decode(data, { stream: true });
-        const combinedAltChunk = altScreenEscapeTailRef.current ? altScreenEscapeTailRef.current + text : text;
-        isRemoteAltScreenRef.current = updateRemoteAltScreenState(isRemoteAltScreenRef.current, combinedAltChunk);
-        altScreenEscapeTailRef.current = extractIncompleteEscapeTail(combinedAltChunk);
-
-        if (!isActiveRef.current) {
-          backgroundQueueRef.current.push(data);
-          return;
-        }
-
-        if (writeSchedulerRef.current) {
-          writeSchedulerRef.current.push(text);
-        } else {
-          const term = xtermRef.current;
-          const wasAtBottom = isAtBottomRef.current;
-          term?.write(new Uint8Array(data), () => {
-            if (
-              !isRefittingRef.current &&
-              shouldScrollToBottom({ isReplaying: isReplayingRef.current, wasAtBottom, bufferType: term?.buffer.active.type }) &&
-              (isReplayingRef.current || (term && term.buffer.active.viewportY < term.buffer.active.baseY))
-            ) {
-              scrollToBottomSafe(term);
-            }
-            if (isReplayingRef.current) {
-              term?.refresh(0, Math.max(0, (term.rows || 1) - 1));
-              isReplayingRef.current = false;
-            }
-          });
-        }
-      }
-    };
+      };
 
     const triggerReconnect = () => {
       setIsConnecting(false);

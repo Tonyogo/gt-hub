@@ -1,4 +1,5 @@
 import { AgentCronScheduler } from '../cron/cronScheduler';
+import { sendControlFrame } from '../../shared/protocol/binaryProtocol';
 
 export async function handleCronControl(
   control: any,
@@ -11,7 +12,7 @@ export async function handleCronControl(
 
   const send = (payload: any) => {
     if (isOpen()) {
-      targetWs.send(`JSON:${JSON.stringify(payload)}`);
+      sendControlFrame(targetWs, payload, payload?.requestId || payload?.jobId || '');
     }
   };
 

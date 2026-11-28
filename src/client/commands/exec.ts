@@ -1,5 +1,7 @@
-import { quoteShellArg, resolveHost, makeRequest } from '../utils/terminalUI';
+import { quoteShellArg, resolveHost, resolveWsEndpointUrl, makeRequest } from '../utils/terminalUI';
 import { runInteractiveExec, getWebSocketCtor } from '../interactive/interactiveExec';
+import { PROTOCOL_VERSION } from '../../shared/protocol/events';
+import { isBinaryMessageFrame, sendWsSafe } from '../../shared/protocol/binaryProtocol';
 
 export interface ExecParsedArgs {
   host: string;
@@ -123,6 +125,18 @@ export function parseExecArgs(args: string[]): ExecParsedArgs {
   };
 }
 
+export class StreamExecError extends Error {
+  public readonly allowHttpFallback: boolean;
+  public readonly statusCode?: number;
+
+  constructor(message: string, allowHttpFallback: boolean, statusCode?: number) {
+    super(message);
+    this.name = 'StreamExecError';
+    this.allowHttpFallback = allowHttpFallback;
+    this.statusCode = statusCode;
+  }
+}
+
 export function runStreamExec({
   serverUrl,
   apiKey,
@@ -144,168 +158,327 @@ export function runStreamExec({
 
   return new Promise((resolve, reject) => {
     const { timeoutMs, workdir, env, verbose } = options;
-    let wsUrl = serverUrl.replace(/^http:\/\//i, 'ws://').replace(/^https:\/\//i, 'wss://');
-    if (!wsUrl.startsWith('ws://') && !wsUrl.startsWith('wss://')) {
-      wsUrl = `ws://${wsUrl}`;
-    }
-    wsUrl = wsUrl.replace(/\/+$/, '');
-
-    const query = new URLSearchParams({ hostId });
-    if (apiKey) query.set('key', apiKey);
-
-    const targetUrl = `${wsUrl}/api/terminal/exec-ws?${query.toString()}`;
+    const targetUrl = resolveWsEndpointUrl(serverUrl, '/api/terminal/exec-ws', { hostId });
     const headers: Record<string, any> = {};
     if (apiKey) headers['x-admin-key'] = apiKey;
 
     let ws: any;
     try {
       ws = new WebSocket(targetUrl, { headers });
-    } catch (err) {
-      return reject(err);
+    } catch (err: any) {
+      return reject(new StreamExecError(err?.message || String(err), true));
     }
 
     let isConnected = false;
     let isTerminated = false;
     let exitResolved = false;
+    let execStarted = false;
+    let supportsStdinEof: boolean | null = null;
+    let inputPipelineStarted = false;
+    let eofSent = false;
+    let stdinBytesSent = 0;
+    let receivedServerOutput = false;
+    let execStartedFallbackTimer: NodeJS.Timeout | null = null;
+    let heartbeatTimer: NodeJS.Timeout | null = null;
+    let lastActivityAt = Date.now();
+    let attachedStdinListeners = false;
 
-    const sigintHandler = () => {
-      if (isTerminated) process.exit(130);
-      isTerminated = true;
-      try {
-        if (ws && (ws.readyState === 1 || ws.readyState === WebSocket.OPEN)) {
-          ws.close();
+    const hasExecutionStarted = () => execStarted || stdinBytesSent > 0 || receivedServerOutput;
+
+    const sendEof = () => {
+      if (eofSent) return;
+      if (!ws || (ws.readyState !== 1 && ws.readyState !== WebSocket.OPEN)) return;
+      eofSent = true;
+      if (supportsStdinEof) {
+        sendWsSafe(ws, JSON.stringify({ type: 'exec_stdin_eof' }), { binary: false, compress: false });
+      } else {
+        sendWsSafe(ws, Buffer.from([0x04]), { binary: true, compress: false });
+      }
+    };
+
+    const onStdinData = (chunk: Buffer | string) => {
+      if (ws && (ws.readyState === 1 || ws.readyState === WebSocket.OPEN)) {
+        const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, 'utf-8');
+        if (buf.length > 0) {
+          stdinBytesSent += buf.length;
+          sendWsSafe(ws, buf, { binary: true, compress: false });
         }
-      } catch {}
-      process.exit(130);
-    };
-    process.on('SIGINT', sigintHandler);
-
-    const cleanup = () => {
-      process.removeListener('SIGINT', sigintHandler);
+      }
     };
 
-    ws.on('open', () => {
-      isConnected = true;
-      const cols = process.stdout.columns || 80;
-      const rows = process.stdout.rows || 24;
+    const onStdinEnd = () => {
+      sendEof();
+    };
 
-      ws.send(JSON.stringify({
-        type: 'exec_start',
-        command: fullCommand,
-        cwd: workdir,
-        env,
-        timeoutMs: timeoutMs || 0,
-        tty: false,
-        interactive: false,
-        cols,
-        rows,
-      }));
+    const startInputPipeline = (stdinEofCapable: boolean) => {
+      if (inputPipelineStarted || exitResolved) return;
+      inputPipelineStarted = true;
+      supportsStdinEof = stdinEofCapable;
+      if (execStartedFallbackTimer) {
+        clearTimeout(execStartedFallbackTimer);
+        execStartedFallbackTimer = null;
+      }
 
-      if (stdinPayload) {
-        ws.send(Buffer.from(stdinPayload, 'utf-8'));
-        ws.send(Buffer.from([0x04]));
-      } else if (!process.stdin.isTTY) {
-        let eofSent = false;
-        const sendEof = () => {
-          if (!eofSent && (ws.readyState === 1 || ws.readyState === WebSocket.OPEN)) {
-            eofSent = true;
-            ws.send(Buffer.from([0x04]));
-          }
-        };
-
+      if (stdinPayload !== undefined) {
+        if (stdinPayload.length > 0) {
+          const payloadBuf = Buffer.from(stdinPayload, 'utf-8');
+          stdinBytesSent += payloadBuf.length;
+          sendWsSafe(ws, payloadBuf, { binary: true, compress: false });
+        }
+        sendEof();
+      } else if (options.interactive || !process.stdin.isTTY) {
         if (process.stdin.readableEnded) {
           sendEof();
         } else {
-          process.stdin.on('data', (chunk) => {
-            if (ws.readyState === 1 || ws.readyState === WebSocket.OPEN) {
-              ws.send(chunk);
-            }
-          });
-          process.stdin.on('end', sendEof);
-          process.stdin.on('close', sendEof);
+          attachedStdinListeners = true;
+          process.stdin.on('data', onStdinData);
+          process.stdin.on('end', onStdinEnd);
+          process.stdin.on('close', onStdinEnd);
           process.stdin.resume();
           if (process.stdin.readableEnded) {
             sendEof();
           }
         }
+      } else {
+        sendEof();
+      }
+    };
+
+    const forwardKillAndExit = (signal: 'SIGINT' | 'SIGTERM', exitCode: number) => {
+      cleanup();
+      const isOpen = ws && (ws.readyState === 1 || ws.readyState === WebSocket.OPEN);
+      if (!isOpen) {
+        try { ws?.terminate?.() ?? ws?.close?.(); } catch {}
+        process.exit(exitCode);
+        return;
+      }
+      const killPayload = JSON.stringify({ type: 'exec_kill', signal });
+      if (ws._sender && typeof ws._sender === 'object' && typeof ws.send === 'function') {
+        let exited = false;
+        const doExit = () => {
+          if (exited) return;
+          exited = true;
+          try { ws.close(); } catch {}
+          process.exit(exitCode);
+        };
+        const timer = setTimeout(doExit, 80);
+        if (typeof timer.unref === 'function') timer.unref();
+        try {
+          ws.send(killPayload, { binary: false, compress: false }, () => {
+            clearTimeout(timer);
+            doExit();
+          });
+        } catch {
+          clearTimeout(timer);
+          doExit();
+        }
+      } else {
+        try {
+          sendWsSafe(ws, killPayload, { binary: false, compress: false });
+          ws.close();
+        } catch {}
+        process.exit(exitCode);
+      }
+    };
+
+    const sigintHandler = () => {
+      if (isTerminated) process.exit(130);
+      isTerminated = true;
+      forwardKillAndExit('SIGINT', 130);
+    };
+    const sigtermHandler = () => {
+      isTerminated = true;
+      forwardKillAndExit('SIGTERM', 143);
+    };
+    process.on('SIGINT', sigintHandler);
+    process.on('SIGTERM', sigtermHandler);
+
+    const cleanup = () => {
+      process.removeListener('SIGINT', sigintHandler);
+      process.removeListener('SIGTERM', sigtermHandler);
+      if (execStartedFallbackTimer) {
+        clearTimeout(execStartedFallbackTimer);
+        execStartedFallbackTimer = null;
+      }
+      if (heartbeatTimer) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
+      if (attachedStdinListeners) {
+        process.stdin.removeListener('data', onStdinData);
+        process.stdin.removeListener('end', onStdinEnd);
+        process.stdin.removeListener('close', onStdinEnd);
+        try { process.stdin.pause(); } catch {}
+        attachedStdinListeners = false;
+      }
+    };
+
+    const finish = (code: number) => {
+      if (exitResolved) return;
+      exitResolved = true;
+      cleanup();
+      try {
+        if (ws && (ws.readyState === 1 || ws.readyState === WebSocket.OPEN)) {
+          ws.close(1000, 'Done');
+        }
+      } catch {}
+      resolve(code);
+    };
+
+    const fail = (err: Error) => {
+      if (exitResolved) return;
+      exitResolved = true;
+      cleanup();
+      reject(err);
+    };
+
+    ws.on('pong', () => {
+      lastActivityAt = Date.now();
+    });
+
+    ws.on('open', () => {
+      isConnected = true;
+      lastActivityAt = Date.now();
+      const cols = process.stdout.columns || 80;
+      const rows = process.stdout.rows || 24;
+
+      sendWsSafe(ws, JSON.stringify({
+        type: 'exec_start',
+        protocolVersion: PROTOCOL_VERSION,
+        command: fullCommand,
+        cwd: workdir,
+        env,
+        timeoutMs: timeoutMs || 0,
+        tty: false,
+        interactive: Boolean(options.interactive),
+        cols,
+        rows,
+      }), { binary: false, compress: false });
+
+      heartbeatTimer = setInterval(() => {
+        if (!ws || (ws.readyState !== 1 && ws.readyState !== WebSocket.OPEN)) return;
+        if (Date.now() - lastActivityAt > 45000) {
+          try { ws.terminate?.() ?? ws.close(); } catch {}
+          return;
+        }
+        try {
+          if (typeof ws.ping === 'function') {
+            ws.ping();
+          }
+          sendWsSafe(ws, JSON.stringify({ type: 'ping' }), { binary: false, compress: false });
+        } catch {}
+      }, 15000);
+      if (typeof heartbeatTimer.unref === 'function') {
+        heartbeatTimer.unref();
+      }
+
+      execStartedFallbackTimer = setTimeout(() => {
+        execStartedFallbackTimer = null;
+        startInputPipeline(false);
+      }, 3000);
+      if (typeof execStartedFallbackTimer.unref === 'function') {
+        execStartedFallbackTimer.unref();
       }
     });
 
-    ws.on('message', (data: any, isBinary: boolean) => {
-      if (isBinary) {
+    ws.on('message', (data: any, isBinary?: boolean) => {
+      lastActivityAt = Date.now();
+      if (isBinary === true) {
+        receivedServerOutput = true;
         process.stdout.write(data);
         return;
       }
 
-      const str = data.toString();
-      if (str.includes('[Host Offline]')) {
+      const str = typeof data === 'string' ? data : data.toString('utf-8');
+      if (str.includes('[Host Offline]') || str.includes('[Agent Disconnected]')) {
         process.stderr.write(str);
         return;
       }
 
-      try {
-        const json = JSON.parse(str);
-        if (json.type === 'exec_started') {
-          return;
-        }
-        if (json.type === 'exec_exit') {
-          exitResolved = true;
-          cleanup();
-          const durationSec = ((Date.now() - startTime) / 1000).toFixed(2);
-          const exitCode = json.exitCode !== undefined ? json.exitCode : 0;
-          if (verbose) {
-            if (exitCode === 0) {
-              process.stderr.write(`<<< [${hostId}] Command completed with code 0 (took ${durationSec}s)\n`);
-            } else {
-              process.stderr.write(`<<< [${hostId}] Command failed with code ${exitCode} (took ${durationSec}s)\n`);
+      if (!isBinaryMessageFrame(data, isBinary) || isBinary === undefined) {
+        try {
+          const json = JSON.parse(str);
+          if (json && typeof json === 'object' && !Array.isArray(json)) {
+            if (json.type === 'exec_started') {
+              execStarted = true;
+              startInputPipeline(Boolean(json.capabilities?.stdinEof));
+              return;
+            }
+            if (json.type === 'pong') {
+              return;
+            }
+            if (json.type === 'exec_error') {
+              if (json.error) {
+                process.stderr.write(`[${hostId}] Execution error: ${json.error}\n`);
+              }
+              finish(typeof json.exitCode === 'number' ? json.exitCode : 1);
+              return;
+            }
+            if (json.type === 'exec_exit') {
+              const durationSec = ((Date.now() - startTime) / 1000).toFixed(2);
+              const exitCode = json.exitCode !== undefined ? json.exitCode : 0;
+              if (verbose) {
+                if (exitCode === 0) {
+                  process.stderr.write(`<<< [${hostId}] Command completed with code 0 (took ${durationSec}s)\n`);
+                } else {
+                  process.stderr.write(`<<< [${hostId}] Command failed with code ${exitCode} (took ${durationSec}s)\n`);
+                }
+              }
+              finish(exitCode);
+              return;
             }
           }
-          resolve(exitCode);
-          return;
-        }
-      } catch {}
+        } catch {}
+      }
 
+      receivedServerOutput = true;
       process.stdout.write(data);
     });
 
     ws.on('error', (err: any) => {
-      cleanup();
-      if (!isConnected) {
-        reject(err);
+      if (exitResolved) return;
+      const errMsg = err?.message || String(err);
+      if (!hasExecutionStarted()) {
+        fail(new StreamExecError(errMsg, true));
       } else {
-        if (!exitResolved) {
-          console.error(`\n[${hostId}] WebSocket stream error: ${err.message}`);
-          resolve(1);
-        }
+        fail(new StreamExecError(`WebSocket stream error after execution started: ${errMsg}`, false));
       }
     });
 
-    ws.on('unexpected-response', (_req: any, res: any) => {
-      cleanup();
-      if (!isConnected) {
-        reject(new Error(`WebSocket upgrade failed with HTTP ${res.statusCode}`));
+    ws.on('unexpected-response', (req: any, res: any) => {
+      const statusCode = res?.statusCode || 0;
+      if (!isConnected && !exitResolved) {
+        const allowFallback = statusCode !== 401 && statusCode !== 403 && statusCode !== 429;
+        fail(new StreamExecError(`WebSocket upgrade failed with HTTP ${statusCode}`, allowFallback, statusCode));
       }
+      try { res?.resume?.(); } catch {}
+      try { req?.destroy?.(); } catch {}
+      try { ws?.terminate?.(); } catch {}
     });
 
     ws.on('close', (code: number, reason: any) => {
-      cleanup();
+      if (exitResolved) return;
+      const reasonStr = reason ? reason.toString() : '';
       if (!isConnected) {
-        reject(new Error(`WebSocket closed before connecting: code ${code}`));
-      } else if (!exitResolved) {
-        if (code !== 1000 && code !== 1005) {
-          const reasonStr = reason ? reason.toString() : '';
-          if (code === 1001 || reasonStr.includes('Server shutting down')) {
-            reject(new Error(`WebSocket closed by server (${reasonStr || `code ${code}`})`));
-            return;
-          }
-          if (reasonStr && !reasonStr.includes('Host is offline')) {
-            process.stderr.write(`\n[${hostId}] Connection closed: ${reasonStr}\n`);
-          }
-          resolve(1);
-        } else {
-          resolve(0);
-        }
+        fail(new StreamExecError(`WebSocket closed before connecting: code ${code}${reasonStr ? ` (${reasonStr})` : ''}`, true));
+        return;
       }
+      if (code === 1008) {
+        if (reasonStr && !reasonStr.includes('Host is offline')) {
+          process.stderr.write(`\n[${hostId}] Connection closed: ${reasonStr}\n`);
+        }
+        finish(1);
+        return;
+      }
+      if (code === 1000 && hasExecutionStarted()) {
+        finish(0);
+        return;
+      }
+      if (!hasExecutionStarted()) {
+        fail(new StreamExecError(`WebSocket closed before exec_started (${reasonStr || `code ${code}`})`, true));
+        return;
+      }
+      fail(new StreamExecError(`WebSocket disconnected after exec_started (${reasonStr || `code ${code}`})`, false));
     });
   });
 }
@@ -479,7 +652,11 @@ export async function runExecCommand({
   let resolvedHost: { id: string; name: string };
   try {
     resolvedHost = await resolveHost(server, key, host);
-  } catch (err) {
+  } catch (err: any) {
+    if (err?.message && err.message.startsWith('Ambiguous host identifier')) {
+      console.error(`Error: ${err.message}`);
+      process.exit(1);
+    }
     resolvedHost = { id: host, name: host };
   }
   const targetHost = resolvedHost.id;
@@ -495,16 +672,22 @@ export async function runExecCommand({
     process.exit(exitCode);
   }
 
-  let stdinPayload: string | undefined = undefined;
-  if (interactive && !tty) {
-    stdinPayload = await new Promise((resolve) => {
-      let buf = '';
-      process.stdin.setEncoding('utf-8');
-      process.stdin.on('data', (chunk) => { buf += chunk; });
-      process.stdin.on('end', () => { resolve(buf); });
-      process.stdin.on('error', () => { resolve(buf); });
+  const readAllStdin = async (): Promise<string> => {
+    return new Promise((resolve) => {
+      const chunks: Buffer[] = [];
+      process.stdin.on('data', (chunk) => {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, 'utf-8'));
+      });
+      process.stdin.on('end', () => { resolve(Buffer.concat(chunks).toString('utf-8')); });
+      process.stdin.on('error', () => { resolve(Buffer.concat(chunks).toString('utf-8')); });
       process.stdin.resume();
     });
+  };
+
+  let stdinPayload: string | undefined = undefined;
+  const needsBufferedStdinBeforeRun = detach || options.mode === 'poll';
+  if (interactive && !tty && needsBufferedStdinBeforeRun) {
+    stdinPayload = await readAllStdin();
   }
 
   const startTime = Date.now();
@@ -568,8 +751,15 @@ export async function runExecCommand({
     });
     process.exit(exitCode);
   } catch (wsErr: any) {
-    // If WebSocket connection fails to initialize (e.g. HTTP-only test mock or non-upgradable proxy), fallback to HTTP polling
+    if (wsErr && wsErr.allowHttpFallback === false) {
+      console.error(`Failed to execute on [${targetHost}]: ${wsErr.message}`);
+      process.exit(1);
+    }
+    // If WebSocket connection fails before execution starts (e.g. HTTP-only test mock or non-upgradable proxy), fallback to HTTP polling
     try {
+      if (interactive && !tty && stdinPayload === undefined && !process.stdin.readableEnded) {
+        stdinPayload = await readAllStdin();
+      }
       await runHttpPollExec({
         server,
         key,

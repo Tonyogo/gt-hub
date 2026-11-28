@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import { CronJobConfig, CronExecutionRecord, CronJobSummary } from '../../shared/types/cron';
 import { getNextCronTime, isValidCronExpression, isValidTimezone } from '../../shared/utils/cronParser';
 import { terminalHostManager } from './terminalHostManager';
+import { sendControlFrame } from '../../shared/protocol/binaryProtocol';
 import logger from '../../utils/logger';
 import config from '../../server/config/default';
 
@@ -169,7 +170,7 @@ export class TerminalCronService {
     if (ws && (ws.readyState === 1 || ws.readyState === (ws.constructor?.OPEN ?? 1))) {
       const jobList = jobs || this.loadNodeData(canonicalId).jobs;
       try {
-        ws.send(`JSON:${JSON.stringify({ type: 'cron_sync', jobs: jobList, serverTimezone: config.timeZone })}`);
+        sendControlFrame(ws, { type: 'cron_sync', jobs: jobList, serverTimezone: config.timeZone }, canonicalId);
       } catch (err: any) {
         logger.warn(`[TerminalCronService] Failed to push cron_sync to ${canonicalId}: ${err.message}`);
       }
@@ -389,7 +390,7 @@ export class TerminalCronService {
     }
 
     try {
-      ws.send(`JSON:${JSON.stringify({ type: 'cron_trigger', jobId: job.id })}`);
+      sendControlFrame(ws, { type: 'cron_trigger', jobId: job.id }, canonicalId);
       return true;
     } catch (err: any) {
       throw new Error(`Failed to send trigger to agent: ${err.message}`, { cause: err });

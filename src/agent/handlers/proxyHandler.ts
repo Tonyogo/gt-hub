@@ -365,6 +365,7 @@ export async function scanListeningTcpPorts(): Promise<ListeningPortInfo[]> {
 
 export interface ProxyHandlerOptions {
   send: (data: string | Buffer, options?: { binary?: boolean; compress?: boolean }) => void;
+  sendControl?: (msg: Record<string, any>) => void;
   getBufferedAmount?: () => number;
   onActivity?: () => void;
   allowProxy?: boolean;
@@ -411,6 +412,10 @@ export class ProxyHandler {
   }
 
   private sendControl(msg: any): void {
+    if (this.options.sendControl) {
+      this.options.sendControl(msg);
+      return;
+    }
     this.options.send(`JSON:${JSON.stringify(msg)}`);
   }
 
@@ -877,6 +882,22 @@ export class ProxyHandler {
   private handleTcpConnect(msg: any): void {
     const { streamId, host = '127.0.0.1', port, timeoutMs } = msg;
 
+    const validStreamId =
+      typeof streamId === 'string' && streamId.length > 0 && Buffer.byteLength(streamId, 'ascii') <= 255;
+    const parsedPort = Number(port);
+    const validPort = Number.isInteger(parsedPort) && parsedPort >= 1 && parsedPort <= 65535;
+    const validHost = typeof host === 'string' && host.trim().length > 0;
+
+    if (!validStreamId || !validPort || !validHost) {
+      this.sendControl({
+        type: 'proxy_tcp_close',
+        streamId: typeof streamId === 'string' ? streamId : '',
+        error: 'Invalid proxy_tcp_connect parameters',
+        code: 'EINVAL',
+      });
+      return;
+    }
+
     if (this.options.allowProxy === false) {
       this.sendControl({
         type: 'proxy_tcp_close',
@@ -898,8 +919,7 @@ export class ProxyHandler {
       return;
     }
 
-    const parsedPort = Number(port);
-    const socket = net.createConnection({ host, port: parsedPort });
+    const socket = net.createConnection({ host: host.trim(), port: parsedPort });
     const state: TcpSocketState = { socket };
     this.activeTcpSockets.set(streamId, state);
 

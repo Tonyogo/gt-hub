@@ -12,17 +12,51 @@ import { ticketManager } from '../../server/modules/auth/ticketManager';
 import { terminalCronService } from '../services/terminalCronService';
 import {
   BIN_MSG_TYPE,
+  PROTOCOL_VERSION,
   decodeBinaryPacket,
   decodeBinaryJsonBufferPacket,
   decodeControlJsonPacket,
+  isBinaryMessageFrame,
   isValidControlPayload,
+  negotiateProtocolCapabilities,
   sendControlFrame,
 } from '../../shared/protocol/binaryProtocol';
 import { TERMINAL_WS_DEFLATE_OPTIONS } from '../../shared/protocol/wsOptions';
 import { loginRateLimiter, extractClientIp } from '../../server/modules/auth/rateLimiter';
 
-export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?: any): WebSocketServer {
+const SENSITIVE_QUERY_KEYS = new Set(['key', 'x-admin-key', 'admin_key', 'ticket']);
+
+export function redactWsUrlSecrets(rawUrl: string): string {
+  if (!rawUrl || !rawUrl.includes('?')) return rawUrl;
+  try {
+    const parsed = new URL(rawUrl, 'http://localhost');
+    let mutated = false;
+    for (const k of Array.from(parsed.searchParams.keys())) {
+      if (SENSITIVE_QUERY_KEYS.has(k.toLowerCase())) {
+        parsed.searchParams.set(k, '***');
+        mutated = true;
+      }
+    }
+    return mutated ? `${parsed.pathname}${parsed.search}` : rawUrl;
+  } catch {
+    return rawUrl.split('?')[0];
+  }
+}
+
+export interface SetupTerminalWsOptions {
+  agentHeartbeatIntervalMs?: number;
+  agentHeartbeatTimeoutMs?: number;
+}
+
+export function setupTerminalWebSocket(
+  server: http.Server,
+  hostManagerInstance?: any,
+  options: SetupTerminalWsOptions = {}
+): WebSocketServer {
   const hostMgr = hostManagerInstance || terminalHostManager;
+  const agentHeartbeatIntervalMs = options.agentHeartbeatIntervalMs ?? 30000;
+  const agentHeartbeatTimeoutMs = options.agentHeartbeatTimeoutMs ?? 75000;
+  const agentHeartbeatTimers = new Set<NodeJS.Timeout>();
   const wss = new WebSocketServer({ noServer: true, perMessageDeflate: TERMINAL_WS_DEFLATE_OPTIONS });
   const agentWss = new WebSocketServer({ noServer: true, perMessageDeflate: TERMINAL_WS_DEFLATE_OPTIONS });
   const execWss = new WebSocketServer({ noServer: true, perMessageDeflate: TERMINAL_WS_DEFLATE_OPTIONS });
@@ -30,12 +64,8 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
 
   const onUpgrade = (req: http.IncomingMessage, socket: any, head: Buffer) => {
     const reqUrl = req.url || '';
-    const isClientWs = reqUrl.startsWith('/api/terminal/ws') || reqUrl.startsWith('/api/admin/terminal/ws');
-    const isAgentWs = reqUrl.startsWith('/api/terminal/agent-ws') || reqUrl.startsWith('/api/admin/terminal/agent-ws');
-    const isExecWs = reqUrl.startsWith('/api/terminal/exec-ws') || reqUrl.startsWith('/api/admin/terminal/exec-ws');
-    const isProxyWs = reqUrl.startsWith('/api/terminal/proxy-ws') || reqUrl.startsWith('/api/admin/terminal/proxy-ws');
-
-    if (!isClientWs && !isAgentWs && !isExecWs && !isProxyWs) {
+    const isTerminalPrefix = reqUrl.startsWith('/api/terminal/') || reqUrl.startsWith('/api/admin/terminal/');
+    if (!isTerminalPrefix) {
       return;
     }
 
@@ -45,6 +75,16 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
     } catch {
       socket.write('HTTP/1.1 400 Bad Request\r\n\r\n');
       socket.destroy();
+      return;
+    }
+
+    const pathname = parsedUrl.pathname.replace(/\/+$/, '');
+    const isClientWs = pathname === '/api/terminal/ws' || pathname === '/api/admin/terminal/ws';
+    const isAgentWs = pathname === '/api/terminal/agent-ws' || pathname === '/api/admin/terminal/agent-ws';
+    const isExecWs = pathname === '/api/terminal/exec-ws' || pathname === '/api/admin/terminal/exec-ws';
+    const isProxyWs = pathname === '/api/terminal/proxy-ws' || pathname === '/api/admin/terminal/proxy-ws';
+
+    if (!isClientWs && !isAgentWs && !isExecWs && !isProxyWs) {
       return;
     }
 
@@ -79,7 +119,7 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
 
       if (!isAuthorized) {
         loginRateLimiter.recordFailure(clientIp);
-        logger.warn(`[TerminalWS] Unauthorized WebSocket connection attempt rejected (${reqUrl})`);
+        logger.warn(`[TerminalWS] Unauthorized WebSocket connection attempt rejected (${redactWsUrlSecrets(reqUrl)})`);
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
         socket.destroy();
         return;
@@ -110,6 +150,10 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
   server.on('upgrade', onUpgrade);
 
   const closeAllClients = (code = 1001, reason = 'Server shutting down') => {
+    for (const timer of agentHeartbeatTimers) {
+      clearInterval(timer);
+    }
+    agentHeartbeatTimers.clear();
     const allServers = [wss, agentWss, execWss, proxyWss];
     for (const wsServer of allServers) {
       for (const client of wsServer.clients) {
@@ -139,7 +183,8 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
       (req.socket as any).setKeepAlive(true, 10000);
     }
     const parsedUrl = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`);
-    const hostId = parsedUrl.searchParams.get('hostId') || parsedUrl.searchParams.get('id') || `agent-${Date.now()}`;
+    const rawHostId = parsedUrl.searchParams.get('hostId') || parsedUrl.searchParams.get('id') || '';
+    const hostId = rawHostId.trim() || `agent-${Date.now()}`;
     const name = parsedUrl.searchParams.get('name') || undefined;
     const hostname = parsedUrl.searchParams.get('hostname') || undefined;
     const ip =
@@ -153,14 +198,17 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
     const startTimeParam = parsedUrl.searchParams.get('startTime');
     const parsedStartTime = startTimeParam ? parseInt(startTimeParam, 10) : undefined;
     const startTime = (parsedStartTime && !isNaN(parsedStartTime)) ? parsedStartTime : undefined;
-    const binaryControlParam = parsedUrl.searchParams.get('binaryControl');
-    if (binaryControlParam === '1' || binaryControlParam === 'true') {
+    const caps = negotiateProtocolCapabilities(parsedUrl.searchParams);
+    if (caps.binaryControl) {
       (ws as any)._binaryControl = true;
     }
-    const binaryFileParam = parsedUrl.searchParams.get('binaryFile');
-    if (binaryFileParam === '1' || binaryFileParam === 'true') {
+    if (caps.binaryFile) {
       (ws as any)._binaryFile = true;
     }
+    if (caps.framedTerminal) {
+      (ws as any)._framedTerminal = true;
+    }
+    (ws as any)._protocolVersion = caps.protocolVersion;
     const agentMeta = { hostId, name, hostname, ip, platform, machineId, version, startTime };
     (ws as any)._agentMeta = agentMeta;
 
@@ -187,10 +235,64 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
 
     const host = regResult.host!;
     logger.info(`[TerminalWS:Agent] Agent connected: ${hostId} (${host.name}) from ${ip}`);
-    sendControlFrame(ws, { type: 'registered', hostId, status: 'online' }, hostId);
+    sendControlFrame(
+      ws,
+      {
+        type: 'registered',
+        hostId,
+        name: host.name,
+        status: 'online',
+        protocolVersion: PROTOCOL_VERSION,
+        capabilities: {
+          binaryControl: Boolean((ws as any)._binaryControl),
+          binaryFile: Boolean((ws as any)._binaryFile),
+          framedTerminal: Boolean((ws as any)._framedTerminal),
+        },
+      },
+      hostId
+    );
     terminalCronService.syncOnConnect(hostId);
 
     let lastTouch = 0;
+    let lastAgentActivityAt = Date.now();
+    let heartbeatSweepTimer: NodeJS.Timeout | null = null;
+
+    const stopAgentHeartbeatSweep = () => {
+      if (heartbeatSweepTimer) {
+        clearInterval(heartbeatSweepTimer);
+        agentHeartbeatTimers.delete(heartbeatSweepTimer);
+        heartbeatSweepTimer = null;
+      }
+    };
+
+    if (agentHeartbeatIntervalMs > 0 && agentHeartbeatTimeoutMs > 0) {
+      heartbeatSweepTimer = setInterval(() => {
+        if (ws.readyState !== WebSocket.OPEN) {
+          stopAgentHeartbeatSweep();
+          return;
+        }
+        const idleMs = Date.now() - lastAgentActivityAt;
+        if (idleMs > agentHeartbeatTimeoutMs) {
+          logger.warn(
+            `[TerminalWS:Agent] Agent liveness timeout (>${Math.round(agentHeartbeatTimeoutMs / 1000)}s idle) for ${hostId}; terminating stale socket`
+          );
+          stopAgentHeartbeatSweep();
+          try {
+            ws.terminate();
+          } catch {}
+          return;
+        }
+        if (idleMs >= agentHeartbeatIntervalMs && typeof (ws as any).ping === 'function') {
+          try {
+            (ws as any).ping();
+          } catch {}
+        }
+      }, agentHeartbeatIntervalMs);
+      if (typeof heartbeatSweepTimer.unref === 'function') {
+        heartbeatSweepTimer.unref();
+      }
+      agentHeartbeatTimers.add(heartbeatSweepTimer);
+    }
 
     const dispatchAgentControl = (control: Record<string, any>, now: number): boolean => {
       if (terminalProxyBridge.handleAgentControlMessage(hostId, control)) {
@@ -279,20 +381,38 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
     };
 
     ws.on('ping', () => {
+      lastAgentActivityAt = Date.now();
+      hostMgr.touchAgent(hostId, ws, agentMeta);
+    });
+
+    ws.on('pong', () => {
+      lastAgentActivityAt = Date.now();
       hostMgr.touchAgent(hostId, ws, agentMeta);
     });
 
     ws.on('message', (message: RawData, isBinary: boolean) => {
       try {
         const now = Date.now();
+        lastAgentActivityAt = now;
         if (now - lastTouch > 2000) {
           lastTouch = now;
           hostMgr.touchAgent(hostId, ws, agentMeta);
         }
 
-        if (isBinary) {
-          const buf = Buffer.isBuffer(message) ? message : Buffer.from(message as any);
-          const decoded = decodeBinaryPacket(buf);
+        const isRawBuf = Buffer.isBuffer(message) || ArrayBuffer.isView(message) || message instanceof ArrayBuffer;
+        const buf = isRawBuf
+          ? Buffer.isBuffer(message)
+            ? message
+            : ArrayBuffer.isView(message)
+              ? Buffer.from(message.buffer, message.byteOffset, message.byteLength)
+              : Buffer.from(message as ArrayBuffer)
+          : null;
+
+        if (isBinaryMessageFrame(message, isBinary) && buf) {
+          const firstByte = buf.length > 0 ? buf[0] : -1;
+          const isPacketTag =
+            firstByte >= BIN_MSG_TYPE.STREAM_INPUT && firstByte <= BIN_MSG_TYPE.FILE_CHUNK_RES;
+          const decoded = isPacketTag ? decodeBinaryPacket(buf) : null;
           if (decoded && decoded.msgType === BIN_MSG_TYPE.CONTROL_JSON) {
             const ctrl = decodeControlJsonPacket(buf);
             if (ctrl) {
@@ -347,11 +467,18 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
             }
             return;
           }
-          hostMgr.handleAgentData(hostId, message);
-          return;
+          if (isBinary === true) {
+            if ((ws as any)._framedTerminal === true) {
+              return;
+            }
+            hostMgr.handleAgentData(hostId, message);
+            return;
+          }
         }
 
-        const msgStr = typeof message === 'string' ? message : message.toString('utf-8');
+        const msgStr = typeof message === 'string'
+          ? message
+          : (buf ? buf.toString('utf-8') : String(message));
         if (msgStr.startsWith('JSON:')) {
           let control: any = null;
           try {
@@ -362,13 +489,14 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
             return;
           }
         }
-        hostMgr.handleAgentData(hostId, msgStr);
+        hostMgr.handleAgentData(hostId, isRawBuf ? message : msgStr);
       } catch (err: any) {
         hostMgr.handleAgentData(hostId, message);
       }
     });
 
     ws.on('close', () => {
+      stopAgentHeartbeatSweep();
       logger.info(`[TerminalWS:Agent] Agent disconnected: ${hostId}`);
       if (hostMgr.isCurrentAgentWs(hostId, ws)) {
         terminalExecBridge.handleAgentDisconnected(hostId);
@@ -378,6 +506,7 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
     });
 
     ws.on('error', (err) => {
+      stopAgentHeartbeatSweep();
       logger.error(`[TerminalWS:Agent] Agent socket error (${hostId}): ${err.message}`);
       if (hostMgr.isCurrentAgentWs(hostId, ws)) {
         terminalExecBridge.handleAgentDisconnected(hostId);
@@ -422,17 +551,29 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
     session.attach(ws);
 
     ws.on('message', (message: RawData, isBinary: boolean) => {
+      let firstByte = -1;
       try {
         let control: any = null;
-        if (isBinary || (Buffer.isBuffer(message) && message.length > 0 && message[0] === BIN_MSG_TYPE.CONTROL_JSON)) {
+        if (isBinaryMessageFrame(message, isBinary)) {
           const buf = Buffer.isBuffer(message) ? message : Buffer.from(message as any);
-          control = decodeControlJsonPacket(buf);
+          firstByte = buf.length > 0 ? buf[0] : -1;
+          if (firstByte === BIN_MSG_TYPE.CONTROL_JSON) {
+            control = decodeControlJsonPacket(buf);
+            if (!control) {
+              return;
+            }
+          } else if (isBinary === true && (ws as any)._binaryControl === true) {
+            return;
+          }
         }
 
         let msgStr = '';
         if (!control) {
+          if (isBinary === true && (ws as any)._binaryControl === true) {
+            return;
+          }
           msgStr = typeof message === 'string' ? message : message.toString('utf-8');
-          if (msgStr.startsWith('JSON:')) {
+          if (isBinary !== true && msgStr.startsWith('JSON:')) {
             try {
               const parsed = JSON.parse(msgStr.slice(5));
               if (isValidControlPayload(parsed)) {
@@ -483,6 +624,9 @@ export function setupTerminalWebSocket(server: http.Server, hostManagerInstance?
         session.write(msgStr);
       } catch (err: any) {
         logger.warn(`[TerminalWS:${hostId}] Message parse exception: ${err.message}`);
+        if (isBinary === true && ((ws as any)._binaryControl === true || firstByte === BIN_MSG_TYPE.CONTROL_JSON)) {
+          return;
+        }
         session.write(message.toString());
       }
     });

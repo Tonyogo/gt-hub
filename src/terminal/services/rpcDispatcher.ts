@@ -92,10 +92,21 @@ export class RpcDispatcher {
         },
       });
 
-      if (agentWs) {
-        sendControlFrame(agentWs, rpcPayload, canonicalId);
-      } else if (session && typeof session.write === 'function') {
-        session.write(`JSON:${JSON.stringify(rpcPayload)}`);
+      try {
+        if (agentWs) {
+          const sent = sendControlFrame(agentWs, rpcPayload, canonicalId);
+          if (!sent) {
+            throw new Error(`Failed to dispatch cmd RPC to agent ${canonicalId}`);
+          }
+        } else if (session && typeof session.write === 'function') {
+          session.write(`JSON:${JSON.stringify(rpcPayload)}`);
+        }
+      } catch (err: any) {
+        if (this.cmdRpcResolvers.has(reqId)) {
+          this.cmdRpcResolvers.delete(reqId);
+          clearTimeout(timeoutTimer);
+          resolve({ success: false, error: err?.message || `Failed to dispatch cmd RPC to agent ${canonicalId}` });
+        }
       }
     });
   }
@@ -139,53 +150,67 @@ export class RpcDispatcher {
         },
       });
 
-      if (agentWs) {
-        if (
-          payload.action === 'upload_chunk' &&
-          (agentWs as any)._binaryFile === true
-        ) {
-          const params = payload.params || {};
-          const rawBuf = Buffer.isBuffer(params.rawBuffer)
-            ? params.rawBuffer
-            : Buffer.from(params.data || '', 'base64');
-          const { rawBuffer: _omitRaw, data: _omitData, ...restParams } = params;
-          const pkt = encodeBinaryJsonBufferPacket(
-            BIN_MSG_TYPE.FILE_CHUNK_REQ,
-            reqId,
-            {
-              action: payload.action,
-              path: payload.path,
-              params: restParams,
-            },
-            rawBuf
-          );
-          sendWsSafe(agentWs, pkt, { binary: true, compress: false });
-          return;
-        }
+      try {
+        if (agentWs) {
+          if (
+            payload.action === 'upload_chunk' &&
+            (agentWs as any)._binaryFile === true
+          ) {
+            const params = payload.params || {};
+            const rawBuf = Buffer.isBuffer(params.rawBuffer)
+              ? params.rawBuffer
+              : Buffer.from(params.data || '', 'base64');
+            const { rawBuffer: _omitRaw, data: _omitData, ...restParams } = params;
+            const pkt = encodeBinaryJsonBufferPacket(
+              BIN_MSG_TYPE.FILE_CHUNK_REQ,
+              reqId,
+              {
+                action: payload.action,
+                path: payload.path,
+                params: restParams,
+              },
+              rawBuf
+            );
+            sendWsSafe(agentWs, pkt, { binary: true, compress: false });
+            return;
+          }
 
-        if (payload.action === 'upload_chunk' && Buffer.isBuffer(payload.params?.rawBuffer)) {
-          const { rawBuffer, ...restParams } = payload.params;
-          const compatPayload = {
-            ...rpcPayload,
-            params: {
-              ...restParams,
-              data: rawBuffer.toString('base64'),
-            },
-          };
-          sendControlFrame(agentWs, compatPayload, canonicalId);
-          return;
-        }
+          if (payload.action === 'upload_chunk' && Buffer.isBuffer(payload.params?.rawBuffer)) {
+            const { rawBuffer, ...restParams } = payload.params;
+            const compatPayload = {
+              ...rpcPayload,
+              params: {
+                ...restParams,
+                data: rawBuffer.toString('base64'),
+              },
+            };
+            const sent = sendControlFrame(agentWs, compatPayload, canonicalId);
+            if (!sent) {
+              throw new Error(`Failed to dispatch file upload RPC to agent ${canonicalId}`);
+            }
+            return;
+          }
 
-        sendControlFrame(agentWs, rpcPayload, canonicalId);
-      } else if (session && typeof session.write === 'function') {
-        if (payload.action === 'upload_chunk' && Buffer.isBuffer(payload.params?.rawBuffer)) {
-          const { rawBuffer, ...restParams } = payload.params;
-          session.write(`JSON:${JSON.stringify({
-            ...rpcPayload,
-            params: { ...restParams, data: rawBuffer.toString('base64') },
-          })}`);
-        } else {
-          session.write(`JSON:${JSON.stringify(rpcPayload)}`);
+          const sent = sendControlFrame(agentWs, rpcPayload, canonicalId);
+          if (!sent) {
+            throw new Error(`Failed to dispatch file RPC to agent ${canonicalId}`);
+          }
+        } else if (session && typeof session.write === 'function') {
+          if (payload.action === 'upload_chunk' && Buffer.isBuffer(payload.params?.rawBuffer)) {
+            const { rawBuffer, ...restParams } = payload.params;
+            session.write(`JSON:${JSON.stringify({
+              ...rpcPayload,
+              params: { ...restParams, data: rawBuffer.toString('base64') },
+            })}`);
+          } else {
+            session.write(`JSON:${JSON.stringify(rpcPayload)}`);
+          }
+        }
+      } catch (err: any) {
+        if (this.rpcResolvers.has(reqId)) {
+          this.rpcResolvers.delete(reqId);
+          clearTimeout(timeoutTimer);
+          resolve({ success: false, error: err?.message || `Failed to dispatch file RPC to agent ${canonicalId}` });
         }
       }
     });

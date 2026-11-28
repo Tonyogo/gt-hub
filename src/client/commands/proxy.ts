@@ -2,14 +2,19 @@ import http from 'http';
 import https from 'https';
 import net from 'net';
 import crypto from 'crypto';
+import zlib from 'zlib';
 import { AddressInfo } from 'net';
 import { URL } from 'url';
-import { resolveHost } from '../utils/terminalUI';
+import { resolveEndpointUrl, resolveHost, resolveWsEndpointUrl } from '../utils/terminalUI';
 import { createWebSocketAdapter } from '../../shared/utils/wsAdapter';
 import {
   BIN_MSG_TYPE,
   encodeBinaryPacket,
   decodeBinaryPacket,
+  decodeControlJsonPacket,
+  isBinaryMessageFrame,
+  isValidControlPayload,
+  sendWsSafe,
 } from '../../shared/protocol/binaryProtocol';
 import { TargetProbeResult } from '../../agent/handlers/proxyHandler';
 
@@ -122,12 +127,7 @@ export function parseForwardMapping(spec: string, defaultBindAddress: string = '
 }
 
 export function resolveProxyWebSocketUrl(serverUrl: string, hostId: string): string {
-  let wsUrl = serverUrl.replace(/^http:\/\//i, 'ws://').replace(/^https:\/\//i, 'wss://');
-  if (!wsUrl.startsWith('ws://') && !wsUrl.startsWith('wss://')) {
-    wsUrl = `ws://${wsUrl}`;
-  }
-  wsUrl = wsUrl.replace(/\/+$/, '');
-  return `${wsUrl}/api/terminal/proxy-ws?hostId=${encodeURIComponent(hostId)}`;
+  return resolveWsEndpointUrl(serverUrl, '/api/terminal/proxy-ws', { hostId });
 }
 
 interface ActiveStreamState {
@@ -136,7 +136,10 @@ interface ActiveStreamState {
   onConnected?: () => void;
   isConnected: boolean;
   pendingWrites: Buffer[];
+  pendingWriteBytes: number;
 }
+
+const MAX_PENDING_WRITE_BYTES = 2 * 1024 * 1024;
 
 export class CliTcpTunnelClient {
   private serverUrl: string;
@@ -144,6 +147,8 @@ export class CliTcpTunnelClient {
   private hostId: string;
   private ws: any = null;
   private activeStreams = new Map<string, ActiveStreamState>();
+  private heartbeatTimer: NodeJS.Timeout | null = null;
+  private lastActivityAt = 0;
 
   constructor(options: { serverUrl: string; apiKey: string; hostId: string }) {
     this.serverUrl = options.serverUrl;
@@ -151,82 +156,174 @@ export class CliTcpTunnelClient {
     this.hostId = options.hostId;
   }
 
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
+
   public async connect(): Promise<void> {
     const WebSocketImpl = getWebSocketCtor();
     const wsUrl = resolveProxyWebSocketUrl(this.serverUrl, this.hostId);
 
     return new Promise<void>((resolve, reject) => {
-      const ws = new WebSocketImpl(wsUrl, {
-        headers: { 'x-admin-key': this.apiKey },
-      });
+      let ws: any;
+      try {
+        ws = new WebSocketImpl(wsUrl, {
+          headers: { 'x-admin-key': this.apiKey },
+        });
+      } catch (err) {
+        return reject(err);
+      }
       this.ws = ws;
 
       let settled = false;
 
+      ws.on('pong', () => {
+        this.lastActivityAt = Date.now();
+      });
+
       ws.on('open', () => {
+        this.lastActivityAt = Date.now();
+        this.stopHeartbeat();
+        this.heartbeatTimer = setInterval(() => {
+          if (!this.ws || (this.ws.readyState !== 1 && this.ws.readyState !== (this.ws.constructor as any).OPEN)) {
+            return;
+          }
+          if (Date.now() - this.lastActivityAt > 45000) {
+            try { this.ws.terminate?.() ?? this.ws.close(); } catch {}
+            return;
+          }
+          try {
+            if (typeof this.ws.ping === 'function') {
+              this.ws.ping();
+            }
+            sendWsSafe(this.ws, `JSON:${JSON.stringify({ type: 'ping' })}`, { binary: false, compress: false });
+          } catch {}
+        }, 15000);
+        if (typeof this.heartbeatTimer.unref === 'function') {
+          this.heartbeatTimer.unref();
+        }
+
         if (!settled) {
           settled = true;
           resolve();
         }
       });
 
+      ws.on('unexpected-response', (req: any, res: any) => {
+        const statusCode = res?.statusCode || 0;
+        if (!settled) {
+          this.stopHeartbeat();
+          settled = true;
+          reject(new Error(`Tunnel WebSocket upgrade failed with HTTP ${statusCode}`));
+        }
+        try { res?.resume?.(); } catch {}
+        try { req?.destroy?.(); } catch {}
+        try { ws?.terminate?.(); } catch {}
+      });
+
       ws.on('error', (err: any) => {
         if (!settled) {
+          this.stopHeartbeat();
           settled = true;
           reject(err);
         }
       });
 
-      ws.on('message', (data: any) => {
-        const isBuf = Buffer.isBuffer(data);
-        const firstByte = isBuf && data.length > 0 ? data[0] : null;
+      ws.on('message', (data: any, isBinary?: boolean) => {
+        this.lastActivityAt = Date.now();
+        let control: any = null;
 
-        if (firstByte === BIN_MSG_TYPE.PROXY_TCP_DATA) {
-          const buf = isBuf ? data : Buffer.from(data);
-          const decoded = decodeBinaryPacket(buf);
-          if (decoded) {
-            const stream = this.activeStreams.get(decoded.id);
-            if (stream) {
-              stream.onData(decoded.payload);
+        if (isBinaryMessageFrame(data, isBinary)) {
+          const buf = Buffer.isBuffer(data)
+            ? data
+            : ArrayBuffer.isView(data)
+              ? Buffer.from(data.buffer, data.byteOffset, data.byteLength)
+              : Buffer.from(data);
+          const firstByte = buf.length > 0 ? buf[0] : null;
+
+          if (firstByte === BIN_MSG_TYPE.PROXY_TCP_DATA) {
+            const decoded = decodeBinaryPacket(buf);
+            if (decoded) {
+              const stream = this.activeStreams.get(decoded.id);
+              if (stream) {
+                stream.onData(decoded.payload);
+              }
             }
+            return;
           }
-          return;
+
+          if (firstByte === BIN_MSG_TYPE.CONTROL_JSON) {
+            control = decodeControlJsonPacket(buf);
+            if (!control) {
+              return;
+            }
+          } else if (isBinary === true) {
+            return;
+          }
         }
 
-        const msgStr = typeof data === 'string' ? data : data.toString('utf-8');
-        if (msgStr.startsWith('JSON:')) {
-          try {
-            const control = JSON.parse(msgStr.slice(5));
-            if (control.type === 'proxy_tcp_connected') {
-              const stream = this.activeStreams.get(control.streamId);
-              if (stream) {
-                stream.isConnected = true;
-                if (stream.onConnected) {
-                  try {
-                    stream.onConnected();
-                  } catch {}
-                }
-                for (const pending of stream.pendingWrites) {
-                  this.sendTcpData(control.streamId, pending);
-                }
-                stream.pendingWrites = [];
+        if (!control && isBinary !== true) {
+          const msgStr = typeof data === 'string'
+            ? data
+            : Buffer.isBuffer(data)
+              ? data.toString('utf-8')
+              : Buffer.from(data).toString('utf-8');
+          if (msgStr.startsWith('JSON:')) {
+            try {
+              const parsed = JSON.parse(msgStr.slice(5));
+              if (isValidControlPayload(parsed)) {
+                control = parsed;
               }
-              return;
-            }
+            } catch {}
+          }
+        }
 
-            if (control.type === 'proxy_tcp_close') {
-              const stream = this.activeStreams.get(control.streamId);
-              if (stream) {
-                this.activeStreams.delete(control.streamId);
-                stream.onClose(control.error);
+        if (control && typeof control === 'object') {
+          if (control.type === 'pong') {
+            return;
+          }
+          if (control.type === 'proxy_tcp_connected') {
+            const stream = this.activeStreams.get(control.streamId);
+            if (stream) {
+              stream.isConnected = true;
+              if (stream.onConnected) {
+                try {
+                  stream.onConnected();
+                } catch {}
               }
-              return;
+              for (const pending of stream.pendingWrites) {
+                this.sendTcpData(control.streamId, pending);
+              }
+              stream.pendingWrites = [];
+              stream.pendingWriteBytes = 0;
             }
-          } catch {}
+            return;
+          }
+
+          if (control.type === 'proxy_tcp_close') {
+            const stream = this.activeStreams.get(control.streamId);
+            if (stream) {
+              this.activeStreams.delete(control.streamId);
+              stream.onClose(control.error);
+            }
+            return;
+          }
         }
       });
 
-      ws.on('close', () => {
+      ws.on('close', (code?: number, reason?: any) => {
+        this.stopHeartbeat();
+        if (this.ws === ws) {
+          this.ws = null;
+        }
+        if (!settled) {
+          settled = true;
+          const reasonStr = reason ? reason.toString() : '';
+          reject(new Error(`Tunnel WebSocket closed before open (${reasonStr || `code ${code ?? 'unknown'}`})`));
+        }
         for (const [streamId, stream] of Array.from(this.activeStreams.entries())) {
           this.activeStreams.delete(streamId);
           stream.onClose('Tunnel connection closed');
@@ -249,25 +346,43 @@ export class CliTcpTunnelClient {
       onConnected,
       isConnected: false,
       pendingWrites: [],
+      pendingWriteBytes: 0,
     };
     this.activeStreams.set(streamId, streamState);
 
     if (this.ws && (this.ws.readyState === 1 || this.ws.readyState === (this.ws.constructor as any).OPEN)) {
-      this.ws.send(
+      sendWsSafe(
+        this.ws,
         `JSON:${JSON.stringify({
           type: 'proxy_tcp_connect',
           streamId,
           host: remoteHost,
           port: remotePort,
-        })}`
+        })}`,
+        { binary: false, compress: false }
       );
+    } else {
+      queueMicrotask(() => {
+        if (this.activeStreams.delete(streamId)) {
+          onClose('Tunnel WebSocket is not connected');
+        }
+      });
     }
 
     return {
       streamId,
       write: (chunk: Buffer) => {
+        if (!this.activeStreams.has(streamId)) return;
         if (!streamState.isConnected) {
+          if (streamState.pendingWriteBytes + chunk.length > MAX_PENDING_WRITE_BYTES) {
+            this.activeStreams.delete(streamId);
+            streamState.pendingWrites = [];
+            streamState.pendingWriteBytes = 0;
+            streamState.onClose('Pending write buffer overflow before tunnel connected');
+            return;
+          }
           streamState.pendingWrites.push(chunk);
+          streamState.pendingWriteBytes += chunk.length;
         } else {
           this.sendTcpData(streamId, chunk);
         }
@@ -277,7 +392,10 @@ export class CliTcpTunnelClient {
           this.activeStreams.delete(streamId);
           if (this.ws && (this.ws.readyState === 1 || this.ws.readyState === (this.ws.constructor as any).OPEN)) {
             try {
-              this.ws.send(`JSON:${JSON.stringify({ type: 'proxy_tcp_close', streamId })}`);
+              sendWsSafe(this.ws, `JSON:${JSON.stringify({ type: 'proxy_tcp_close', streamId })}`, {
+                binary: false,
+                compress: false,
+              });
             } catch {}
           }
         }
@@ -292,7 +410,10 @@ export class CliTcpTunnelClient {
 
     const MAX_CHUNK = 32 * 1024;
     if (chunk.length <= MAX_CHUNK) {
-      this.ws.send(encodeBinaryPacket(BIN_MSG_TYPE.PROXY_TCP_DATA, streamId, chunk));
+      sendWsSafe(this.ws, encodeBinaryPacket(BIN_MSG_TYPE.PROXY_TCP_DATA, streamId, chunk), {
+        binary: true,
+        compress: false,
+      });
       return;
     }
 
@@ -300,12 +421,16 @@ export class CliTcpTunnelClient {
     while (offset < chunk.length) {
       const end = Math.min(offset + MAX_CHUNK, chunk.length);
       const slice = chunk.subarray(offset, end);
-      this.ws.send(encodeBinaryPacket(BIN_MSG_TYPE.PROXY_TCP_DATA, streamId, slice));
+      sendWsSafe(this.ws, encodeBinaryPacket(BIN_MSG_TYPE.PROXY_TCP_DATA, streamId, slice), {
+        binary: true,
+        compress: false,
+      });
       offset = end;
     }
   }
 
   public close(): void {
+    this.stopHeartbeat();
     for (const [streamId, stream] of Array.from(this.activeStreams.entries())) {
       try {
         stream.onClose('Tunnel client closed');
@@ -620,23 +745,86 @@ export interface SpeedtestReport {
 function sendBenchmarkRequest(
   parsedUrl: URL,
   options: http.RequestOptions,
-  bodyData?: Buffer | string
+  bodyData?: Buffer | string,
+  timeoutMs = 30000
 ): Promise<{ statusCode: number; headers: http.IncomingHttpHeaders; body: Buffer }> {
   return new Promise((resolve, reject) => {
+    let settled = false;
+    let responseStarted = false;
     const isHttps = parsedUrl.protocol === 'https:';
     const transport = isHttps ? https : http;
-    const req = transport.request(parsedUrl, options, (res) => {
+    const reqHeaders = {
+      'Accept-Encoding': 'gzip, deflate',
+      ...(options.headers || {}),
+    };
+    const req = transport.request(parsedUrl, { ...options, headers: reqHeaders }, (res) => {
+      responseStarted = true;
       const chunks: Buffer[] = [];
-      res.on('data', (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+      res.on('data', (c) => {
+        if (!settled) {
+          chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c));
+        }
+      });
+      res.on('error', (err) => {
+        if (settled) return;
+        settled = true;
+        reject(err);
+      });
+      res.on('close', () => {
+        if (settled) return;
+        if (!res.complete) {
+          settled = true;
+          reject(new Error('Benchmark response closed prematurely'));
+        }
+      });
       res.on('end', () => {
+        if (settled) return;
+        settled = true;
+        if (!res.complete) {
+          reject(new Error('Benchmark response ended prematurely'));
+          return;
+        }
+        let rawBody = Buffer.concat(chunks);
+        const encoding = String(res.headers['content-encoding'] || '').toLowerCase();
+        try {
+          if (encoding.includes('gzip')) {
+            rawBody = zlib.gunzipSync(rawBody);
+          } else if (encoding.includes('deflate')) {
+            try {
+              rawBody = zlib.inflateSync(rawBody);
+            } catch {
+              rawBody = zlib.inflateRawSync(rawBody);
+            }
+          }
+        } catch (err: any) {
+          reject(new Error(`Failed to decode benchmark response: ${err?.message || String(err)}`));
+          return;
+        }
         resolve({
           statusCode: res.statusCode || 0,
           headers: res.headers,
-          body: Buffer.concat(chunks),
+          body: rawBody,
         });
       });
     });
-    req.on('error', reject);
+    req.setTimeout(timeoutMs, () => {
+      if (settled) return;
+      settled = true;
+      const timeoutErr = new Error(`Benchmark request timed out after ${timeoutMs}ms`);
+      try { req.destroy(timeoutErr); } catch {}
+      reject(timeoutErr);
+    });
+    req.on('error', (err) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    });
+    req.on('close', () => {
+      if (!responseStarted && !settled) {
+        settled = true;
+        reject(new Error('Benchmark connection closed before response'));
+      }
+    });
     if (bodyData) {
       req.write(bodyData);
     }
@@ -651,12 +839,15 @@ export async function runSpeedtestBenchmark(options: {
   sizeBytes?: number;
   pings?: number;
   targets?: string[];
+  requestTimeoutMs?: number;
   onProgress?: (phase: string, progress: number, currentMbps?: number) => void;
 }): Promise<SpeedtestReport> {
   const { serverUrl, apiKey, hostId } = options;
   const pingsCount = Math.max(1, options.pings || 5);
   const rawSizeBytes = options.sizeBytes ?? 16 * 1024 * 1024;
   const sizeBytes = Math.min(256 * 1024 * 1024, Math.max(64 * 1024, rawSizeBytes));
+  const controlTimeoutMs = options.requestTimeoutMs ?? 30000;
+  const transferTimeoutMs = options.requestTimeoutMs ?? 120000;
 
   // 1. Latency & Jitter phase
   const totalRttSamples: number[] = [];
@@ -665,14 +856,13 @@ export async function runSpeedtestBenchmark(options: {
 
   for (let i = 0; i < pingsCount; i++) {
     const pingUrl = new URL(
-      `/api/proxy/${encodeURIComponent(hostId)}/speedtest/ping`,
-      serverUrl
+      resolveEndpointUrl(serverUrl, `/api/proxy/${encodeURIComponent(hostId)}/speedtest/ping`)
     );
     const clientStartNs = process.hrtime.bigint();
     const res = await sendBenchmarkRequest(pingUrl, {
       method: 'GET',
       headers: { 'x-admin-key': apiKey },
-    });
+    }, undefined, controlTimeoutMs);
     const clientEndNs = process.hrtime.bigint();
 
     if (res.statusCode !== 200) {
@@ -713,11 +903,15 @@ export async function runSpeedtestBenchmark(options: {
 
   // 2. Download speedtest
   const dlUrl = new URL(
-    `/api/proxy/${encodeURIComponent(hostId)}/speedtest/download?bytes=${sizeBytes}`,
-    serverUrl
+    resolveEndpointUrl(
+      serverUrl,
+      `/api/proxy/${encodeURIComponent(hostId)}/speedtest/download?bytes=${sizeBytes}`
+    )
   );
 
   const dlResult = await new Promise<{ bytes: number; durationMs: number }>((resolve, reject) => {
+    let settled = false;
+    let responseStarted = false;
     const isHttps = dlUrl.protocol === 'https:';
     const transport = isHttps ? https : http;
     const dlStartNs = process.hrtime.bigint();
@@ -732,19 +926,43 @@ export async function runSpeedtestBenchmark(options: {
         },
       },
       (res) => {
+        responseStarted = true;
         if (res.statusCode !== 200) {
           const chunks: Buffer[] = [];
-          res.on('data', (c) => chunks.push(c));
+          res.on('data', (c) => {
+            if (!settled) {
+              chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c));
+            }
+          });
+          res.on('close', () => {
+            if (settled) return;
+            if (!res.complete) {
+              settled = true;
+              reject(new Error(`Download speedtest failed (${res.statusCode}): response closed prematurely`));
+            }
+          });
           res.on('end', () => {
+            if (settled) return;
+            settled = true;
+            if (!res.complete) {
+              reject(new Error(`Download speedtest failed (${res.statusCode}): response ended prematurely`));
+              return;
+            }
             reject(
               new Error(
                 `Download speedtest failed (${res.statusCode}): ${Buffer.concat(chunks).toString('utf-8')}`
               )
             );
           });
+          res.on('error', (err) => {
+            if (settled) return;
+            settled = true;
+            reject(err);
+          });
           return;
         }
         res.on('data', (chunk: Buffer) => {
+          if (settled) return;
           receivedBytes += chunk.length;
           if (options.onProgress) {
             const currentElapsedSec = Math.max(0.001, Number(process.hrtime.bigint() - dlStartNs) / 1e9);
@@ -752,14 +970,48 @@ export async function runSpeedtestBenchmark(options: {
             options.onProgress('download', Math.min(1, receivedBytes / sizeBytes), Number(currentMbps.toFixed(2)));
           }
         });
+        res.on('close', () => {
+          if (settled) return;
+          if (!res.complete) {
+            settled = true;
+            reject(new Error('Download speedtest response closed prematurely'));
+          }
+        });
         res.on('end', () => {
+          if (settled) return;
+          settled = true;
+          if (!res.complete) {
+            reject(new Error('Download speedtest response ended prematurely'));
+            return;
+          }
           const durationMs = Math.max(1, Number(process.hrtime.bigint() - dlStartNs) / 1e6);
           resolve({ bytes: receivedBytes, durationMs });
         });
-        res.on('error', reject);
+        res.on('error', (err) => {
+          if (settled) return;
+          settled = true;
+          reject(err);
+        });
       }
     );
-    req.on('error', reject);
+    req.setTimeout(transferTimeoutMs, () => {
+      if (settled) return;
+      settled = true;
+      const timeoutErr = new Error(`Download speedtest timed out after ${transferTimeoutMs}ms`);
+      try { req.destroy(timeoutErr); } catch {}
+      reject(timeoutErr);
+    });
+    req.on('error', (err) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    });
+    req.on('close', () => {
+      if (!responseStarted && !settled) {
+        settled = true;
+        reject(new Error('Download speedtest connection closed before response'));
+      }
+    });
     req.end();
   });
 
@@ -769,16 +1021,29 @@ export async function runSpeedtestBenchmark(options: {
 
   // 3. Upload speedtest
   const ulUrl = new URL(
-    `/api/proxy/${encodeURIComponent(hostId)}/speedtest/upload`,
-    serverUrl
+    resolveEndpointUrl(serverUrl, `/api/proxy/${encodeURIComponent(hostId)}/speedtest/upload`)
   );
 
   const ulResult = await new Promise<{ bytes: number; durationMs: number }>((resolve, reject) => {
+    let settled = false;
+    let responseStarted = false;
     const isHttps = ulUrl.protocol === 'https:';
     const transport = isHttps ? https : http;
     const ulStartNs = process.hrtime.bigint();
 
-    const req = transport.request(
+    let req: http.ClientRequest;
+    const failUpload = (err: Error) => {
+      if (settled) return;
+      settled = true;
+      try {
+        if (req && !req.destroyed) {
+          req.destroy();
+        }
+      } catch {}
+      reject(err);
+    };
+
+    req = transport.request(
       ulUrl,
       {
         method: 'POST',
@@ -789,24 +1054,58 @@ export async function runSpeedtestBenchmark(options: {
         },
       },
       (res) => {
+        responseStarted = true;
         const chunks: Buffer[] = [];
-        res.on('data', (c) => chunks.push(c));
+        res.on('data', (c) => {
+          if (!settled) {
+            chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c));
+          }
+        });
+        res.on('close', () => {
+          if (!settled && !res.complete) {
+            failUpload(new Error('Upload speedtest response closed prematurely'));
+          }
+        });
         res.on('end', () => {
+          if (settled) return;
+          if (!res.complete) {
+            failUpload(new Error('Upload speedtest response ended prematurely'));
+            return;
+          }
           if (res.statusCode !== 200) {
-            reject(
+            failUpload(
               new Error(
                 `Upload speedtest failed (${res.statusCode}): ${Buffer.concat(chunks).toString('utf-8')}`
               )
             );
             return;
           }
+          if (sentBytes < sizeBytes) {
+            failUpload(
+              new Error(`Upload speedtest aborted early (${sentBytes}/${sizeBytes} bytes sent)`)
+            );
+            return;
+          }
+          settled = true;
           const durationMs = Math.max(1, Number(process.hrtime.bigint() - ulStartNs) / 1e6);
           resolve({ bytes: sizeBytes, durationMs });
         });
-        res.on('error', reject);
+        res.on('error', (err) => {
+          failUpload(err);
+        });
       }
     );
-    req.on('error', reject);
+    req.setTimeout(transferTimeoutMs, () => {
+      failUpload(new Error(`Upload speedtest timed out after ${transferTimeoutMs}ms`));
+    });
+    req.on('error', (err) => {
+      failUpload(err);
+    });
+    req.on('close', () => {
+      if (!responseStarted && !settled) {
+        failUpload(new Error('Upload speedtest connection closed before response'));
+      }
+    });
 
     const randomBuf = crypto.randomBytes(32 * 1024);
     let sentBytes = 0;
@@ -814,8 +1113,10 @@ export async function runSpeedtestBenchmark(options: {
     const chunkSize = 32 * 1024;
 
     const sendNext = () => {
+      if (settled || req.destroyed || req.writableEnded) return;
       let ok = true;
       while (sentBytes < sizeBytes && ok) {
+        if (settled || req.destroyed || req.writableEnded) return;
         const remaining = sizeBytes - sentBytes;
         const currentChunkSize = Math.min(chunkSize, remaining);
         counter++;
@@ -837,7 +1138,7 @@ export async function runSpeedtestBenchmark(options: {
         }
       }
 
-      if (sentBytes < sizeBytes) {
+      if (sentBytes < sizeBytes && !settled && !req.destroyed && !req.writableEnded) {
         req.once('drain', sendNext);
       }
     };
@@ -851,8 +1152,7 @@ export async function runSpeedtestBenchmark(options: {
 
   // 4. Outbound Target Probes
   const probeUrl = new URL(
-    `/api/proxy/${encodeURIComponent(hostId)}/speedtest/probe`,
-    serverUrl
+    resolveEndpointUrl(serverUrl, `/api/proxy/${encodeURIComponent(hostId)}/speedtest/probe`)
   );
   const probePayload = JSON.stringify({ targets: options.targets });
   const probeRes = await sendBenchmarkRequest(
@@ -865,7 +1165,8 @@ export async function runSpeedtestBenchmark(options: {
         'x-admin-key': apiKey,
       },
     },
-    probePayload
+    probePayload,
+    controlTimeoutMs
   );
 
   let probes: TargetProbeResult[] = [];

@@ -1,3 +1,9 @@
+import { PROTOCOL_VERSION } from './events';
+import { ProtocolCapabilities } from './messages';
+
+export { PROTOCOL_VERSION };
+export type { ProtocolCapabilities };
+
 export const BIN_MSG_TYPE = {
   STREAM_INPUT: 0x01,
   STREAM_OUTPUT: 0x02,
@@ -22,6 +28,24 @@ export interface DecodedBinaryJsonBufferPacket {
   id: string;
   meta: Record<string, any>;
   rawData: Buffer;
+}
+
+export interface DecodedControlJsonEnvelope {
+  id: string;
+  control: Record<string, any>;
+}
+
+export function isBinaryMessageFrame(data: unknown, isBinary?: boolean): boolean {
+  if (isBinary === true) return true;
+  if (isBinary === false) return false;
+  return Buffer.isBuffer(data) || data instanceof ArrayBuffer || ArrayBuffer.isView(data);
+}
+
+export function clampPacketId(id: string = ''): string {
+  if (!id || typeof id !== 'string') return '';
+  const idBuf = Buffer.from(id, 'ascii');
+  if (idBuf.length <= 255) return id;
+  return idBuf.subarray(0, 255).toString('ascii');
 }
 
 export function encodeBinaryJsonBufferPacket(
@@ -134,6 +158,7 @@ const VALID_CONTROL_TYPES = new Set([
   'registered',
   'rejected',
   'meta',
+  'status',
   'resize',
   'reset',
   'pane_close',
@@ -151,9 +176,13 @@ const VALID_CONTROL_TYPES = new Set([
   'cmd_stream_resize',
   'cmd_stream_kill',
   'cmd_stream_exit',
+  'cmd_stream_eof',
   'exec_start',
   'exec_started',
   'exec_exit',
+  'exec_stdin_eof',
+  'exec_kill',
+  'exec_error',
   'cron_sync',
   'cron_sync_res',
   'cron_trigger',
@@ -164,6 +193,25 @@ const VALID_CONTROL_TYPES = new Set([
   'cron_history',
   'cron_history_res',
   'cron_error',
+  'task_action',
+  // Proxy control types
+  'proxy_http_start',
+  'proxy_http_req_end',
+  'proxy_http_abort',
+  'proxy_http_pause',
+  'proxy_http_resume',
+  'proxy_http_headers',
+  'proxy_http_res_headers',
+  'proxy_http_end',
+  'proxy_tcp_connect',
+  'proxy_tcp_connected',
+  'proxy_tcp_close',
+  'proxy_list_ports',
+  'proxy_list_ports_res',
+  'proxy_net_ping',
+  'proxy_net_ping_res',
+  'proxy_net_probe',
+  'proxy_net_probe_res',
 ]);
 
 export function isValidControlPayload(obj: unknown): obj is Record<string, any> {
@@ -174,7 +222,7 @@ export function isValidControlPayload(obj: unknown): obj is Record<string, any> 
   if (typeof type !== 'string') {
     return false;
   }
-  return VALID_CONTROL_TYPES.has(type) || type.startsWith('proxy_');
+  return VALID_CONTROL_TYPES.has(type);
 }
 
 export function encodeControlJsonPacket(control: Record<string, any>, id: string = ''): Buffer {
@@ -198,18 +246,56 @@ export function decodeControlJsonPacket(buf: Buffer | Uint8Array): Record<string
   }
 }
 
+export function decodeControlJsonPacketEnvelope(buf: Buffer | Uint8Array): DecodedControlJsonEnvelope | null {
+  const decoded = decodeBinaryPacket(buf);
+  if (!decoded || decoded.msgType !== BIN_MSG_TYPE.CONTROL_JSON) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(decoded.payload.toString('utf-8'));
+    if (isValidControlPayload(parsed)) {
+      return {
+        id: decoded.id,
+        control: parsed,
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export function sendControlFrame(ws: any, payload: Record<string, any>, id: string = ''): boolean {
   if (!ws || (ws.readyState !== 1 && ws.readyState !== (ws.constructor?.OPEN ?? 1))) {
     return false;
   }
   try {
     if (ws._binaryControl === true) {
-      ws.send(encodeControlJsonPacket(payload, id));
+      const safeId = clampPacketId(id);
+      const pkt = encodeControlJsonPacket(payload, safeId);
+      sendWsSafe(ws, pkt, { binary: true, compress: false });
     } else {
-      ws.send(`JSON:${JSON.stringify(payload)}`);
+      sendWsSafe(ws, `JSON:${JSON.stringify(payload)}`, { binary: false, compress: false });
     }
     return true;
   } catch {
     return false;
   }
+}
+
+export function negotiateProtocolCapabilities(searchParams: URLSearchParams): ProtocolCapabilities & { protocolVersion: number } {
+  const parseBool = (key: string): boolean => {
+    const val = searchParams.get(key);
+    return val === '1' || val === 'true';
+  };
+  const rawVer = parseInt(searchParams.get('protocolVersion') || '1', 10);
+  const protocolVersion = !isNaN(rawVer) && rawVer >= 1 ? Math.min(rawVer, PROTOCOL_VERSION) : 1;
+  return {
+    protocolVersion,
+    binaryControl: parseBool('binaryControl'),
+    binaryFile: parseBool('binaryFile'),
+    framedTerminal: parseBool('framedTerminal'),
+    stdinEof: protocolVersion >= 2 || parseBool('stdinEof'),
+    binaryExec: protocolVersion >= 2 || parseBool('binaryExec'),
+  };
 }

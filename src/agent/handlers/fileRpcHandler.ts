@@ -7,6 +7,7 @@ import { checkPathPermission, PermissionMode } from '../security/pathGuard';
 import {
   BIN_MSG_TYPE,
   encodeBinaryJsonBufferPacket,
+  sendControlFrame,
   sendWsSafe,
 } from '../../shared/protocol/binaryProtocol';
 
@@ -174,13 +175,17 @@ export async function handleFileRpc(control: any, targetWs: any, onActivity?: ()
     onActivity?.();
     const isOpen = targetWs && (targetWs.readyState === 1 || targetWs.readyState === (targetWs.constructor?.OPEN ?? 1));
     if (isOpen) {
-      sendWsSafe(targetWs, `JSON:${JSON.stringify({
-        type: 'file_rpc_res',
-        reqId,
-        success,
-        data,
-        error,
-      })}`, { compress: false });
+      sendControlFrame(
+        targetWs,
+        {
+          type: 'file_rpc_res',
+          reqId,
+          success,
+          data,
+          error,
+        },
+        reqId || ''
+      );
     }
   };
   const replyBinaryChunk = (meta: Record<string, any>, rawData: Buffer | null) => {

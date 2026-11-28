@@ -21,12 +21,14 @@ import { makeRequest } from '../client/utils/terminalUI';
 import { getVersionInfo } from '../shared/version';
 import { StreamBatcher } from '../shared/utils/streamBatcher';
 import {
+  PROTOCOL_VERSION,
   BIN_MSG_TYPE,
+  clampPacketId,
   decodeBinaryPacket,
   decodeBinaryJsonBufferPacket,
   encodeBinaryPacket,
   decodeControlJsonPacket,
-  encodeControlJsonPacket,
+  isBinaryMessageFrame,
   sendControlFrame,
   sendWsSafe,
 } from '../shared/protocol/binaryProtocol';
@@ -868,6 +870,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
   let reconnectAttempts = 0;
   let reconnectTimer: NodeJS.Timeout | null = null;
   let connectTimeoutTimer: NodeJS.Timeout | null = null;
+  let registrationGraceTimer: NodeJS.Timeout | null = null;
   let heartbeatTimer: NodeJS.Timeout | null = null;
   let heartbeatTimeoutTimer: NodeJS.Timeout | null = null;
   let lastPongReceived = Date.now();
@@ -875,6 +878,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
   const pendingOutputQueue: Buffer[] = [];
   const maxPendingQueueBytes = 256 * 1024; // 256KB early buffer
   let pendingQueueBytes = 0;
+  let mainTerminalInputDecoder = new StringDecoder('utf8');
 
   const WebSocket = getWebSocketCtor();
   const pty = tryRequirePty();
@@ -897,7 +901,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     sendControl: (msg: Record<string, any>) => {
       if (ws && (ws.readyState === 1 || ws.readyState === WebSocket.OPEN)) {
         try {
-          ws.send(`JSON:${JSON.stringify(msg)}`);
+          sendControlFrame(ws, msg, msg?.paneId || '');
         } catch {}
       }
     },
@@ -922,7 +926,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
   cronScheduler.onReport((record) => {
     if (ws && (ws.readyState === 1 || ws.readyState === WebSocket.OPEN)) {
       try {
-        ws.send(`JSON:${JSON.stringify({ type: 'cron_report', record })}`);
+        sendControlFrame(ws, { type: 'cron_report', record }, record?.jobId || '');
       } catch (err: any) {
         console.warn(`[Agent] Failed to send cron_report: ${err.message}`);
       }
@@ -935,26 +939,38 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     if (histBuf.length === 0) {
       if (replyIfEmpty) {
         try {
-          ws.send(`JSON:${JSON.stringify({ type: 'history_sync', history: '' })}`);
+          sendControlFrame(ws, { type: 'history_sync', history: '' }, hostId);
         } catch {}
       }
       return;
     }
     try {
-      const syncPacket = encodeBinaryPacket(BIN_MSG_TYPE.HISTORY_SYNC, hostId, histBuf);
+      const syncPacket = encodeBinaryPacket(BIN_MSG_TYPE.HISTORY_SYNC, clampPacketId(hostId), histBuf);
       sendWsSafe(ws, syncPacket, { binary: true, compress: false });
     } catch (err: any) {
       console.warn(`[Agent] Failed to send history sync: ${err.message}`);
     }
   }
 
+  function sendMainTerminalChunk(targetWs: any, chunk: Buffer) {
+    const payload = (targetWs as any)._framedTerminal
+      ? encodeBinaryPacket(BIN_MSG_TYPE.TERMINAL_RAW, 'main', chunk)
+      : chunk;
+    sendWsSafe(targetWs, payload, { binary: true, compress: false });
+  }
+
   function flushPendingOutput() {
-    if (ws && (ws.readyState === 1 || ws.readyState === WebSocket.OPEN) && pendingOutputQueue.length > 0) {
+    if (
+      ws &&
+      (ws.readyState === 1 || ws.readyState === WebSocket.OPEN) &&
+      (ws as any)._handshakeSettled &&
+      pendingOutputQueue.length > 0
+    ) {
       while (pendingOutputQueue.length > 0) {
         const chunk = pendingOutputQueue.shift()!;
         pendingQueueBytes -= chunk.length;
         try {
-          sendWsSafe(ws, chunk, { binary: true, compress: false });
+          sendMainTerminalChunk(ws, chunk);
         } catch {
           break;
         }
@@ -992,7 +1008,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
         if (typeof ws.ping === 'function') {
           try { ws.ping(); } catch {}
         }
-        ws.send(`JSON:${JSON.stringify({ type: 'ping' })}`);
+        sendControlFrame(ws, { type: 'ping' }, hostId);
         if (!heartbeatTimeoutTimer) {
           heartbeatTimeoutTimer = setTimeout(() => {
             heartbeatTimeoutTimer = null;
@@ -1062,9 +1078,14 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     const sendToWs = (data: any) => {
       const buf = Buffer.isBuffer(data) ? data : Buffer.from(data, 'utf-8');
       terminalHistory.push(buf);
-      if (ws && (ws.readyState === 1 || ws.readyState === WebSocket.OPEN) && pendingOutputQueue.length === 0) {
+      if (
+        ws &&
+        (ws.readyState === 1 || ws.readyState === WebSocket.OPEN) &&
+        (ws as any)._handshakeSettled &&
+        pendingOutputQueue.length === 0
+      ) {
         try {
-          sendWsSafe(ws, buf, { binary: true, compress: false });
+          sendMainTerminalChunk(ws, buf);
           return;
         } catch {}
       }
@@ -1074,7 +1095,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
         const dropped = pendingOutputQueue.shift()!;
         pendingQueueBytes -= dropped.length;
       }
-      if (ws && (ws.readyState === 1 || ws.readyState === WebSocket.OPEN)) {
+      if (ws && (ws.readyState === 1 || ws.readyState === WebSocket.OPEN) && (ws as any)._handshakeSettled) {
         flushPendingOutput();
       }
     };
@@ -1267,11 +1288,17 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       machineId,
       version: clientVersion,
       startTime: agentStartTime,
+      protocolVersion: PROTOCOL_VERSION,
       binaryControl: 1,
       binaryFile: 1,
+      framedTerminal: 1,
     });
     console.log(`[Agent] Connecting to ${targetWsUrl.split('?')[0]}...`);
 
+    if (registrationGraceTimer) {
+      clearTimeout(registrationGraceTimer);
+      registrationGraceTimer = null;
+    }
     if (connectTimeoutTimer) clearTimeout(connectTimeoutTimer);
     connectTimeoutTimer = setTimeout(() => {
       lastConnectionError = `Connection timed out (${HANDSHAKE_TIMEOUT_MS / 1000}s)`;
@@ -1281,6 +1308,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       }
     }, HANDSHAKE_TIMEOUT_MS);
 
+    mainTerminalInputDecoder = new StringDecoder('utf8');
     ws = new WebSocket(targetWsUrl, {
       headers: { 'x-admin-key': adminKey },
       perMessageDeflate: {
@@ -1289,8 +1317,10 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
         serverNoContextTakeover: true,
       },
     });
-    (ws as any)._binaryControl = true;
-    (ws as any)._binaryFile = true;
+    (ws as any)._binaryControl = false;
+    (ws as any)._binaryFile = false;
+    (ws as any)._framedTerminal = false;
+    (ws as any)._handshakeSettled = false;
 
     ws.on('pong', () => {
       lastPongReceived = Date.now();
@@ -1302,6 +1332,8 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
         ws._socket.setKeepAlive(true, 10000);
       }
     });
+
+    let isFirstSpawn = false;
 
     ws.on('open', () => {
       if (connectTimeoutTimer) clearTimeout(connectTimeoutTimer);
@@ -1321,7 +1353,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
 
       startHeartbeat();
 
-      const isFirstSpawn = !ptyProcess;
+      isFirstSpawn = !ptyProcess;
       if (!ptyProcess) {
         spawnPty();
       }
@@ -1335,10 +1367,15 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
           send: (payload: string | Buffer, sendOpts?: { binary?: boolean; compress?: boolean }) => {
             if (ws && (ws.readyState === 1 || ws.readyState === WebSocket.OPEN)) {
               if (Buffer.isBuffer(payload)) {
-                ws.send(payload, { binary: true, compress: sendOpts?.compress ?? false });
+                sendWsSafe(ws, payload, { binary: true, compress: sendOpts?.compress ?? false });
               } else {
-                ws.send(payload);
+                sendWsSafe(ws, payload, { binary: false, compress: false });
               }
+            }
+          },
+          sendControl: (msg: Record<string, any>) => {
+            if (ws && (ws.readyState === 1 || ws.readyState === WebSocket.OPEN)) {
+              sendControlFrame(ws, msg, msg?.streamId || '');
             }
           },
           getBufferedAmount: () => (ws && typeof ws.bufferedAmount === 'number' ? ws.bufferedAmount : 0),
@@ -1351,18 +1388,32 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
             if (Buffer.isBuffer(data)) {
               sendWsSafe(ws, data, { binary: true, compress: false });
             } else {
-              ws.send('JSON:' + JSON.stringify(data));
+              sendControlFrame(ws, data, data?.taskId || data?.paneId || '');
             }
           }
         }, maxScrollbackBytes);
 
-        if (isFirstSpawn) {
-          ws.send(`JSON:${JSON.stringify({ type: 'reset' })}`);
+        if (registrationGraceTimer) {
+          clearTimeout(registrationGraceTimer);
         }
-        if (ptyProcess) {
-          ws.send(`JSON:${JSON.stringify({ type: 'resize', cols: ptyProcess.cols, rows: ptyProcess.rows })}`);
+        const registeredWs = ws;
+        registrationGraceTimer = setTimeout(() => {
+          registrationGraceTimer = null;
+          if (ws === registeredWs && !(ws as any)._handshakeSettled) {
+            (ws as any)._handshakeSettled = true;
+            if (isFirstSpawn) {
+              isFirstSpawn = false;
+              sendControlFrame(ws, { type: 'reset' });
+            }
+            if (ptyProcess) {
+              sendControlFrame(ws, { type: 'resize', cols: ptyProcess.cols, rows: ptyProcess.rows });
+            }
+            flushPendingOutput();
+          }
+        }, 3000);
+        if (typeof registrationGraceTimer.unref === 'function') {
+          registrationGraceTimer.unref();
         }
-        flushPendingOutput();
       } catch {}
     });
 
@@ -1371,62 +1422,85 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       try {
         let control: any = null;
 
-        if (
-          isBinary ||
-          (Buffer.isBuffer(data) &&
-            data.length > 0 &&
-            (data[0] === BIN_MSG_TYPE.STREAM_INPUT ||
-              data[0] === BIN_MSG_TYPE.TERMINAL_RAW ||
-              data[0] === BIN_MSG_TYPE.PROXY_HTTP_REQ_BODY ||
-              data[0] === BIN_MSG_TYPE.PROXY_TCP_DATA ||
-              data[0] === BIN_MSG_TYPE.CONTROL_JSON ||
-              data[0] === BIN_MSG_TYPE.FILE_CHUNK_REQ))
-        ) {
-          const buf = Buffer.isBuffer(data) ? data : Buffer.from(data as any);
-          const decoded = decodeBinaryPacket(buf);
-          if (decoded) {
-            if (decoded.msgType === BIN_MSG_TYPE.FILE_CHUNK_REQ) {
-              const pkt = decodeBinaryJsonBufferPacket(buf);
-              if (pkt) {
-                onHeartbeatActivity();
-                activeFileRpcCount++;
-                const reqControl = {
-                  type: 'file_rpc',
-                  reqId: pkt.id,
-                  action: pkt.meta.action,
-                  path: pkt.meta.path,
-                  params: {
-                    ...(pkt.meta.params || {}),
-                    rawBuffer: pkt.rawData,
-                  },
-                };
-                handleFileRpc(
-                  buildLocalFileRpcPayload(reqControl, permissionMode as PermissionMode, workspace),
-                  ws,
-                  onHeartbeatActivity
-                ).finally(() => {
-                  activeFileRpcCount = Math.max(0, activeFileRpcCount - 1);
+        if (isBinaryMessageFrame(data, isBinary)) {
+          const buf = Buffer.isBuffer(data)
+            ? data
+            : ArrayBuffer.isView(data)
+              ? Buffer.from(data.buffer, data.byteOffset, data.byteLength)
+              : Buffer.from(data as any);
+          if (
+            buf.length > 0 &&
+            (buf[0] === BIN_MSG_TYPE.STREAM_INPUT ||
+              buf[0] === BIN_MSG_TYPE.TERMINAL_RAW ||
+              buf[0] === BIN_MSG_TYPE.PROXY_HTTP_REQ_BODY ||
+              buf[0] === BIN_MSG_TYPE.PROXY_TCP_DATA ||
+              buf[0] === BIN_MSG_TYPE.CONTROL_JSON ||
+              buf[0] === BIN_MSG_TYPE.FILE_CHUNK_REQ)
+          ) {
+            const decoded = decodeBinaryPacket(buf);
+            if (decoded) {
+              if (decoded.msgType === BIN_MSG_TYPE.FILE_CHUNK_REQ) {
+                const pkt = decodeBinaryJsonBufferPacket(buf);
+                if (pkt) {
                   onHeartbeatActivity();
-                });
+                  activeFileRpcCount++;
+                  const reqControl = {
+                    type: 'file_rpc',
+                    reqId: pkt.id,
+                    action: pkt.meta.action,
+                    path: pkt.meta.path,
+                    params: {
+                      ...(pkt.meta.params || {}),
+                      rawBuffer: pkt.rawData,
+                    },
+                  };
+                  handleFileRpc(
+                    buildLocalFileRpcPayload(reqControl, permissionMode as PermissionMode, workspace),
+                    ws,
+                    onHeartbeatActivity
+                  ).finally(() => {
+                    activeFileRpcCount = Math.max(0, activeFileRpcCount - 1);
+                    onHeartbeatActivity();
+                  });
+                  return;
+                }
+              } else if (decoded.msgType === BIN_MSG_TYPE.CONTROL_JSON) {
+                control = decodeControlJsonPacket(buf);
+                if (!control && isBinary === true) {
+                  return;
+                }
+              } else if (decoded.msgType === BIN_MSG_TYPE.STREAM_INPUT) {
+                if (streamSessionManager) {
+                  streamSessionManager.writeRawInput(decoded.id, decoded.payload);
+                }
+                return;
+              } else if (decoded.msgType === BIN_MSG_TYPE.TERMINAL_RAW) {
+                if (decoded.id === 'main') {
+                  if (ptyProcess) {
+                    const text = mainTerminalInputDecoder.write(decoded.payload);
+                    if (text) {
+                      ptyProcess.write(text);
+                    }
+                  }
+                } else {
+                  secondaryPaneManager.write(decoded.id, decoded.payload);
+                }
+                return;
+              } else if (proxyHandler && proxyHandler.handleBinaryFrame(decoded)) {
                 return;
               }
-            } else if (decoded.msgType === BIN_MSG_TYPE.CONTROL_JSON) {
-              control = decodeControlJsonPacket(buf);
-            } else if (decoded.msgType === BIN_MSG_TYPE.STREAM_INPUT) {
-              if (streamSessionManager) {
-                streamSessionManager.writeRawInput(decoded.id, decoded.payload);
-              }
-              return;
-            } else if (decoded.msgType === BIN_MSG_TYPE.TERMINAL_RAW) {
-              secondaryPaneManager.write(decoded.id, decoded.payload);
-              return;
-            } else if (proxyHandler && proxyHandler.handleBinaryFrame(decoded)) {
-              return;
             }
+          }
+          if (!control && isBinary === true && (ws as any)._framedTerminal === true) {
+            return;
           }
         }
 
-        const msgStr = typeof data === 'string' ? data : data.toString();
+        const msgStr = typeof data === 'string'
+          ? data
+          : Buffer.isBuffer(data)
+            ? data.toString('utf-8')
+            : Buffer.from(data as any).toString('utf-8');
         if (!control) {
           control = parseControlMessage(msgStr);
         }
@@ -1485,6 +1559,12 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
             }
             return;
           }
+          if (control.type === 'cmd_stream_eof') {
+            if (streamSessionManager) {
+              streamSessionManager.endInput(control.taskId);
+            }
+            return;
+          }
           if (
             control.type === 'cron_sync' ||
             control.type === 'cron_trigger' ||
@@ -1523,13 +1603,13 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
             console.log('[Agent] Resetting PTY shell session...');
             spawnPty();
             if (ptyProcess && ws && (ws.readyState === 1 || ws.readyState === WebSocket.OPEN)) {
-              ws.send(`JSON:${JSON.stringify({ type: 'resize', cols: ptyProcess.cols, rows: ptyProcess.rows })}`);
+              sendControlFrame(ws, { type: 'resize', cols: ptyProcess.cols, rows: ptyProcess.rows });
             }
             return;
           }
           if (control.type === 'ping') {
             if (ws && (ws.readyState === 1 || ws.readyState === WebSocket.OPEN)) {
-              ws.send(`JSON:${JSON.stringify({ type: 'pong' })}`);
+              sendControlFrame(ws, { type: 'pong' }, hostId);
             }
             return;
           }
@@ -1552,12 +1632,36 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
           }
           if (control.type === 'pane_close') {
             if (control.paneId && control.paneId !== 'main') {
+              const streamTaskId = `pane-${control.paneId}`;
+              if (streamSessionManager && streamSessionManager.hasSession(streamTaskId)) {
+                streamSessionManager.kill(streamTaskId);
+              }
               secondaryPaneManager.closePane(control.paneId);
             }
             return;
           }
           if (control.type === 'registered') {
             console.log(`[Agent] Registered confirmed: hostId=${control.hostId}, status=${control.status}`);
+            if (registrationGraceTimer) {
+              clearTimeout(registrationGraceTimer);
+              registrationGraceTimer = null;
+            }
+            if (ws) {
+              const caps = control.capabilities && typeof control.capabilities === 'object'
+                ? control.capabilities
+                : null;
+              (ws as any)._binaryControl = Boolean(caps?.binaryControl);
+              (ws as any)._binaryFile = Boolean(caps?.binaryFile);
+              (ws as any)._framedTerminal = Boolean(caps?.framedTerminal);
+              (ws as any)._handshakeSettled = true;
+              if (isFirstSpawn) {
+                isFirstSpawn = false;
+                sendControlFrame(ws, { type: 'reset' }, hostId);
+              }
+              if (ptyProcess) {
+                sendControlFrame(ws, { type: 'resize', cols: ptyProcess.cols, rows: ptyProcess.rows }, hostId);
+              }
+            }
             lastConnectionError = null;
             updateDaemonState({
               connectionState: 'online',
@@ -1565,6 +1669,7 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
               lastError: null,
               lastConnectedAt: new Date().toISOString(),
             });
+            flushPendingOutput();
             if (isReconnection && terminalHistory.getSize() > 0) {
               sendHistorySync();
             }
@@ -1587,6 +1692,10 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
       activeFileRpcCount = 0;
       if (ptyBatcher) {
         ptyBatcher.flush();
+      }
+      if (registrationGraceTimer) {
+        clearTimeout(registrationGraceTimer);
+        registrationGraceTimer = null;
       }
       if (connectTimeoutTimer) clearTimeout(connectTimeoutTimer);
       stopHeartbeat();
@@ -1612,6 +1721,10 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     });
 
     ws.on('error', (err: any) => {
+      if (registrationGraceTimer) {
+        clearTimeout(registrationGraceTimer);
+        registrationGraceTimer = null;
+      }
       if (connectTimeoutTimer) clearTimeout(connectTimeoutTimer);
       stopHeartbeat();
       if (proxyHandler) {
@@ -1649,6 +1762,14 @@ export async function runAgent(agentArgs: string[] = [], globalOpts: Record<stri
     if (isExiting) return;
     isExiting = true;
     AgentDaemonManager.clearStatusForPid(process.pid);
+    if (registrationGraceTimer) {
+      clearTimeout(registrationGraceTimer);
+      registrationGraceTimer = null;
+    }
+    if (connectTimeoutTimer) {
+      clearTimeout(connectTimeoutTimer);
+      connectTimeoutTimer = null;
+    }
     if (reconnectTimer) {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;

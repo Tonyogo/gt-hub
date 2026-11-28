@@ -4,6 +4,12 @@ import { FitAddon } from '@xterm/addon-fit';
 import { isSyntheticTerminalReport, isUnsolicitedShellDeviceReport } from '../../../utils/terminalFilter';
 import { shouldScrollToBottom, scrollToBottomSafe } from '../../../utils/terminalScrollHelper';
 import { requestAuthTicket } from '../../../utils/apiClient';
+import {
+  isBinaryControlPacket,
+  decodeBinaryControlFrame,
+  parseTerminalTextControlFrame,
+  toUint8Array,
+} from '../../../utils/terminalProtocol';
 
 export interface UseTerminalWebSocketOptions {
   adminKey: string;
@@ -69,6 +75,7 @@ export function useTerminalWebSocket({
   const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const connectSeqRef = useRef<number>(0);
   const lastPongTimeRef = useRef<number>(Date.now());
+  const binaryControlConfirmedRef = useRef<boolean>(false);
   const onPaneExitRef = useRef(onPaneExit);
   useEffect(() => {
     onPaneExitRef.current = onPaneExit;
@@ -126,6 +133,7 @@ export function useTerminalWebSocket({
     hasFirstDataFittedRef.current = false;
     lastSentColsRef.current = 0;
     lastSentRowsRef.current = 0;
+    binaryControlConfirmedRef.current = false;
 
     if (wsRef.current) {
       const oldWs = wsRef.current;
@@ -156,7 +164,7 @@ export function useTerminalWebSocket({
       const host = window.location.host;
       const ticketParam = ticket ? `ticket=${encodeURIComponent(ticket)}` : (adminKey ? `x-admin-key=${encodeURIComponent(adminKey)}` : '');
       const paneParam = paneId && paneId !== 'main' ? `&paneId=${encodeURIComponent(paneId)}` : '';
-      const wsUrl = `${protocol}//${host}/api/terminal/ws?${ticketParam ? ticketParam + '&' : ''}hostId=${encodeURIComponent(activeHostId)}${paneParam}`;
+      const wsUrl = `${protocol}//${host}/api/terminal/ws?${ticketParam ? ticketParam + '&' : ''}hostId=${encodeURIComponent(activeHostId)}${paneParam}&binaryControl=1`;
 
       const ws = new WebSocket(wsUrl);
       ws.binaryType = 'arraybuffer';
@@ -164,11 +172,16 @@ export function useTerminalWebSocket({
 
       ws.onopen = () => {
         lastPongTimeRef.current = Date.now();
+        binaryControlConfirmedRef.current = false;
         setIsConnecting(false);
         setIsConnected(true);
         reconnectAttemptRef.current = 0;
         clearReconnectTimers();
         clearPingInterval();
+
+        try {
+          ws.send(`JSON:${JSON.stringify({ type: 'ping' })}`);
+        } catch {}
 
         pingIntervalRef.current = setInterval(() => {
           if (Date.now() - lastPongTimeRef.current > 35000) {
@@ -217,92 +230,110 @@ export function useTerminalWebSocket({
           hasFirstDataFittedRef.current = true;
           safeFit(lastSentColsRef.current === 0);
         }
+
+        const handleParsedControl = (parsed: Record<string, any>): boolean => {
+          if (parsed.type === 'agent_offline') {
+            try {
+              ws.close(1012, 'Agent disconnected');
+            } catch {
+              try { ws.close(); } catch {}
+            }
+            return true;
+          }
+          if (parsed.type === 'pane_exit') {
+            isProcessExitedRef.current = true;
+            setIsConnected(false);
+            setIsConnecting(false);
+            clearReconnectTimers();
+            onPaneExitRef.current?.();
+            return true;
+          }
+          if (parsed.type === 'pong') {
+            return true;
+          }
+          if (parsed.type === 'reset') {
+            xtermRef.current?.clear();
+            xtermRef.current?.reset();
+            isReplayingRef.current = true;
+            if (replayTimerRef.current) {
+              clearTimeout(replayTimerRef.current);
+            }
+            replayTimerRef.current = setTimeout(() => {
+              isReplayingRef.current = false;
+              scrollToBottomSafe(xtermRef.current);
+            }, 600);
+            if (fitAddonRef.current && xtermRef.current) {
+              fitAddonRef.current.fit();
+              sendResize(xtermRef.current.cols, xtermRef.current.rows);
+              scrollToBottomSafe(xtermRef.current);
+            }
+            return true;
+          }
+          if (parsed.type === 'status' && parsed.event === 'exit') {
+            xtermRef.current?.writeln('\r\n\x1b[33m[Process Completed]\x1b[0m\r\n');
+            isProcessExitedRef.current = true;
+            setIsConnected(false);
+            clearReconnectTimers();
+            return true;
+          }
+          return false;
+        };
+
         const data = event.data;
         if (typeof data === 'string') {
-          if (data.startsWith('JSON:')) {
-            try {
-              const parsed = JSON.parse(data.slice(5));
-              if (parsed.type === 'agent_offline') {
-                try {
-                  ws.close(1012, 'Agent disconnected');
-                } catch {}
-                return;
-              }
-              if (parsed.type === 'pane_exit') {
-                isProcessExitedRef.current = true;
-                setIsConnected(false);
-                setIsConnecting(false);
-                clearReconnectTimers();
-                onPaneExitRef.current?.();
-                return;
-              }
-              if (parsed.type === 'pong') {
-                return;
-              }
-            if (parsed.type === 'reset') {
-              xtermRef.current?.clear();
-              xtermRef.current?.reset();
-              isReplayingRef.current = true;
-              if (replayTimerRef.current) {
-                clearTimeout(replayTimerRef.current);
-              }
-              replayTimerRef.current = setTimeout(() => {
-                isReplayingRef.current = false;
-                scrollToBottomSafe(xtermRef.current);
-              }, 600);
-              if (fitAddonRef.current && xtermRef.current) {
-                fitAddonRef.current.fit();
-                sendResize(xtermRef.current.cols, xtermRef.current.rows);
-                scrollToBottomSafe(xtermRef.current);
-              }
+          if (!binaryControlConfirmedRef.current && data.startsWith('JSON:')) {
+            const parsed = parseTerminalTextControlFrame(data);
+            if (parsed && handleParsedControl(parsed)) {
               return;
             }
-            if (parsed.type === 'status' && parsed.event === 'exit') {
-              xtermRef.current?.writeln('\r\n\x1b[33m[Process Completed]\x1b[0m\r\n');
-              isProcessExitedRef.current = true;
-              setIsConnected(false);
-              clearReconnectTimers();
+          }
+          const wasAtBottom = Boolean(isAtBottomRef.current);
+          term?.write(data, () => {
+            if (
+              !isRefittingRef.current &&
+              shouldScrollToBottom({
+                isReplaying: isReplayingRef.current,
+                wasAtBottom,
+                bufferType: term?.buffer.active.type,
+              })
+            ) {
+              scrollToBottomSafe(term);
+            }
+            if (isReplayingRef.current) {
+              term?.refresh(0, Math.max(0, (term.rows || 1) - 1));
+              isReplayingRef.current = false;
+            }
+          });
+        } else if (data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
+          const binaryBytes = toUint8Array(data);
+          if (!binaryBytes) return;
+          if (isBinaryControlPacket(binaryBytes)) {
+            const parsed = decodeBinaryControlFrame(binaryBytes);
+            if (parsed) {
+              binaryControlConfirmedRef.current = true;
+              handleParsedControl(parsed);
             }
             return;
-          } catch {}
+          }
+          const wasAtBottom = Boolean(isAtBottomRef.current);
+          term?.write(binaryBytes, () => {
+            if (
+              !isRefittingRef.current &&
+              shouldScrollToBottom({
+                isReplaying: isReplayingRef.current,
+                wasAtBottom,
+                bufferType: term?.buffer.active.type,
+              })
+            ) {
+              scrollToBottomSafe(term);
+            }
+            if (isReplayingRef.current) {
+              term?.refresh(0, Math.max(0, (term.rows || 1) - 1));
+              isReplayingRef.current = false;
+            }
+          });
         }
-        const wasAtBottom = isAtBottomRef.current;
-        term?.write(data, () => {
-          if (
-            !isRefittingRef.current &&
-            shouldScrollToBottom({
-              isReplaying: isReplayingRef.current,
-              wasAtBottom,
-              bufferType: term?.buffer.active.type,
-            })
-          ) {
-            scrollToBottomSafe(term);
-          }
-          if (isReplayingRef.current) {
-            term?.refresh(0, Math.max(0, (term.rows || 1) - 1));
-            isReplayingRef.current = false;
-          }
-        });
-      } else if (data instanceof ArrayBuffer) {
-        const wasAtBottom = isAtBottomRef.current;
-        term?.write(new Uint8Array(data), () => {
-          if (
-            !isRefittingRef.current &&
-            shouldScrollToBottom({
-              isReplaying: isReplayingRef.current,
-              wasAtBottom,
-              bufferType: term?.buffer.active.type,
-            })
-          ) {
-            scrollToBottomSafe(term);
-          }
-          if (isReplayingRef.current) {
-            term?.refresh(0, Math.max(0, (term.rows || 1) - 1));
-            isReplayingRef.current = false;
-          }
-        });
-      }
-    };
+      };
 
     const triggerReconnect = () => {
       setIsConnecting(false);

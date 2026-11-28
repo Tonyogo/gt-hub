@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import http from 'http';
 import https from 'https';
 import url from 'url';
-import { isRemoteSpec, parseRemoteSpec, resolveHost } from '../utils/terminalUI';
+import { isRemoteSpec, parseRemoteSpec, resolveEndpointUrl, resolveHost } from '../utils/terminalUI';
 
 export interface CpSpec {
   isRemote: boolean;
@@ -59,28 +59,20 @@ export async function uploadLocalFile({
     throw new Error(`Directory upload is not supported in single-file cp: ${localPath}`);
   }
 
-  const filename = path.basename(localPath);
+  const rawFilename = path.basename(localPath);
+  const safeFilename = rawFilename.replace(/["\r\n]/g, '_');
   const boundary = `----GtFormBoundary${crypto.randomBytes(8).toString('hex')}`;
 
   const head = Buffer.from(
-    `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: application/octet-stream\r\n\r\n`
+    `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${safeFilename}"\r\nContent-Type: application/octet-stream\r\n\r\n`
   );
   const tail = Buffer.from(`\r\n--${boundary}--\r\n`);
   const totalLength = head.length + stat.size + tail.length;
 
   const endpoint = `/api/terminal/files/upload?hostId=${encodeURIComponent(hostId)}&path=${encodeURIComponent(remotePath || '.')}`;
-
-  const normalizedUrl = serverUrl.startsWith('http://') || serverUrl.startsWith('https://')
-    ? serverUrl
-    : `http://${serverUrl}`;
-  const serverParsed = new url.URL(normalizedUrl);
-  const isHttps = serverParsed.protocol === 'https:';
+  const targetUrl = new url.URL(resolveEndpointUrl(serverUrl, endpoint));
+  const isHttps = targetUrl.protocol === 'https:';
   const client = isHttps ? https : http;
-
-  const [epPath, epQuery] = endpoint.split('?');
-  const basePath = serverParsed.pathname.replace(/\/+$/, '');
-  const finalPathname = (basePath + '/' + epPath.replace(/^\/+/, '')).replace(/\/+/g, '/');
-  const finalSearch = epQuery ? `?${epQuery}` : '';
 
   const headers: Record<string, any> = {
     'Content-Type': `multipart/form-data; boundary=${boundary}`,
@@ -91,26 +83,50 @@ export async function uploadLocalFile({
   }
 
   return new Promise<number>((resolve, reject) => {
+    let settled = false;
+    let responseStarted = false;
+
     const req = client.request({
-      protocol: serverParsed.protocol,
-      hostname: serverParsed.hostname,
-      port: serverParsed.port || (isHttps ? 443 : 80),
-      path: `${finalPathname}${finalSearch}`,
+      protocol: targetUrl.protocol,
+      hostname: targetUrl.hostname,
+      port: targetUrl.port || (isHttps ? 443 : 80),
+      path: `${targetUrl.pathname}${targetUrl.search}`,
       method: 'POST',
       headers,
     }, (res) => {
-      let data = '';
-      res.on('data', (chunk) => { data += chunk; });
+      responseStarted = true;
+      const chunks: Buffer[] = [];
+      res.on('data', (chunk) => {
+        if (!settled) {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        }
+      });
+      res.on('error', (err) => {
+        finishReject(err);
+      });
+      res.on('close', () => {
+        if (!settled && !res.complete) {
+          finishReject(new Error('Upload response closed prematurely by server'));
+        }
+      });
       res.on('end', () => {
-        cleanupReadStream();
+        if (settled) return;
+        if (!res.complete) {
+          return finishReject(new Error('Upload response ended prematurely by server'));
+        }
+        const data = Buffer.concat(chunks).toString('utf-8');
         let json: any = null;
         try { json = JSON.parse(data); } catch { json = { raw: data }; }
         if ((res.statusCode && res.statusCode >= 400) || (json && json.success === false)) {
+          finishReject(new Error(`Upload failed: ${json?.error || `HTTP ${res.statusCode}`}`));
           try { req.destroy(); } catch {}
-          return reject(new Error(`Upload failed: ${json?.error || `HTTP ${res.statusCode}`}`));
+          return;
+        }
+        if (!req.writableEnded && !req.destroyed) {
+          try { req.destroy(); } catch {}
         }
         console.log(`Successfully copied ${localPath} -> [${hostId}]:${remotePath} (${(stat.size / 1024).toFixed(1)} KB)`);
-        resolve(0);
+        finishResolve(0);
       });
     });
 
@@ -124,32 +140,63 @@ export async function uploadLocalFile({
       } catch {}
     };
 
-    req.on('error', (err) => {
+    const finishResolve = (code: number) => {
+      if (settled) return;
+      settled = true;
       cleanupReadStream();
-      try { req.destroy(); } catch {}
+      resolve(code);
+    };
+
+    const finishReject = (err: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanupReadStream();
       reject(err);
+    };
+
+    req.setTimeout(60000, () => {
+      const timeoutErr = new Error('Upload socket inactivity timeout (60s)');
+      try { req.destroy(timeoutErr); } catch {}
+      finishReject(timeoutErr);
+    });
+
+    req.on('error', (err) => {
+      try { req.destroy(); } catch {}
+      finishReject(err);
     });
 
     req.on('close', () => {
       cleanupReadStream();
+      if (!responseStarted && !settled) {
+        finishReject(new Error('Upload connection closed prematurely before response'));
+      }
     });
 
     // Stream file content chunk-by-chunk with backpressure
     req.write(head);
     readStream.on('data', (chunk) => {
+      if (settled || req.destroyed || req.writableEnded) {
+        cleanupReadStream();
+        return;
+      }
       const ok = req.write(chunk);
-      if (!ok) {
+      if (!ok && !settled && !req.destroyed && !req.writableEnded) {
         readStream.pause();
-        req.once('drain', () => readStream.resume());
+        req.once('drain', () => {
+          if (!settled && !readStream.destroyed && !req.destroyed && !req.writableEnded) {
+            readStream.resume();
+          }
+        });
       }
     });
     readStream.on('end', () => {
+      if (settled || req.destroyed || req.writableEnded) return;
       req.end(tail);
     });
     readStream.on('error', (err) => {
-      cleanupReadStream();
-      req.destroy(err);
-      reject(err);
+      if (settled) return;
+      finishReject(err);
+      try { req.destroy(err); } catch {}
     });
   });
 }
@@ -168,18 +215,9 @@ export async function downloadRemoteFile({
   localPath: string;
 }): Promise<number> {
   const endpoint = `/api/terminal/files/download?hostId=${encodeURIComponent(hostId)}&path=${encodeURIComponent(remotePath)}`;
-
-  const normalizedUrl = serverUrl.startsWith('http://') || serverUrl.startsWith('https://')
-    ? serverUrl
-    : `http://${serverUrl}`;
-  const serverParsed = new url.URL(normalizedUrl);
-  const isHttps = serverParsed.protocol === 'https:';
+  const targetUrl = new url.URL(resolveEndpointUrl(serverUrl, endpoint));
+  const isHttps = targetUrl.protocol === 'https:';
   const client = isHttps ? https : http;
-
-  const [epPath, epQuery] = endpoint.split('?');
-  const basePath = serverParsed.pathname.replace(/\/+$/, '');
-  const finalPathname = (basePath + '/' + epPath.replace(/^\/+/, '')).replace(/\/+/g, '/');
-  const finalSearch = epQuery ? `?${epQuery}` : '';
 
   let destFile = localPath;
   if (fs.existsSync(localPath) && fs.statSync(localPath).isDirectory()) {
@@ -203,6 +241,7 @@ export async function downloadRemoteFile({
     return new Promise<number>((resolve, reject) => {
       let isSettled = false;
       let attemptHandled = false;
+      let responseStarted = false;
       let writeStream: fs.WriteStream | null = null;
       let req: http.ClientRequest | null = null;
       let res: http.IncomingMessage | null = null;
@@ -271,51 +310,91 @@ export async function downloadRemoteFile({
       }
 
       req = client.request({
-        protocol: serverParsed.protocol,
-        hostname: serverParsed.hostname,
-        port: serverParsed.port || (isHttps ? 443 : 80),
-        path: `${finalPathname}${finalSearch}`,
+        protocol: targetUrl.protocol,
+        hostname: targetUrl.hostname,
+        port: targetUrl.port || (isHttps ? 443 : 80),
+        path: `${targetUrl.pathname}${targetUrl.search}`,
         method: 'GET',
         headers,
       }, (incomingRes) => {
+        responseStarted = true;
         res = incomingRes;
 
         // If 416 (Range Not Satisfiable), our .part file might be corrupted or complete. Reset and redownload.
         if (res.statusCode === 416) {
+          attemptHandled = true;
           safeCleanup();
           try { if (fs.existsSync(partFile)) fs.unlinkSync(partFile); } catch {}
           if (allowResume) {
-            attemptHandled = true;
             return executeDownload(false).then(resolve, reject);
           }
-          attemptHandled = true;
           isSettled = true;
           reject(new Error('Download failed: 416 Range Not Satisfiable'));
           return;
         }
 
         if (res.statusCode && res.statusCode >= 400) {
-          let data = '';
-          res.on('data', (chunk) => { data += chunk; });
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk) => {
+            if (!isSettled && !attemptHandled) {
+              chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+            }
+          });
+          res.on('close', () => {
+            if (isSettled || attemptHandled) return;
+            if (!res?.complete) {
+              const statusCode = res?.statusCode || 0;
+              if (statusCode >= 500 || statusCode === 429) {
+                handleRetryOrReject(new Error(`HTTP ${statusCode} error response closed prematurely by server`));
+              } else {
+                attemptHandled = true;
+                isSettled = true;
+                safeCleanup();
+                reject(new Error(`Download failed: HTTP ${statusCode} (error response closed prematurely)`));
+              }
+            }
+          });
           res.on('end', () => {
+            if (isSettled || attemptHandled) return;
+            const statusCode = res?.statusCode || 0;
+            if (!res?.complete) {
+              if (statusCode >= 500 || statusCode === 429) {
+                handleRetryOrReject(new Error(`HTTP ${statusCode} error response ended prematurely by server`));
+              } else {
+                attemptHandled = true;
+                isSettled = true;
+                safeCleanup();
+                reject(new Error(`Download failed: HTTP ${statusCode} (error response ended prematurely)`));
+              }
+              return;
+            }
+            const data = Buffer.concat(chunks).toString('utf-8');
             let json: any = null;
             try { json = JSON.parse(data); } catch { json = { raw: data }; }
-            const errorMsg = json?.error || `HTTP ${res?.statusCode}`;
+            const errorMsg = json?.error || `HTTP ${statusCode}`;
 
             // Transient server errors (500, 502, 503, 504) or rate limit (429) may be temporary
-            if ((res?.statusCode && res.statusCode >= 500) || res?.statusCode === 429) {
+            if (statusCode >= 500 || statusCode === 429) {
               handleRetryOrReject(new Error(errorMsg));
               return;
             }
 
-            if (isSettled || attemptHandled) return;
             attemptHandled = true;
             isSettled = true;
             safeCleanup();
             reject(new Error(`Download failed: ${errorMsg}`));
           });
           res.on('error', (err) => {
-            handleRetryOrReject(err);
+            if (isSettled || attemptHandled) return;
+            const statusCode = res?.statusCode || 0;
+            if (statusCode >= 500 || statusCode === 429) {
+              handleRetryOrReject(err);
+            } else {
+              attemptHandled = true;
+              isSettled = true;
+              safeCleanup();
+              reject(new Error(`Download failed: HTTP ${statusCode} (${err.message})`));
+            }
           });
           return;
         }
@@ -339,9 +418,6 @@ export async function downloadRemoteFile({
         }
 
         writeStream = fs.createWriteStream(partFile, { flags: writeFlags });
-        writeStream.on('error', (err) => {
-          handleRetryOrReject(err);
-        });
 
         res.pipe(writeStream);
 
@@ -350,7 +426,7 @@ export async function downloadRemoteFile({
         });
 
         res.on('close', () => {
-          if (!res?.complete && !isSettled) {
+          if (!res?.complete && !isSettled && !attemptHandled) {
             handleRetryOrReject(new Error('Connection closed prematurely by server'));
           }
         });
@@ -403,8 +479,18 @@ export async function downloadRemoteFile({
         });
       });
 
+      req.setTimeout(60000, () => {
+        handleRetryOrReject(new Error('Download socket inactivity timeout (60s)'));
+      });
+
       req.on('error', (err) => {
         handleRetryOrReject(err);
+      });
+
+      req.on('close', () => {
+        if (!responseStarted && !isSettled && !attemptHandled) {
+          handleRetryOrReject(new Error('Download connection closed prematurely before response'));
+        }
       });
 
       req.end();
